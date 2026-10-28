@@ -13,7 +13,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // TestTeamMessageIsRegisteredAndRequiresAWorkItem 钉住工具壳：team_message 与
@@ -80,9 +80,9 @@ func TestTeamMessageTimeoutReturnsJobHandleWithoutCancellingChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	plan.Milestones[0].Items = []store.TeamworkWorkItem{{
+	plan.Milestones[0].Items = []storeteamwork.WorkItem{{
 		ID: "wi-chat", Milestone: "m-a", Role: "exec", Name: "对话",
-		Status: store.TeamworkItemReview, SessionID: "sess-wi-chat",
+		Status: storeteamwork.ItemReview, SessionID: "sess-wi-chat",
 	}}
 	if err := st.WritePlan(ctx, coordinator.Key(), plan, 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)

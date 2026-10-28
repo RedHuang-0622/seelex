@@ -22,8 +22,19 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
+
+// SessionContextPort is the consumer-owned goal-stack persistence surface.
+type SessionContextPort interface {
+	Load(ctx context.Context) error
+	GoalStackSnapshot() []storecontext.GoalFrame
+	ReplaceGoalStack(frames []storecontext.GoalFrame) error
+	AppendGoalAudit(entry storecontext.GoalAuditEntry) error
+	GoalAuditSnapshot() []storecontext.GoalAuditEntry
+}
 
 // ContextStateStore 实现 Store：把 goal.Controller 栈投影到会话级
 // SessionContextStore 的 GoalStack（第五栈）。
@@ -34,15 +45,15 @@ import (
 // 关闭"由 reportBoardWriteFailure 承接），未装配存档面（BoardsFor 返回 false）
 // 时全部降级为"没有存档"，不报错、不阻断。
 type ContextStateStore struct {
-	session *store.SessionContextStore
+	session SessionContextPort
 	// boards 是看板存档取用面（可选装配，**绑定会话**）；nil = 该域没有存档面。
-	boards store.SessionBoards
+	boards storeboard.SessionBoardStore
 }
 
 // NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回
 // ErrStoreUnavailable（未装配会话上下文存储的降级路径）；boards 可选（缺省 =
 // 没有看板存档面，写侧全部降级），也可事后用 BindBoards 注入。
-func NewContextStateStore(session *store.SessionContextStore, boards ...store.SessionBoards) *ContextStateStore {
+func NewContextStateStore(session SessionContextPort, boards ...storeboard.SessionBoardStore) *ContextStateStore {
 	st := &ContextStateStore{session: session}
 	if len(boards) > 0 {
 		st.boards = boards[0]
@@ -52,7 +63,7 @@ func NewContextStateStore(session *store.SessionContextStore, boards ...store.Se
 
 // BindBoards 注入会话看板存档取用面（store.Router.BoardsForSession 的产物）。
 // 未注入 → 写侧不写存档、读侧按"没有存档"降级。
-func (s *ContextStateStore) BindBoards(boards store.SessionBoards) {
+func (s *ContextStateStore) BindBoards(boards storeboard.SessionBoardStore) {
 	if s == nil {
 		return
 	}
@@ -60,7 +71,7 @@ func (s *ContextStateStore) BindBoards(boards store.SessionBoards) {
 }
 
 // boardRepository 返回看板存档取用面（**绑定会话**的面）；未装配返回 false。
-func (s *ContextStateStore) boardRepository() (store.SessionBoards, bool) {
+func (s *ContextStateStore) boardRepository() (storeboard.SessionBoardStore, bool) {
 	if s == nil || s.boards == nil {
 		return nil, false
 	}
@@ -68,10 +79,10 @@ func (s *ContextStateStore) boardRepository() (store.SessionBoards, bool) {
 }
 
 // ReadGoalBoard reads the bound session's persisted goal-board projection.
-func (s *ContextStateStore) ReadGoalBoard(ctx context.Context) (store.GoalBoardMeta, error) {
+func (s *ContextStateStore) ReadGoalBoard(ctx context.Context) (dto.GoalBoardMeta, error) {
 	boards, ok := s.boardRepository()
 	if !ok {
-		return store.GoalBoardMeta{}, ErrStoreUnavailable
+		return dto.GoalBoardMeta{}, ErrStoreUnavailable
 	}
 	return boards.ReadGoalBoard(ctx)
 }
@@ -108,16 +119,16 @@ func (s *ContextStateStore) Save(ctx context.Context, records []*GoalRecord) err
 
 // goalFramesFromRecords 把 goal 域记录投影为 store 第五栈帧
 // （深拷贝切片/映射；EnteredAt 由 CreatedAt 推导，fork 时间截断可用）。
-func goalFramesFromRecords(records []*GoalRecord) []store.GoalFrame {
+func goalFramesFromRecords(records []*GoalRecord) []storecontext.GoalFrame {
 	if len(records) == 0 {
 		return nil
 	}
-	out := make([]store.GoalFrame, 0, len(records))
+	out := make([]storecontext.GoalFrame, 0, len(records))
 	for _, record := range records {
 		if record == nil {
 			continue
 		}
-		frame := store.GoalFrame{
+		frame := storecontext.GoalFrame{
 			GoalID:     record.ID,
 			Title:      record.Title,
 			Statement:  record.Statement,
@@ -128,13 +139,13 @@ func goalFramesFromRecords(records []*GoalRecord) []store.GoalFrame {
 			CreatedAt:  record.CreatedAt,
 			UpdatedAt:  record.UpdatedAt,
 			FinishedAt: record.FinishedAt,
-			Budget: store.GoalBudget{
+			Budget: storecontext.GoalBudget{
 				MaxLoops:  record.Budget.MaxLoops,
 				MaxTokens: record.Budget.MaxTokens,
 			},
 		}
 		for _, item := range record.Progress {
-			frame.Progress = append(frame.Progress, store.GoalProgress{
+			frame.Progress = append(frame.Progress, storecontext.GoalProgress{
 				At: item.At, Kind: string(item.Kind), Content: item.Content,
 			})
 		}
@@ -155,7 +166,7 @@ func goalFramesFromRecords(records []*GoalRecord) []store.GoalFrame {
 // recordsFromGoalFrames 把 store 第五栈帧还原为 goal 域记录
 // （Reload 输入；Status 非法时保留原字符串，由 Controller.Reload 的
 // 位置语义修正 active/paused）。
-func recordsFromGoalFrames(frames []store.GoalFrame) []*GoalRecord {
+func recordsFromGoalFrames(frames []storecontext.GoalFrame) []*GoalRecord {
 	if len(frames) == 0 {
 		return nil
 	}

@@ -5,10 +5,9 @@ package team
 
 import (
 	"errors"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestRejectUnassembledPluginsSkipsAssembledNames：已装插件不问（判定只发生在"确实未定义"时）。
@@ -22,7 +21,7 @@ func TestRejectUnassembledPluginsSkipsAssembledNames(t *testing.T) {
 			return errors.New("不该问已装插件")
 		},
 	}
-	if err := RejectUnassembledPlugins([]store.TeamworkMember{{Role: "exec", Plugins: []string{"cad"}}}, deps); err != nil {
+	if err := RejectUnassembledPlugins([]storeteamwork.Member{{Role: "exec", Plugins: []string{"cad"}}}, deps); err != nil {
 		t.Fatalf("已装插件应当放行：%v", err)
 	}
 	if asked != 0 {
@@ -40,7 +39,7 @@ func TestRejectUnassembledPluginsPointsAtTheReason(t *testing.T) {
 			return errors.New("插件 " + name + " 在精选目录（pending）里，尚未落盘")
 		},
 	}
-	err := RejectUnassembledPlugins([]store.TeamworkMember{{Role: "exec", Plugins: []string{"docs"}}}, deps)
+	err := RejectUnassembledPlugins([]storeteamwork.Member{{Role: "exec", Plugins: []string{"docs"}}}, deps)
 	if err == nil || !strings.Contains(err.Error(), "成员 \"exec\" 的插件装配被拒绝") ||
 		!strings.Contains(err.Error(), "精选目录（pending）") {
 		t.Fatalf("必须点名成员与来源：%v", err)
@@ -59,11 +58,11 @@ func TestRejectUnassembledPluginsLeavesSyntaxErrorsToTheOtherRule(t *testing.T) 
 			return errors.New("不该问语法非法的成员")
 		},
 	}
-	over := []store.TeamworkMember{{Role: "exec", Plugins: []string{"a", "b", "c"}}}
+	over := []storeteamwork.Member{{Role: "exec", Plugins: []string{"a", "b", "c"}}}
 	if err := RejectUnassembledPlugins(over, deps); err != nil {
 		t.Fatalf("超限成员应当跳过（留给语法层说）：%v", err)
 	}
-	duplicated := []store.TeamworkMember{{Role: "exec", Plugins: []string{"a", " a "}}}
+	duplicated := []storeteamwork.Member{{Role: "exec", Plugins: []string{"a", " a "}}}
 	if err := RejectUnassembledPlugins(duplicated, deps); err != nil {
 		t.Fatalf("重复成员应当跳过（留给语法层说）：%v", err)
 	}
@@ -80,7 +79,7 @@ func TestRejectUnassembledPluginsWithoutReasonIsNoOp(t *testing.T) {
 		Limit:   3,
 		Defined: func(string) bool { asked++; return false },
 	}
-	members := []store.TeamworkMember{{Role: "exec", Plugins: []string{"unknown"}}}
+	members := []storeteamwork.Member{{Role: "exec", Plugins: []string{"unknown"}}}
 	if err := RejectUnassembledPlugins(members, deps); err != nil {
 		t.Fatalf("没有判决面应当空操作：%v", err)
 	}
@@ -97,7 +96,7 @@ func TestRejectUnassembledPluginsReturnsNilReasonWhenNobodyKnows(t *testing.T) {
 		Defined:           func(string) bool { return false },
 		UnassembledReason: func(string) error { return nil },
 	}
-	if err := RejectUnassembledPlugins([]store.TeamworkMember{{Role: "exec", Plugins: []string{"mystery"}}}, deps); err != nil {
+	if err := RejectUnassembledPlugins([]storeteamwork.Member{{Role: "exec", Plugins: []string{"mystery"}}}, deps); err != nil {
 		t.Fatalf("判据函数说“不归我判”时应当放行：%v", err)
 	}
 }

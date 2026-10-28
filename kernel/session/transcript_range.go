@@ -8,14 +8,13 @@ import (
 	"fmt"
 
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // transcriptRangePort 是事件区间读的可选能力面（生产实现：wiring/adapters
 // SessionPort.LoadEventRangeWorkspace；窄接口避免把 fork 的整组能力塞进冷读
 // 契约——测试桩只需实现这一个方法）。
 type transcriptRangePort interface {
-	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)
+	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
 }
 
 // LoadTranscriptRange 按 Seq 区间（含端点）读回会话事件日志并转换为
@@ -34,37 +33,7 @@ func (c *Coordinator) LoadTranscriptRange(sessionID string, fromSeq, toSeq uint6
 	return modelTranscriptEventsFromStore(events), nil
 }
 
-// modelTranscriptEventsFromStore 把存储层事件转换为应用层 transcript 事件
-// （与 wiring/adapters 落盘转换互逆；字段一一对应）。
-func modelTranscriptEventsFromStore(events []store.Event) []model.TranscriptEvent {
-	adapted := make([]model.TranscriptEvent, 0, len(events))
-	for _, event := range events {
-		calls := make([]model.TranscriptToolCall, 0, len(event.ToolCalls))
-		for _, call := range event.ToolCalls {
-			calls = append(calls, model.TranscriptToolCall{
-				ID: call.ID, Name: call.Name, Arguments: call.Arguments,
-			})
-		}
-		adapted = append(adapted, model.TranscriptEvent{
-			Seq:              event.Seq,
-			TaskID:           event.TaskID,
-			MessageID:        event.MessageID,
-			Kind:             event.Kind,
-			Role:             event.Role,
-			ReasoningContent: event.ReasoningContent,
-			Content:          event.Content,
-			ToolCallID:       event.ToolCallID,
-			Name:             event.Name,
-			ToolCalls:        calls,
-			ResultRef:        event.ResultRef,
-			TokenCount:       event.TokenCount,
-			WireMaterial:     event.WireMaterial,
-			CreatedAt:        event.CreatedAt,
-			RoleName:         event.RoleName,
-			RoleSessionID:    event.RoleSessionID,
-			RoundID:          event.RoundID,
-			UnitSeq:          event.UnitSeq,
-		})
-	}
-	return adapted
+// modelTranscriptEventsFromStore 保持同一 protocol 身份并返回独立切片。
+func modelTranscriptEventsFromStore(events []model.TranscriptEvent) []model.TranscriptEvent {
+	return append([]model.TranscriptEvent(nil), events...)
 }

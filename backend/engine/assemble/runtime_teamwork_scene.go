@@ -17,7 +17,7 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // teamSceneEntry 是域包 `SceneEntry` 的**同身份别名**（既有调用点与用例零改动）。
@@ -37,7 +37,7 @@ func (r *Runtime) teamSceneIndex(sessionID string) []teamSceneEntry {
 	plan, err := backend.Store.ReadPlan(ctx, key)
 	if err != nil {
 		// 计划读不出来就当它为空（只认账本），与迁移前的容错一致。
-		plan = store.TeamworkPlan{}
+		plan = storeteamwork.Plan{}
 	}
 	bindings, err := backend.Store.ReadBindings(ctx, key)
 	if err != nil {

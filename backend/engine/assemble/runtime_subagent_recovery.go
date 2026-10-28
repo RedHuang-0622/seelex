@@ -10,6 +10,7 @@ import (
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // 子代理会话记录的生命周期（用户约定，2026-08-24）：
@@ -30,13 +31,13 @@ import (
 // 运行期落盘 + 结束时结论回传主会话 + 记录删除。幂等。
 //
 // 写侧装配的是**责任链**（末端 = 这个存储、链上第一环 = 子代理身份）：teammate 那一层
-// 在同一条链上再加一环，因此不必另立第二条写路径（见 store.NodeSessionRecordWriter）。
-func (r *Runtime) AttachSubSessionStore(st *store.NodeSessionStore) {
+// 在同一条链上再加一环，因此不必另立第二条写路径（见 storeworkunit.RecordWriter）。
+func (r *Runtime) AttachSubSessionStore(st *storeworkunit.SessionStore) {
 	if r == nil || r.subagentSessions == nil || st == nil {
 		return
 	}
 	r.nodeSessionStore = st
-	r.unitRecordWriter = store.NewNodeSessionRecordWriter(st).With(subagentsession.SubagentUnitRecordLink)
+	r.unitRecordWriter = storeworkunit.NewWriter(st).With(subagentsession.SubagentUnitRecordLink)
 	r.subagentSessions.Configure(r.unitRecordWriter, r.MainSessionID, func() string {
 		return r.sessionProjectIDFor(r.MainSessionID())
 	}, r.persistSubagentConclusion)
@@ -57,7 +58,7 @@ func (r *Runtime) sessionProjectIDFor(sessionID string) string {
 // persistSubagentConclusion 把子代理最终结论写入主会话事件库
 // （"结论跟随 mainagent"）：事件携带 agent.runtime session_id 定位，
 // 与 A/B 类事实同一 store 事件库；best-effort。
-func (r *Runtime) persistSubagentConclusion(mainSessionID string, record store.NodeSessionRecord) {
+func (r *Runtime) persistSubagentConclusion(mainSessionID string, record storeworkunit.Record) {
 	if r == nil || mainSessionID == "" || record.NodeID == "" {
 		return
 	}
@@ -94,7 +95,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 		return nil
 	}
 	projectID := r.sessionProjectIDFor(sessionID)
-	records := []store.NodeSessionRecord{}
+	records := []storeworkunit.Record{}
 	if r.nodeSessionStore != nil {
 		var err error
 		records, err = r.nodeSessionStore.List(projectID, sessionID)
@@ -141,7 +142,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 // 表达，恢复不得把它覆盖成中断。
 //
 // 未装配子代理会话注册表时返回 true（保持既有语义：没有内存判据时按记录恢复）。
-func (r *Runtime) recordBelongsToCurrentMain(record store.NodeSessionRecord) bool {
+func (r *Runtime) recordBelongsToCurrentMain(record storeworkunit.Record) bool {
 	if r == nil || r.subagentSessions == nil {
 		return true
 	}
@@ -150,7 +151,7 @@ func (r *Runtime) recordBelongsToCurrentMain(record store.NodeSessionRecord) boo
 }
 
 // loadSubagentConclusions 从主会话事件库读取子代理最终结论事件。
-func loadSubagentConclusions(ctx context.Context, router *store.Router, projectID, sessionID string) ([]store.NodeSessionRecord, error) {
+func loadSubagentConclusions(ctx context.Context, router *store.Router, projectID, sessionID string) ([]storeworkunit.Record, error) {
 	entries, err := router.ReadFrameworkEventsWorkspace(ctx, projectID, sessionID)
 	if err != nil {
 		return nil, err

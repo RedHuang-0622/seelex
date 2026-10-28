@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // TestClosedMilestoneRejectsWorkAdjustmentAndDispatch 钉住已收口里程碑的唯一闸门：
@@ -24,10 +25,10 @@ func TestClosedMilestoneRejectsWorkAdjustmentAndDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	plan.Milestones[0].Status = store.TeamworkMilestoneDone
-	plan.Milestones[0].Items = []store.TeamworkWorkItem{{
+	plan.Milestones[0].Status = storeteamwork.MilestoneDone
+	plan.Milestones[0].Items = []storeteamwork.WorkItem{{
 		ID: "wi-closed", Milestone: "m-build", Role: "exec", Name: "已收口里的遗留项",
-		Status: store.TeamworkItemPending,
+		Status: storeteamwork.ItemPending,
 	}}
 	if err := fixture.st.WritePlan(ctx, fixture.coordinator.Key(), plan, 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
@@ -58,7 +59,7 @@ func TestAcceptReleasesOnlyTheWorkItemWorktree(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-req", "通过"); err != nil {
 		t.Fatalf("AcceptItem: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestAcceptCleanupFailureIsIdempotentlyRetryable(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	sessionID := itemState(t, fixture, "wi-req").SessionID
 	fixture.spaces.setReleaseError(errors.New("worktree busy"))
 
@@ -107,7 +108,7 @@ func TestAcceptCleanupFailureIsIdempotentlyRetryable(t *testing.T) {
 	if !IsAcceptedWithCleanupPending(err) {
 		t.Fatalf("first accept must expose accepted-with-cleanup-pending, got %v", err)
 	}
-	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemDone {
+	if item := itemState(t, fixture, "wi-req"); storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemDone {
 		t.Fatalf("done must be persisted before cleanup, got %+v", item)
 	}
 	for _, call := range fixture.calls.snapshot() {
@@ -132,7 +133,7 @@ type recordingJobs struct {
 	mu            sync.Mutex
 	calls         *callLog
 	store         *memoryPlanStore
-	key           store.Key
+	key           dto.SessionKey
 	startSnapshot func()
 }
 
@@ -166,17 +167,17 @@ type orderedPlanStore struct {
 	calls *callLog
 }
 
-func (s orderedPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error {
+func (s orderedPlanStore) WritePlan(ctx context.Context, key dto.SessionKey, plan storeteamwork.Plan, maxTeammates int) error {
 	s.calls.record("plan")
 	return s.memoryPlanStore.WritePlan(ctx, key, plan, maxTeammates)
 }
 
-func (s orderedPlanStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error {
+func (s orderedPlanStore) AppendBinding(ctx context.Context, key dto.SessionKey, binding storeteamwork.Binding) error {
 	s.calls.record("binding")
 	return s.memoryPlanStore.AppendBinding(ctx, key, binding)
 }
 
-func (s orderedPlanStore) AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error {
+func (s orderedPlanStore) AppendEvent(ctx context.Context, key dto.SessionKey, event storeteamwork.Event) error {
 	s.calls.record("audit:" + event.Kind)
 	return s.memoryPlanStore.AppendEvent(ctx, key, event)
 }
@@ -198,7 +199,7 @@ func TestDispatchUsesDeclarePersistThenStart(t *testing.T) {
 		t.Fatalf("jobs.New: %v", err)
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
-	key := store.Key{ProjectID: "p", SessionID: "s"}
+	key := dto.SessionKey{ProjectID: "p", SessionID: "s"}
 	ordered := orderedPlanStore{memoryPlanStore: memory, calls: calls}
 	recorder := &recordingJobs{Manager: manager, calls: calls, store: memory, key: key}
 	spaces := &fakeSpaces{}
@@ -229,7 +230,7 @@ func TestDispatchUsesDeclarePersistThenStart(t *testing.T) {
 			return
 		}
 		_, item, ok := findItem(&plan, "wi-order")
-		if !ok || store.TeamworkWorkItemStatusOrPending(*item) != store.TeamworkItemRunning {
+		if !ok || storeteamwork.WorkItemStatusOrPending(*item) != storeteamwork.ItemRunning {
 			t.Errorf("Start 时计划尚未写 running: %+v", item)
 		}
 		bindings, readErr := memory.ReadBindings(ctx, key)
@@ -243,7 +244,7 @@ func TestDispatchUsesDeclarePersistThenStart(t *testing.T) {
 		}
 		dispatched := false
 		for _, event := range events {
-			if event.Kind == store.TeamworkEventDispatch && event.WorkItem == "wi-order" {
+			if event.Kind == storeteamwork.EventDispatch && event.WorkItem == "wi-order" {
 				dispatched = true
 			}
 		}
@@ -276,7 +277,7 @@ func TestDispatchWorktreeFailureStopsBeforeDeclare(t *testing.T) {
 		!strings.Contains(err.Error(), "worktree unavailable") {
 		t.Fatalf("worktree failure must be returned, got %v", err)
 	}
-	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemPending {
+	if item := itemState(t, fixture, "wi-req"); storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemPending {
 		t.Fatalf("worktree failure must leave the WorkItem pending, got %+v", item)
 	}
 	if records := fixture.jobs.Snapshot(jobs.Scope{Session: fixture.coordinator.Key().SessionID}); len(records) != 0 {
@@ -301,11 +302,11 @@ type failingPlanStore struct {
 	failRunning bool
 }
 
-func (s *failingPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error {
+func (s *failingPlanStore) WritePlan(ctx context.Context, key dto.SessionKey, plan storeteamwork.Plan, maxTeammates int) error {
 	if s.failRunning {
 		for _, milestone := range plan.Milestones {
 			for _, item := range milestone.Items {
-				if store.TeamworkWorkItemStatusOrPending(item) == store.TeamworkItemRunning {
+				if storeteamwork.WorkItemStatusOrPending(item) == storeteamwork.ItemRunning {
 					return errors.New("injected running-plan write failure")
 				}
 			}
@@ -331,7 +332,7 @@ func TestDispatchPersistFailureDoesNotStartExecutor(t *testing.T) {
 		t.Fatalf("jobs.New: %v", err)
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
-	key := store.Key{ProjectID: "p", SessionID: "s"}
+	key := dto.SessionKey{ProjectID: "p", SessionID: "s"}
 	coordinator, err := New(Options{
 		Key: key, Store: storeWithFailure, Jobs: manager, Workers: runner,
 		Worktrees: fakeWorktrees{log: &callLog{}}, Sessions: fakeSessions{log: &callLog{}},

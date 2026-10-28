@@ -21,7 +21,7 @@ func TestDefaultProjectSessionPersistDoesNotFollowActiveScope(t *testing.T) {
 			first := Commit{}
 			if backend == storageLayoutName {
 				// v8 JSON 布局（S11）：正文以事件行落库（provider 整段缓存退役）。
-				first = Commit{Events: []Event{{Role: "user", Content: "first-turn-0", MessageID: "b-first"}}}
+				first = Commit{Events: []Event{{Seq: 1, Role: "user", Content: "first-turn-0", MessageID: "b-first"}}}
 			} else {
 				first = Commit{ProviderHistory: messages(1, "first-turn")}
 			}
@@ -34,8 +34,8 @@ func TestDefaultProjectSessionPersistDoesNotFollowActiveScope(t *testing.T) {
 			second := Commit{}
 			if backend == storageLayoutName {
 				second = Commit{Events: []Event{
-					{Role: "user", Content: "second-turn-0", MessageID: "b-second-0"},
-					{Role: "user", Content: "second-turn-1", MessageID: "b-second-1"},
+					{Seq: 2, Role: "user", Content: "second-turn-0", MessageID: "b-second-0"},
+					{Seq: 3, Role: "user", Content: "second-turn-1", MessageID: "b-second-1"},
 				}}
 			} else {
 				second = Commit{ProviderHistory: messages(2, "second-turn")}

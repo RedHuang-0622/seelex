@@ -99,6 +99,7 @@ type CompactFrame struct {
 	EventTo              uint64        `json:"event_to,omitempty"`
 	MessageFrom          string        `json:"message_from,omitempty"`
 	MessageTo            string        `json:"message_to,omitempty"`
+	MessageToSeq         uint64        `json:"message_to_seq,omitempty"`
 	EventRevision        Revision      `json:"event_revision"`
 	ConversationRevision Revision      `json:"conversation_revision"`
 	Summary              string        `json:"summary"`

@@ -1,4 +1,4 @@
-package store
+package project
 
 // project_known.go — 项目摘要渲染件（`project-known.md`）的**确定性渲染**与项目级写/读面。
 //
@@ -34,6 +34,7 @@ package store
 import (
 	"bytes"
 	"fmt"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 	"github.com/RedHuang-0622/seelex/store/internal/textsanitize"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
@@ -47,7 +48,7 @@ import (
 // 它与 ProjectBoardWorkFile / ProjectBoardTeamworkFile **不同层**：那两个在会话级
 // 投影目录（`session-<hash>/`）下、按行追加；本文件在**项目级**目录下、整份原子发布
 // （渲染件没有追加语义）。故它不进 projectBoardFile 的白名单（那三个是 jsonl 行文件）。
-const ProjectBoardKnownFile = "project-known.md"
+const KnownFile = "project-known.md"
 
 // projectKnownHeader 是渲染件固定首行（无 record 依赖 ⇒ 字节稳定）。
 const projectKnownHeader = "# 项目摘要（Project Known）\n\n"
@@ -109,33 +110,36 @@ func ProjectKnownMarkdown(record ProjectRecord) []byte {
 // 目录派生复用 `ProjectBoardDir`——**不另写一份目录派生**（契约 §8）：摘要件与
 // 两块投影同一个目录、同一条生命周期（可删、可重建、不进上下文）。
 func projectKnownPath(projectRoot string) string {
-	return filepath.Join(ProjectBoardDir(projectRoot), ProjectBoardKnownFile)
+	return filepath.Join(storeboard.Dir(projectRoot), KnownFile)
 }
 
-// writeProjectKnown 落一份渲染件（空内容不落盘；同路径独立锁 + 原子发布）。
-func writeProjectKnown(projectRoot string, data []byte) error {
-	if err := validateProjectRoot(projectRoot); err != nil {
+// KnownPath 返回项目摘要渲染件的物理路径。
+func KnownPath(projectRoot string) string { return projectKnownPath(projectRoot) }
+
+// WriteKnown 落一份渲染件（空内容不落盘；同路径独立锁 + 原子发布）。
+func WriteKnown(projectRoot string, data []byte) error {
+	if err := storeboard.ValidateProjectRoot(projectRoot); err != nil {
 		return err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return fmt.Errorf("session storage: %s 内容为空，拒绝落盘（空文件不是一份渲染件）", ProjectBoardKnownFile)
+		return fmt.Errorf("session storage: %s 内容为空，拒绝落盘（空文件不是一份渲染件）", KnownFile)
 	}
 	path := projectKnownPath(projectRoot)
-	lock := projectBoardLock(path)
+	lock := storeboard.Mutex(path)
 	lock.Lock()
 	defer lock.Unlock()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	if err := storeroot.WriteAtomic(path, data, 0o600); err != nil {
-		return fmt.Errorf("session storage: 发布 %s: %w", ProjectBoardKnownFile, err)
+		return fmt.Errorf("session storage: 发布 %s: %w", KnownFile, err)
 	}
 	return nil
 }
 
-// readProjectKnown 读回渲染件（不存在 → `fs.ErrNotExist`；空文件 → 显式报错）。
-func readProjectKnown(projectRoot string) ([]byte, error) {
-	if err := validateProjectRoot(projectRoot); err != nil {
+// ReadKnown 读回渲染件（不存在 → `fs.ErrNotExist`；空文件 → 显式报错）。
+func ReadKnown(projectRoot string) ([]byte, error) {
+	if err := storeboard.ValidateProjectRoot(projectRoot); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(projectKnownPath(projectRoot))
@@ -143,29 +147,7 @@ func readProjectKnown(projectRoot string) ([]byte, error) {
 		return nil, err // *fs.PathError，errors.Is(err, fs.ErrNotExist) 口径不变
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, fmt.Errorf("session storage: %s 内容为空（空文件不是一份渲染件）", ProjectBoardKnownFile)
+		return nil, fmt.Errorf("session storage: %s 内容为空（空文件不是一份渲染件）", KnownFile)
 	}
 	return data, nil
-}
-
-// WriteProjectKnown 原子写一份项目摘要渲染件（projectRoot = 项目根目录）。
-//
-// 空根 / 空内容**显式报错**，不产空文件；落点是 `<项目根>/.seelex/board/`（与投影
-// 两块同一个目录：可提交件放一起，外部 agent 一眼看全）。
-func (router *Router) WriteProjectKnown(projectRoot string, data []byte) error {
-	if err := validateProjectRoot(projectRoot); err != nil {
-		return err
-	}
-	if len(bytes.TrimSpace(data)) == 0 {
-		return fmt.Errorf("session storage: %s 内容为空，拒绝落盘（空文件不是一份渲染件）", ProjectBoardKnownFile)
-	}
-	return writeProjectKnown(projectRoot, data)
-}
-
-// ReadProjectKnown 读回项目摘要渲染件；从未渲染过 ⇒ `fs.ErrNotExist`；空根显式报错。
-func (router *Router) ReadProjectKnown(projectRoot string) ([]byte, error) {
-	if err := validateProjectRoot(projectRoot); err != nil {
-		return nil, err
-	}
-	return readProjectKnown(projectRoot)
 }

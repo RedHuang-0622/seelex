@@ -14,14 +14,14 @@ package assemble
 
 import (
 	teamdomain "github.com/RedHuang-0622/seelex/backend/multiagent/team"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // rejectUnassembledMemberPlugins 逐成员判"未定义的插件名是什么"（判据在域包）。
 //
 // 未注入判决函数（桥上的 SetUnassembledReason 没被调用）时整个函数是空操作：那正是
 // "不带产品启动面"的用法，未定义名的口径仍是 ValidateMemberPlugins 那一句。
-func (r *Runtime) rejectUnassembledMemberPlugins(members []store.TeamworkMember) error {
+func (r *Runtime) rejectUnassembledMemberPlugins(members []storeteamwork.Member) error {
 	if r == nil || r.plugins == nil || !r.plugins.HasUnassembledReason() {
 		return nil
 	}

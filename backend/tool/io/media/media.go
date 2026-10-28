@@ -20,7 +20,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/io/imageattach"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 )
 
 // Host 是媒体域向宿主（装配器）要的两件只读事实。
@@ -28,8 +28,8 @@ import (
 // 刻意只留两格：媒体域不需要知道宿主是谁、也不需要宿主的任何写入口——它只把
 // 「会话存储路由」与「会话 → 项目」两件事问出来。宿主是 `*assemble.Runtime`。
 type Host interface {
-	// HistoryRouter 返回会话存储路由；未装配时返回 nil（调用方按"存储未装配"报错）。
-	HistoryRouter() *store.Router
+	WriteMediaWorkspace(context.Context, string, string, storeartifact.MediaItem) (storeartifact.MediaRef, error)
+	ReadMediaWorkspace(context.Context, string, string, string) (storeartifact.MediaRef, []byte, error)
 	// SessionProjectID 解析会话绑定的项目 id；未绑定返回 ""。
 	SessionProjectID(sessionID string) string
 }
@@ -81,11 +81,10 @@ func (m *SessionMedia) StoreMedia(ctx context.Context, asset bridgecomputer.Medi
 	if strings.TrimSpace(sessionID) == "" {
 		return bridgecomputer.StoredMedia{}, errors.New("computer: 缺少会话上下文，截图无法落盘")
 	}
-	router := m.historyRouter()
-	if router == nil {
+	if m == nil || m.host == nil {
 		return bridgecomputer.StoredMedia{}, errors.New("computer: 会话存储未装配，截图无法落盘")
 	}
-	ref, err := router.WriteMediaWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, store.MediaItem{
+	ref, err := m.host.WriteMediaWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, storeartifact.MediaItem{
 		Name:     asset.Name,
 		MimeType: asset.MimeType,
 		Kind:     asset.Kind,
@@ -137,11 +136,10 @@ func (m *SessionMedia) LoadMedia(ctx context.Context, ref string) (types.FilePar
 	if strings.TrimSpace(sessionID) == "" {
 		return types.FilePart{}, errors.New("computer: 缺少会话上下文，无法按 ref 读取媒体")
 	}
-	router := m.historyRouter()
-	if router == nil {
+	if m == nil || m.host == nil {
 		return types.FilePart{}, errors.New("computer: 会话存储未装配，无法按 ref 读取媒体")
 	}
-	item, data, err := router.ReadMediaWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, ref)
+	item, data, err := m.host.ReadMediaWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, ref)
 	if err != nil {
 		return types.FilePart{}, err
 	}
@@ -216,12 +214,4 @@ func (m *SessionMedia) Wrap(next agent.Completer, streamer agent.StreamCompleter
 		return wrapper, nil
 	}
 	return wrapper, wrapper
-}
-
-// historyRouter 是本包内部对 Host 的取值口：宿主未装配（nil）时返回 nil。
-func (m *SessionMedia) historyRouter() *store.Router {
-	if m == nil || m.host == nil {
-		return nil
-	}
-	return m.host.HistoryRouter()
 }

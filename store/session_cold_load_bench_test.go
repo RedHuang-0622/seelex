@@ -90,15 +90,15 @@ func sessionColdLoadBenchRow(index, rowBytes int) Event {
 
 // BenchmarkSessionColdLoad 测量冷恢复会穿过的主要存储读面：
 //
-//   - record_full：派生完整 SessionRecord（优化前的全量读）；
-//   - record_resume：从 compact 指针恢复可见后缀与总数；
+//   - message_full：读取完整 message 行；
+//   - message_resume：从 compact 指针读取可见后缀行；
 //   - history_total：只取总数（端口语义，但当前实现仍会构造全部 provider 消息）；
 //   - history_tail：总数探测 + 200 条尾窗；
 //   - transcript_tail：保留预算下的尾部事件窗口；
 //   - pending_tail：冷加载前的草稿尾部探测；
 //   - wire：compact 摘要 + 尾窗 + 最近 K 次尝试；
-//   - parallel_reads_legacy：优化前的 record/history/transcript 三路并行；
-//   - parallel_reads：优化后的 record/transcript 并行 + wire 装配。
+//   - parallel_reads_legacy：优化前的全量 message/history/transcript 三路并行；
+//   - parallel_reads：优化后的 compact 后缀 message/transcript 并行 + wire 装配。
 //
 // 运行示例：
 //
@@ -118,12 +118,20 @@ func BenchmarkSessionColdLoad(b *testing.B) {
 		name string
 		run  func(*sessionColdLoadBenchFixture) error
 	}{
-		{name: "record_full", run: func(fixture *sessionColdLoadBenchFixture) error {
-			_, err := fixture.repository.derivedRecordPayload(fixture.key)
+		{name: "message_full", run: func(fixture *sessionColdLoadBenchFixture) error {
+			_, err := fixture.repository.layout.readRows(fixture.key, 1, 0)
 			return err
 		}},
-		{name: "record_resume", run: func(fixture *sessionColdLoadBenchFixture) error {
-			_, _, err := fixture.repository.derivedResumeRecordPayload(fixture.key)
+		{name: "message_resume", run: func(fixture *sessionColdLoadBenchFixture) error {
+			head, err := fixture.repository.layout.readCompactHead(fixture.key)
+			if err != nil {
+				return err
+			}
+			fromSeq := uint64(1)
+			if head.LatestFrame != nil {
+				fromSeq = head.LatestFrame.MessageToSeq + 1
+			}
+			_, err = fixture.repository.layout.readRows(fixture.key, fromSeq, 0)
 			return err
 		}},
 		{name: "history_total", run: func(fixture *sessionColdLoadBenchFixture) error {
@@ -204,7 +212,7 @@ func benchmarkSessionColdLoadOperation(
 func runSessionColdLoadReads(fixture *sessionColdLoadBenchFixture, includeHistory bool) error {
 	var (
 		group         sync.WaitGroup
-		recordErr     error
+		messageErr    error
 		historyErr    error
 		transcriptErr error
 	)
@@ -212,10 +220,19 @@ func runSessionColdLoadReads(fixture *sessionColdLoadBenchFixture, includeHistor
 	go func() {
 		defer group.Done()
 		if includeHistory {
-			_, recordErr = fixture.repository.derivedRecordPayload(fixture.key)
+			_, messageErr = fixture.repository.layout.readRows(fixture.key, 1, 0)
 			return
 		}
-		_, _, recordErr = fixture.repository.derivedResumeRecordPayload(fixture.key)
+		head, err := fixture.repository.layout.readCompactHead(fixture.key)
+		if err != nil {
+			messageErr = err
+			return
+		}
+		fromSeq := uint64(1)
+		if head.LatestFrame != nil {
+			fromSeq = head.LatestFrame.MessageToSeq + 1
+		}
+		_, messageErr = fixture.repository.layout.readRows(fixture.key, fromSeq, 0)
 	}()
 	if includeHistory {
 		group.Add(1)
@@ -236,8 +253,8 @@ func runSessionColdLoadReads(fixture *sessionColdLoadBenchFixture, includeHistor
 		)
 	}()
 	group.Wait()
-	if recordErr != nil {
-		return fmt.Errorf("record: %w", recordErr)
+	if messageErr != nil {
+		return fmt.Errorf("message: %w", messageErr)
 	}
 	if historyErr != nil {
 		return fmt.Errorf("history: %w", historyErr)

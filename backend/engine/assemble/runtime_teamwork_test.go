@@ -11,77 +11,78 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 type memPlanStore struct {
 	mu       sync.Mutex
-	plans    map[store.Key]store.TeamworkPlan
-	events   map[store.Key][]store.TeamworkEvent
-	bindings map[store.Key][]store.TeamworkBinding
+	plans    map[dto.SessionKey]storeteamwork.Plan
+	events   map[dto.SessionKey][]storeteamwork.Event
+	bindings map[dto.SessionKey][]storeteamwork.Binding
 }
 
-func (m *memPlanStore) WritePlan(_ context.Context, key store.Key, plan store.TeamworkPlan, _ int) error {
+func (m *memPlanStore) WritePlan(_ context.Context, key dto.SessionKey, plan storeteamwork.Plan, _ int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.plans == nil {
-		m.plans = map[store.Key]store.TeamworkPlan{}
+		m.plans = map[dto.SessionKey]storeteamwork.Plan{}
 	}
 	m.plans[key] = plan
 	return nil
 }
 
-func (m *memPlanStore) ReadPlan(_ context.Context, key store.Key) (store.TeamworkPlan, error) {
+func (m *memPlanStore) ReadPlan(_ context.Context, key dto.SessionKey) (storeteamwork.Plan, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	plan, ok := m.plans[key]
 	if !ok {
-		return store.TeamworkPlan{}, context.Canceled // 任意错误：缺失即未写入
+		return storeteamwork.Plan{}, context.Canceled // 任意错误：缺失即未写入
 	}
 	return plan, nil
 }
 
-func (m *memPlanStore) AppendEvent(_ context.Context, key store.Key, event store.TeamworkEvent) error {
+func (m *memPlanStore) AppendEvent(_ context.Context, key dto.SessionKey, event storeteamwork.Event) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.events == nil {
-		m.events = map[store.Key][]store.TeamworkEvent{}
+		m.events = map[dto.SessionKey][]storeteamwork.Event{}
 	}
 	m.events[key] = append(m.events[key], event)
 	return nil
 }
 
-func (m *memPlanStore) ReadEvents(_ context.Context, key store.Key) ([]store.TeamworkEvent, error) {
+func (m *memPlanStore) ReadEvents(_ context.Context, key dto.SessionKey) ([]storeteamwork.Event, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]store.TeamworkEvent(nil), m.events[key]...), nil
+	return append([]storeteamwork.Event(nil), m.events[key]...), nil
 }
 
-func (m *memPlanStore) AppendBinding(_ context.Context, key store.Key, binding store.TeamworkBinding) error {
+func (m *memPlanStore) AppendBinding(_ context.Context, key dto.SessionKey, binding storeteamwork.Binding) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.bindings == nil {
-		m.bindings = map[store.Key][]store.TeamworkBinding{}
+		m.bindings = map[dto.SessionKey][]storeteamwork.Binding{}
 	}
 	m.bindings[key] = append(m.bindings[key], binding)
 	return nil
 }
 
-func (m *memPlanStore) ReadBindings(_ context.Context, key store.Key) ([]store.TeamworkBinding, error) {
+func (m *memPlanStore) ReadBindings(_ context.Context, key dto.SessionKey) ([]storeteamwork.Binding, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]store.TeamworkBinding(nil), m.bindings[key]...), nil
+	return append([]storeteamwork.Binding(nil), m.bindings[key]...), nil
 }
 
 func teamworkTestBackend(st *memPlanStore, sessionID string) TeamworkBackend {
 	return TeamworkBackend{
 		Store: st,
-		KeyFor: func(id string) (store.Key, bool) {
+		KeyFor: func(id string) (dto.SessionKey, bool) {
 			if id != sessionID {
-				return store.Key{}, false
+				return dto.SessionKey{}, false
 			}
-			return store.Key{ProjectID: "p-team", SessionID: sessionID}, true
+			return dto.SessionKey{ProjectID: "p-team", SessionID: sessionID}, true
 		},
 		MaxTeammates: 6,
 	}
@@ -123,7 +124,7 @@ func TestTeamworkPlanHandlerPersistsPlan(t *testing.T) {
 	if receipt == "" {
 		t.Fatal("team_plan 应返回受理回执")
 	}
-	plan, err := st.ReadPlan(context.Background(), store.Key{ProjectID: "p-team", SessionID: "s-team"})
+	plan, err := st.ReadPlan(context.Background(), dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"})
 	if err != nil {
 		t.Fatalf("计划未落持久面: %v", err)
 	}

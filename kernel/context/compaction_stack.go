@@ -21,13 +21,19 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	seelexctx "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
-	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
+
+// SessionContextPort is the consumer-owned context-stack persistence surface.
+type SessionContextPort interface {
+	PromptStackSnapshot() storecontext.PromptStackSnapshot
+	PushCompact(storecontext.CompactFrame) error
+}
 
 // CompactionStackDeps 是本域需要的宿主读数（全部为**取值**闭包：域不缓存、不持锁）。
 type CompactionStackDeps struct {
 	// Store 返回本次会话绑定的上下文存储（压缩栈的宿主；nil = 未绑定）。
-	Store func() *store.SessionContextStore
+	Store func() SessionContextPort
 	// DAG 返回压缩 DAG（生成帧的唯一实现）。
 	DAG func() *seelexctx.CompactionDAG
 	// Summarizer 返回前缀重放摘要器（nil = 开关关闭，这次注定落本地压缩）。
@@ -92,7 +98,7 @@ type CompactionFrameReceipt struct {
 // frameSummaryNote 从帧证据里读出降级原因（ref 前缀 `compact-local:` 的那条，由
 // seelectx 的 chapter2Node 写入）。没有这条证据 → 返回空串：不编原因，
 // 也不把"没有解释"说成"没有降级"。
-func frameSummaryNote(frame store.CompactFrame) string {
+func frameSummaryNote(frame storecontext.CompactFrame) string {
 	_, note := frameLocalDegrade(frame)
 	return note
 }
@@ -100,7 +106,7 @@ func frameSummaryNote(frame store.CompactFrame) string {
 // frameLocalDegrade 从帧证据里读出降级码与原因（ref `compact-local:<code>` 的
 // 那条，由 seelectx 的 chapter2Node 写入）。没有这条证据 → 两个返回值都为空：
 // replay 成功的帧不留降级证据（只记降级，不记正常）。
-func frameLocalDegrade(frame store.CompactFrame) (code, note string) {
+func frameLocalDegrade(frame storecontext.CompactFrame) (code, note string) {
 	for _, evidence := range frame.Evidence {
 		if suffix, ok := strings.CutPrefix(evidence.Ref, seelexctx.LocalCompactEvidenceRefPrefix); ok {
 			return suffix, strings.TrimSpace(evidence.Summary)
@@ -247,7 +253,7 @@ func (stack *CompactionStack) Push(
 			if archiveErr != nil {
 				return CompactionFrameReceipt{}, fmt.Errorf("compaction index: archive turns: %w", archiveErr)
 			}
-			frame.Evidence = append(frame.Evidence, store.EvidenceRef{
+			frame.Evidence = append(frame.Evidence, storecontext.EvidenceRef{
 				Ref:     ref,
 				Summary: "assembly-compacted turns original (read_compressed_turn)",
 			})

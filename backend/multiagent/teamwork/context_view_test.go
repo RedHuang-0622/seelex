@@ -13,8 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // stubMemberJobs 是读面端口替身：只实现"读"的三种方法（端口本来就只要这三种）。
@@ -40,16 +39,16 @@ func (s *stubMemberJobs) Peek(_ context.Context, handle jobs.Handle, _ jobs.Fetc
 	return s.bodies[handle], jobs.Record{Handle: handle}, nil
 }
 
-func contextPlanFixture() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func contextPlanFixture() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID: "team-1", Version: 2,
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "arch", RoleSessionID: "role-arch", ToolsPolicy: "readonly"},
 			{Role: "impl_ui", RoleSessionID: "role-ui", ToolsPolicy: "readwrite"},
 		},
-		Milestones: []store.TeamworkMilestone{{
+		Milestones: []storeteamwork.Milestone{{
 			ID: "m1",
-			Items: []store.TeamworkWorkItem{
+			Items: []storeteamwork.WorkItem{
 				{ID: "wi-1", Role: "arch", Name: "设计"},
 				{ID: "wi-2", Role: "impl_ui", Name: "实现"},
 			},
@@ -175,7 +174,7 @@ func TestContextViewIdleShapes(t *testing.T) {
 // TestContextViewClosureFlagAndRoles：闭板标记来自计划；roles 全空白 = 不过滤（全员）。
 func TestContextViewClosureFlagAndRoles(t *testing.T) {
 	plan := contextPlanFixture()
-	plan.State.State = store.TeamworkStateClosed
+	plan.State.State = storeteamwork.StateClosed
 	view := BuildContextView(context.Background(), plan, nil, &stubMemberJobs{}, nil, ContextOptions{Roles: []string{"  "}})
 	if !view.Closed {
 		t.Fatal("闭板标记必须从计划搬")

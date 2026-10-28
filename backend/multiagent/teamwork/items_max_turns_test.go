@@ -10,9 +10,8 @@ package teamwork
 
 import (
 	"context"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestDispatchCarriesPerMemberMaxTurns(t *testing.T) {
@@ -61,10 +60,10 @@ func TestDispatchCarriesPerMemberMaxTurns(t *testing.T) {
 
 // TestMaxTurnsForPrefersMemberDeclaration：抉择点本身（0 = 没声明，不是"零轮"）。
 func TestMaxTurnsForPrefersMemberDeclaration(t *testing.T) {
-	if got := maxTurnsFor(store.TeamworkMember{MaxTurns: 20}, 6); got != 20 {
+	if got := maxTurnsFor(storeteamwork.Member{MaxTurns: 20}, 6); got != 20 {
 		t.Fatalf("成员声明优先：got %d, want 20", got)
 	}
-	if got := maxTurnsFor(store.TeamworkMember{}, 6); got != 6 {
+	if got := maxTurnsFor(storeteamwork.Member{}, 6); got != 6 {
 		t.Fatalf("0 = 没声明 → 回退默认：got %d, want 6", got)
 	}
 }

@@ -29,7 +29,7 @@ import (
 	"github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
 	"net/http"
 	"net/http/httptest"
@@ -376,7 +376,7 @@ type teamworkSmoke struct {
 	// planStore / keyFor 是**取证面**：探针要能把"落盘的计划事实"与"看板投影"分开读，
 	// 否则"投影陈旧"会被误判成"尾插没落"（反过来也一样）。
 	planStore seeteamwork.PlanStore
-	keyFor    func(sessionID string) (store.Key, bool)
+	keyFor    func(sessionID string) (dto.SessionKey, bool)
 }
 
 // newTeamworkSmoke 装配真实链路：真实 store / 工作区 / 引擎端口 / application，
@@ -412,7 +412,7 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	// 生命周期消费者在 wiring.New 里就把信号口读走，晚注入 ⇒ 它读到 nil 通道 ⇒
 	// 「做完自动返回」静默消失（见 fullChainBackendInstaller 的注释）。
 	var planStoreForProbe seeteamwork.PlanStore
-	var keyForForProbe func(string) (store.Key, bool)
+	var keyForForProbe func(string) (dto.SessionKey, bool)
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, tempDir, 60*time.Second, true, limits,
 		func(st *boot.Store, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error {
 			repo := st.Teamwork
@@ -420,12 +420,12 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 				t.Fatal("真实 JSON 后端应提供 teamwork 读/写面")
 			}
 			boards := st.Boards
-			keyFor := func(sessionID string) (store.Key, bool) {
+			keyFor := func(sessionID string) (dto.SessionKey, bool) {
 				workspace, exists := workspaces.SessionWorkspace(sessionID)
 				if !exists || strings.TrimSpace(workspace.ID) == "" {
-					return store.Key{}, false
+					return dto.SessionKey{}, false
 				}
-				return store.Key{ProjectID: workspace.ID, SessionID: sessionID}, true
+				return dto.SessionKey{ProjectID: workspace.ID, SessionID: sessionID}, true
 			}
 			planStore := seeteamwork.NewPlanStore(repo)
 			planStoreForProbe, keyForForProbe = planStore, keyFor
@@ -445,17 +445,17 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 }
 
 // persistedItem 读**落盘**的计划里这一项（取证用：与看板投影分开读）。
-func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (store.TeamworkWorkItem, bool) {
+func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (storeteamwork.WorkItem, bool) {
 	if s.planStore == nil || s.keyFor == nil {
-		return store.TeamworkWorkItem{}, false
+		return storeteamwork.WorkItem{}, false
 	}
 	key, ok := s.keyFor(s.components.Session.Snapshot.Snapshot().Session.ID)
 	if !ok {
-		return store.TeamworkWorkItem{}, false
+		return storeteamwork.WorkItem{}, false
 	}
 	plan, err := s.planStore.ReadPlan(ctx, key)
 	if err != nil {
-		return store.TeamworkWorkItem{}, false
+		return storeteamwork.WorkItem{}, false
 	}
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
@@ -464,7 +464,7 @@ func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (store
 			}
 		}
 	}
-	return store.TeamworkWorkItem{}, false
+	return storeteamwork.WorkItem{}, false
 }
 
 // startProjectSession 建一个绑定到项目工作区的会话（KeyFor 才有解）。
@@ -820,7 +820,7 @@ func TestTeamworkHeadlessSmoke(t *testing.T) {
 	// 看板只是两者的投影。三条读数不一致时，这份探针能指出是哪一条没落。
 	if settled, ok := smoke.persistedItem(ctx, "wi-impl"); ok {
 		smoke.report.add("P4 落盘事实", "wi-impl 状态=%s 句柄=%s note=%q",
-			store.TeamworkWorkItemStatusOrPending(settled), settled.Handle, firstLineOf(settled.Note))
+			storeteamwork.WorkItemStatusOrPending(settled), settled.Handle, firstLineOf(settled.Note))
 	}
 
 	board = smoke.waitBoard(t, sessionID, func(board *dto.TeamworkBoardView) bool {

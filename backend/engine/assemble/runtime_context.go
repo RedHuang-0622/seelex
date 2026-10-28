@@ -14,6 +14,7 @@ import (
 	contextruntime "github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/store"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
 // AttachSessionContextStore 绑定会话上下文存储（state blob，plan.md §3.7.2）。
@@ -32,7 +33,7 @@ func (r *Runtime) AttachSessionContextStore(st *store.SessionContextStore, board
 
 // SetProjectKnowledgeProvider 注入项目级模块语义提供者（ProjectKnowledge
 // 会话前预读；nil 关闭 project 块）。
-func (r *Runtime) SetProjectKnowledgeProvider(provider func() *store.ProjectRecord) {
+func (r *Runtime) SetProjectKnowledgeProvider(provider func() *storeproject.ProjectRecord) {
 	r.setProjectKnowledge(provider)
 }
 

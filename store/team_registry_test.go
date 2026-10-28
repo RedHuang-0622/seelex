@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	storerole "github.com/RedHuang-0622/seelex/store/role"
 )
 
 // TestTeamRegistryOwnerRoundTripAndIsolation：角色注册表整份替换落到
@@ -29,15 +31,15 @@ func TestTeamRegistryOwnerRoundTripAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if registry.Configured || len(registry.Roles) != 0 || registry.SchemaVersion != TeamRegistrySchemaVersion {
+	if registry.Configured || len(registry.Roles) != 0 || registry.SchemaVersion != storerole.SchemaVersion {
 		t.Fatalf("unconfigured registry = %+v", registry)
 	}
 
-	err = engine.roles.Write(scope, TeamRegistry{
+	err = engine.roles.Write(scope, storerole.Registry{
 		TeamID:      "review-team",
 		TeamKind:    "review-team",
 		OrderPolicy: "user_main_decided",
-		Roles: []TeamRoleSpec{
+		Roles: []storerole.RoleSpec{
 			{RoleName: "reviewer", RoleKind: "agent", OrderPriority: 2, ToolsPolicy: "readonly"},
 			{RoleName: "digest", RoleKind: "timer", OrderPriority: 9, JoinPolicy: "scheduled"},
 			{RoleName: "reviewer", RoleKind: "agent"},
@@ -47,11 +49,11 @@ func TestTeamRegistryOwnerRoundTripAndIsolation(t *testing.T) {
 		t.Fatal("duplicate role_name must be rejected")
 	}
 
-	if err := engine.roles.Write(scope, TeamRegistry{
+	if err := engine.roles.Write(scope, storerole.Registry{
 		TeamID:      "review-team",
 		TeamKind:    "review-team",
 		OrderPolicy: "user_main_decided",
-		Roles: []TeamRoleSpec{
+		Roles: []storerole.RoleSpec{
 			{RoleName: "reviewer", RoleKind: "agent", OrderPriority: 2, ToolsPolicy: "readonly",
 				MirrorPolicy: []string{"goal.start", "goal.update", "goal.start"}},
 			{RoleName: "digest", RoleKind: "timer", OrderPriority: 9, JoinPolicy: "scheduled"},
@@ -99,7 +101,7 @@ func TestTeamRegistryOwnerRoundTripAndIsolation(t *testing.T) {
 // TestTeamRegistryRejectsUnknownSchema：schema 版本不认识时显式报错，不静默降级。
 func TestTeamRegistryRejectsUnknownSchema(t *testing.T) {
 	engine, key := roleSessionFixture(t)
-	if err := engine.roles.Write(layoutScope(key), TeamRegistry{SchemaVersion: 99}); err == nil {
+	if err := engine.roles.Write(layoutScope(key), storerole.Registry{SchemaVersion: 99}); err == nil {
 		t.Fatal("unsupported schema must be rejected")
 	}
 }
@@ -115,7 +117,7 @@ func TestTeamRegistryRejectsUnknownSchema(t *testing.T) {
 func TestReadLifecycleOrderToleratesMissingHead(t *testing.T) {
 	router := newTestRouter(t)
 	// 空工程 + 磁盘上不存在的会话：读取会命中 ERROR_PATH_NOT_FOUND。
-	policy, roles, err := router.ReadLifecycleOrderWorkspace("", "session-not-on-disk")
+	policy, roles, err := roleAdapter(router).ReadLifecycleOrderWorkspace("", "session-not-on-disk")
 	if err != nil {
 		t.Fatalf("缺失 lifecycle head 不是错误，实际返回：%v", err)
 	}
@@ -130,7 +132,7 @@ func TestReadLifecycleOrderToleratesMissingHead(t *testing.T) {
 // 状态（A05/A06）：读面已无生产调用方，但"空会话 floor = nil 不是错误"的语义保留。
 func TestReadMessageFloorWorkspaceToleratesUnstartedSession(t *testing.T) {
 	router := newTestRouter(t)
-	floor, err := router.ReadMessageFloorWorkspace("", "session-not-on-disk")
+	floor, err := roleAdapter(router).ReadMessageFloorWorkspace("", "session-not-on-disk")
 	if err != nil {
 		t.Fatalf("未开始的会话读 floor 不应报错，实际：%v", err)
 	}
@@ -155,27 +157,27 @@ func TestReadMessageFloorWorkspaceFollowsSequencerSync(t *testing.T) {
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := router.EnsureRoleSessionWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", 1); err != nil {
+	if _, err := roleAdapter(router).EnsureRoleSessionWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := router.AppendRoleDraftWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", []RoleDraftRow{{
+	if err := roleAdapter(router).AppendRoleDraftWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", []RoleDraftRow{{
 		RoundID: 1, RoleName: RoleTL, RoleSessionID: "goal-a2a-tl", UnitSeq: 1, MessageID: "m2",
 		Event: Event{Role: "assistant", Content: "裁决：done", Kind: EventKindLLM},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	// sync 之前：还没有人"发言"，floor 为空。
-	floor, err := router.ReadMessageFloorWorkspace(projectID, mainSessionID)
+	floor, err := roleAdapter(router).ReadMessageFloorWorkspace(projectID, mainSessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if floor != nil {
 		t.Fatalf("sync 前不应有 floor: %+v", floor)
 	}
-	if _, err := router.SyncRoleDraftWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", []string{"user", "main", "tl"}); err != nil {
+	if _, err := roleAdapter(router).SyncRoleDraftWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", []string{"user", "main", "tl"}); err != nil {
 		t.Fatal(err)
 	}
-	floor, err = router.ReadMessageFloorWorkspace(projectID, mainSessionID)
+	floor, err = roleAdapter(router).ReadMessageFloorWorkspace(projectID, mainSessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +186,7 @@ func TestReadMessageFloorWorkspaceFollowsSequencerSync(t *testing.T) {
 	}
 	// 返回的是克隆：调用方改动不得污染 message head。
 	floor.RoleName = "tampered"
-	again, err := router.ReadMessageFloorWorkspace(projectID, mainSessionID)
+	again, err := roleAdapter(router).ReadMessageFloorWorkspace(projectID, mainSessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,21 +211,21 @@ func TestEnsureRoleSessionWorkspaceIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	created, err := router.EnsureRoleSessionWorkspace(projectID, mainSessionID, "reviewer", "review-team-reviewer", 0)
+	created, err := roleAdapter(router).EnsureRoleSessionWorkspace(projectID, mainSessionID, "reviewer", "review-team-reviewer", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !created {
 		t.Fatal("first ensure must create the role session")
 	}
-	created, err = router.EnsureRoleSessionWorkspace(projectID, mainSessionID, "reviewer", "review-team-reviewer", 0)
+	created, err = roleAdapter(router).EnsureRoleSessionWorkspace(projectID, mainSessionID, "reviewer", "review-team-reviewer", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if created {
 		t.Fatal("second ensure must be a no-op")
 	}
-	names, err := router.ListRoleSessionsWorkspace(projectID, mainSessionID)
+	names, err := roleAdapter(router).ListRoleSessionsWorkspace(projectID, mainSessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,11 +239,11 @@ func TestEnsureRoleSessionWorkspaceIsIdempotent(t *testing.T) {
 		t.Fatalf("role session dirs = %v, want exactly one", names)
 	}
 
-	if err := router.SetLifecycleOrderWorkspace(projectID, mainSessionID, "user_main_decided",
+	if err := roleAdapter(router).SetLifecycleOrderWorkspace(projectID, mainSessionID, "user_main_decided",
 		[]string{"user", "main", "reviewer"}); err != nil {
 		t.Fatal(err)
 	}
-	policy, roles, err := router.ReadLifecycleOrderWorkspace(projectID, mainSessionID)
+	policy, roles, err := roleAdapter(router).ReadLifecycleOrderWorkspace(projectID, mainSessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,14 +251,15 @@ func TestEnsureRoleSessionWorkspaceIsIdempotent(t *testing.T) {
 		t.Fatalf("lifecycle order = %q %v", policy, roles)
 	}
 
-	if err := router.WriteTeamRegistryWorkspace(projectID, mainSessionID, TeamRegistry{
+	layout := router.repository.(*jsonRepository).layout
+	if err := layout.roles.Write(registryScope(projectID, mainSessionID), storerole.Registry{
 		TeamKind:    "review-team",
 		OrderPolicy: "user_main_decided",
-		Roles:       []TeamRoleSpec{{RoleName: "reviewer", RoleKind: "agent"}},
+		Roles:       []storerole.RoleSpec{{RoleName: "reviewer", RoleKind: "agent"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	registry, err := router.ReadTeamRegistryWorkspace(projectID, mainSessionID)
+	registry, err := layout.roles.Read(registryScope(projectID, mainSessionID))
 	if err != nil {
 		t.Fatal(err)
 	}

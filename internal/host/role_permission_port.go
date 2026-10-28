@@ -8,7 +8,7 @@ package host
 //	                           session_default > role_default > global_default）
 //
 // 生态位（为什么是适配层、为什么带一份按 Router 的实例表）：
-//   - 登记的**事实源**只有一处：store.RolePermissionStore（每 (项目, 会话, 角色) 一格、
+//   - 登记的**事实源**只有一处：store/role.PermissionStore（每 (项目, 会话, 角色) 一格、
 //     各自持锁、按项目一把文件锁）。本文件只做"会话 → 项目 → 登记格"的转发，
 //     不缓存第二份向量（应用层也不缓存，判据在 contract/dto）。
 //   - store 的登记格**在进程内缓存已加载的条目**，因此同一个数据根必须共用**同一个**
@@ -27,39 +27,17 @@ package host
 import (
 	"errors"
 	"strings"
-	"sync"
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storerole "github.com/RedHuang-0622/seelex/store/role"
 )
 
-// rolePermissionStores 是「数据根（Router）→ 登记存储」的实例表。
-//
-// 只增不删：数据根在进程生命周期内是固定的少数几个（真机一个；测试各自一个
-// t.TempDir）。键是指针身份——同一个数据根必然来自同一个 Router 实例。
-var rolePermissionStores sync.Map // *store.Router -> *store.RolePermissionStore
-
-// rolePermissionStoreFor 取该数据根的登记存储（首次调用建实例，其后复用）。
-func rolePermissionStoreFor(router *store.Router) *store.RolePermissionStore {
-	if router == nil {
-		return nil
-	}
-	if cached, ok := rolePermissionStores.Load(router); ok {
-		return cached.(*store.RolePermissionStore)
-	}
-	created, _ := rolePermissionStores.LoadOrStore(router, store.NewRolePermissionStore(router))
-	return created.(*store.RolePermissionStore)
-}
-
 // rolePermissionStore 返回本端口的登记存储（存储未装配时 nil）。
-func (port SessionPort) rolePermissionStore() *store.RolePermissionStore {
-	if port.Manager == nil {
-		return nil
-	}
-	return rolePermissionStoreFor(port.Manager.Router())
+func (port SessionPort) rolePermissionStore() *storerole.PermissionStore {
+	return port.RolePermissions
 }
 
 // rolePermissionProject 解析会话归属的项目（登记的键是 (项目, 会话, 角色)）。

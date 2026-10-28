@@ -29,7 +29,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 	model "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
@@ -150,25 +149,25 @@ type BudgetProvider interface {
 // CompactStackStore 是会话级压缩栈的窄读写面（store.SessionContextStore
 // 满足；nil → 控制器内存态，活跃会话内仍可审计）。
 type CompactStackStore interface {
-	CompactStackSnapshot() []store.CompactFrame
-	PushCompact(frame store.CompactFrame) error
+	CompactStackSnapshot() []storecontext.CompactFrame
+	PushCompact(frame storecontext.CompactFrame) error
 }
 
 // memoryCompactStack 是 CompactStackStore 的内存态实现。
 type memoryCompactStack struct {
 	mu     sync.Mutex
-	frames []store.CompactFrame
+	frames []storecontext.CompactFrame
 }
 
 // CompactStackSnapshot implements the narrow compact-stack read face.
-func (m *memoryCompactStack) CompactStackSnapshot() []store.CompactFrame {
+func (m *memoryCompactStack) CompactStackSnapshot() []storecontext.CompactFrame {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]store.CompactFrame(nil), m.frames...)
+	return append([]storecontext.CompactFrame(nil), m.frames...)
 }
 
 // PushCompact 实现 CompactStackStore。
-func (m *memoryCompactStack) PushCompact(frame store.CompactFrame) error {
+func (m *memoryCompactStack) PushCompact(frame storecontext.CompactFrame) error {
 	if m == nil {
 		return fmt.Errorf("seelexctx: compact stack is unavailable")
 	}
@@ -321,12 +320,12 @@ func renderUnitLine(unit []types.Message) string {
 }
 
 // overflowEvidence 从溢出轮次中的工具结果与任务栈证据提取证据引用。
-func overflowEvidence(overflow []historyUnit, record storecontext.PromptStackSnapshot) []store.EvidenceRef {
-	var evidence []store.EvidenceRef
+func overflowEvidence(overflow []historyUnit, record storecontext.PromptStackSnapshot) []storecontext.EvidenceRef {
+	var evidence []storecontext.EvidenceRef
 	for _, unit := range overflow {
 		for _, message := range unit.messages {
 			if message.Role == "tool" && message.ToolCallID != "" {
-				evidence = append(evidence, store.EvidenceRef{Ref: model.WireToolResultRef(message.ToolCallID)})
+				evidence = append(evidence, storecontext.EvidenceRef{Ref: model.WireToolResultRef(message.ToolCallID)})
 			}
 		}
 	}

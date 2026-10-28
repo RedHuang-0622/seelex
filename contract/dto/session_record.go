@@ -23,6 +23,7 @@ type SessionRecordStatus string
 
 const (
 	SessionRecordStatusDraft            SessionRecordStatus = "draft"
+	SessionRecordStatusActive           SessionRecordStatus = "active"
 	SessionRecordStatusIdle             SessionRecordStatus = "idle"
 	SessionRecordStatusRunning          SessionRecordStatus = "running"
 	SessionRecordStatusQueued           SessionRecordStatus = "queued"
@@ -30,8 +31,11 @@ const (
 	SessionRecordStatusArchived         SessionRecordStatus = "archived"
 )
 
-// SessionRecord 是会话粒度记录（session:<id> → SessionRecord）。
-type SessionRecord struct {
+// String 返回持久状态词。
+func (s SessionRecordStatus) String() string { return string(s) }
+
+// SessionIndexRecord 是项目目录与存储索引使用的会话摘要记录。
+type SessionIndexRecord struct {
 	ID         string              `json:"id"`
 	Kind       SessionRecordKind   `json:"kind"`
 	ParentID   string              `json:"parent_id,omitempty"`
@@ -41,6 +45,10 @@ type SessionRecord struct {
 	UpdatedAt  time.Time           `json:"updated_at,omitempty"`
 	Binding    SessionBinding      `json:"binding,omitempty"`
 }
+
+// SessionRecord 是迁移期兼容名；新代码应使用 SessionIndexRecord，避免与
+// protocol.SessionRecord（完整会话聚合）同名混淆。
+type SessionRecord = SessionIndexRecord
 
 // SessionBinding 是会话绑定（B_i：workspaceID / parent / kind）。
 type SessionBinding struct {

@@ -45,7 +45,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/kernel/prompt"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // pluginsCatalogTokenWarn 是装配目录段的**黄牌**阈值（token 估算）。
@@ -241,7 +241,7 @@ type rolePluginAssemblyView = dto.PluginAssemblyView
 //   - 声明装配的成员：面 = 集合收窄后的工具数；
 //   - inherit-host 的成员：面 = **宿主当前装配**收窄后的工具数（真读数，不是 0）；
 //   - 声明还在、定义没了：面 = 0 且带失灵说明（**不报满面**）。
-func (r *Runtime) assemblyViews(members []store.TeamworkMember) []rolePluginAssemblyView {
+func (r *Runtime) assemblyViews(members []storeteamwork.Member) []rolePluginAssemblyView {
 	views := make([]rolePluginAssemblyView, 0, len(members))
 	for _, member := range members {
 		plugins := normalizePluginNames(member.Plugins)

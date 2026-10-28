@@ -10,6 +10,7 @@ import (
 
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // resumeTestFixture 组装一个带持久化 Router/事件库/节点记录存储的 Runtime。
@@ -17,7 +18,7 @@ type resumeTestFixture struct {
 	runtime    *Runtime
 	router     *store.Router
 	eventStore *store.EventStore
-	nodeStore  *store.NodeSessionStore
+	nodeStore  *storeworkunit.SessionStore
 	projectID  string
 	mainID     string
 }
@@ -30,7 +31,7 @@ func newResumeTestFixture(t *testing.T) *resumeTestFixture {
 		t.Fatalf("new router: %v", err)
 	}
 	eventStore := store.NewEventStore(router)
-	nodeStore := store.NewNodeSessionStore(router)
+	nodeStore := store.NewWorkUnitSessionStore(router)
 	runtime.AttachHistoryRouter(router)
 	runtime.AttachSubSessionStore(nodeStore)
 	runtime.SetEventPersister(eventStore.Append)
@@ -48,10 +49,10 @@ func newResumeTestFixture(t *testing.T) *resumeTestFixture {
 	return fixture
 }
 
-func (fixture *resumeTestFixture) save(t *testing.T, record store.NodeSessionRecord) {
+func (fixture *resumeTestFixture) save(t *testing.T, record storeworkunit.Record) {
 	t.Helper()
 	if record.SchemaVersion == 0 {
-		record.SchemaVersion = store.NodeSessionSchemaVersion
+		record.SchemaVersion = storeworkunit.SchemaVersion
 	}
 	if record.UpdatedAt.IsZero() {
 		record.UpdatedAt = time.Now().UTC()
@@ -67,7 +68,7 @@ func (fixture *resumeTestFixture) save(t *testing.T, record store.NodeSessionRec
 func TestSubagentResumeRestartsInterruptedUnit(t *testing.T) {
 	fixture := newResumeTestFixture(t)
 	runtime := fixture.runtime
-	record := store.NodeSessionRecord{
+	record := storeworkunit.Record{
 		NodeID: "sub-1", SessionID: "node-hash-1", MainSessionID: fixture.mainID,
 		Goal: "inspect the storage layer", Status: "running",
 		StagesJSON: []byte(`[{"stage":"running","preview":"read message_rows.go"}]`),
@@ -168,7 +169,7 @@ func TestSubagentResumeRestartsInterruptedUnit(t *testing.T) {
 func TestSubagentResumeSkipsTerminalResidual(t *testing.T) {
 	fixture := newResumeTestFixture(t)
 	runtime := fixture.runtime
-	fixture.save(t, store.NodeSessionRecord{
+	fixture.save(t, storeworkunit.Record{
 		NodeID: "sub-done", SessionID: "node-hash-done", MainSessionID: fixture.mainID,
 		Goal: "already finished", Status: "done", Summary: "finished before crash",
 	})
@@ -204,7 +205,7 @@ func TestSubagentResumeSkipsTerminalResidual(t *testing.T) {
 func TestSubagentResumeSingleNodeFailureKeepsRecordRetryable(t *testing.T) {
 	fixture := newResumeTestFixture(t)
 	runtime := fixture.runtime
-	fixture.save(t, store.NodeSessionRecord{
+	fixture.save(t, storeworkunit.Record{
 		NodeID: "sub-boom", SessionID: "node-hash-boom", MainSessionID: fixture.mainID,
 		Goal: "will fail", Status: "running",
 	})

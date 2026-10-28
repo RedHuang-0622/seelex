@@ -14,9 +14,9 @@ func TestHeadRepairRebuildsMessageFromData(t *testing.T) {
 	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p-m109", SessionID: "s-m109"}
 	if _, err := store.messageCommit(key, "c1", []Event{
-		{Role: "user", Content: "a", MessageID: "m-1"},
-		{Role: "assistant", Content: "b", MessageID: "m-2"},
-		{Role: "user", Content: "c", MessageID: "m-3"},
+		{Seq: 1, Role: "user", Content: "a", MessageID: "m-1"},
+		{Seq: 2, Role: "assistant", Content: "b", MessageID: "m-2"},
+		{Seq: 3, Role: "user", Content: "c", MessageID: "m-3"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -64,8 +64,8 @@ func TestHeadRepairRebuildsCompactFromData(t *testing.T) {
 	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p-cp109", SessionID: "s-cp109"}
 	if _, err := store.messageCommit(key, "c1", []Event{
-		{Role: "user", Content: "q1", MessageID: "m-1"},
-		{Role: "assistant", Content: "a1", MessageID: "m-2"},
+		{Seq: 1, Role: "user", Content: "q1", MessageID: "m-1"},
+		{Seq: 2, Role: "assistant", Content: "a1", MessageID: "m-2"},
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package store
+package project
 
 import (
 	"context"
@@ -35,8 +35,8 @@ type ModuleSemantics struct {
 	Docs    []string `json:"docs,omitempty"` // doc/interface index
 }
 
-// isProjectRecordNotFound reports whether the record has never been built.
-func isProjectRecordNotFound(err error) bool {
+// IsRecordNotFound reports whether the record has never been built.
+func IsRecordNotFound(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -421,6 +421,9 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// FileExists reports whether path names a regular file.
+func FileExists(path string) bool { return fileExists(path) }
+
 func sameHashes(existing, current []string) bool {
 	if len(existing) != len(current) {
 		return false
@@ -449,6 +452,12 @@ type ProjectRefreshResult struct {
 	Note     string // 回退/复用的补充说明
 }
 
+// RecordStore 是项目知识刷新所需的持久化窄端口。
+type RecordStore interface {
+	LoadProjectRecord(projectID string) (ProjectRecord, error)
+	SaveProjectRecord(projectID string, record ProjectRecord) error
+}
+
 // RefreshProjectKnowledge 是 project_refresh 工具的核心：来源 hash 未变 → 复用；
 // 已变/首建 → 重建并落盘；重建失败 → 保留上一版本（可回退）；首建失败返回错误
 // （显式跳过并提示）。force=true 强制重建。
@@ -457,13 +466,13 @@ type ProjectRefreshResult struct {
 // RuntimeDeps.ProjectKnowledge / wiring/bootstrap）按 `store.Workspace()`（`ws-<nano>`）读，
 // 因此调用方必须把自己的工作区 ID 传进来。曾经这里用 builder.Root()（绝对路径）
 // 当键读写 ⇒ 写进去的记录在 `ws-*` 键下永远读不到（G5 断点②）。
-func RefreshProjectKnowledge(ctx context.Context, store *Router, projectID string, builder *ProjectKnowledgeBuilder, force bool) (ProjectRefreshResult, error) {
+func RefreshProjectKnowledge(ctx context.Context, store RecordStore, projectID string, builder *ProjectKnowledgeBuilder, force bool) (ProjectRefreshResult, error) {
 	if strings.TrimSpace(projectID) == "" {
 		return ProjectRefreshResult{}, errors.New("project knowledge: project ID is required (写入键 = 读取键 = 工作区 ID)")
 	}
 	existing, readErr := store.LoadProjectRecord(projectID)
 	hasExisting := readErr == nil
-	if readErr != nil && !isProjectRecordNotFound(readErr) {
+	if readErr != nil && !IsRecordNotFound(readErr) {
 		return ProjectRefreshResult{}, fmt.Errorf("project knowledge: read existing record: %w", readErr)
 	}
 	hashes, err := builder.SourceHashes()

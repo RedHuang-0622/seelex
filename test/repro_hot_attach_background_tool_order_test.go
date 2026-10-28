@@ -105,6 +105,8 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 		events,
 		approval,
 		st.Boards,
+		st.RolePermissions,
+		st.RoleSessions,
 		launchFlags.StorePath,
 	)
 	if err != nil {

@@ -128,8 +128,8 @@ func TestCommitPublishesMessageBeforeCompactionFailure(t *testing.T) {
 
 	// 先成功提交两行，把布局和 message head 建起来。
 	if err := repository.WriteCommit(ctx, key, Commit{Events: []Event{
-		{MessageID: "u1", Role: "user", Kind: EventKindUserInput, Content: "第一问", CreatedAt: created},
-		{MessageID: "a1", Role: "assistant", Kind: EventKindLLM, Content: "第一答", CreatedAt: created},
+		{Seq: 1, MessageID: "u1", Role: "user", Kind: EventKindUserInput, Content: "第一问", CreatedAt: created},
+		{Seq: 2, MessageID: "a1", Role: "assistant", Kind: EventKindLLM, Content: "第一答", CreatedAt: created},
 	}}); err != nil {
 		t.Fatalf("baseline commit: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestCommitPublishesMessageBeforeCompactionFailure(t *testing.T) {
 
 	err := repository.WriteCommit(ctx, key, Commit{
 		Events: []Event{
-			{MessageID: "u2", Role: "user", Kind: EventKindUserInput, Content: "第二问", CreatedAt: created},
+			{Seq: 3, MessageID: "u2", Role: "user", Kind: EventKindUserInput, Content: "第二问", CreatedAt: created},
 		},
 		CompactionRecords: []json.RawMessage{json.RawMessage(`{"summary":"second"}`)},
 	})

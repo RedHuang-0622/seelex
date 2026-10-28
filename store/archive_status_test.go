@@ -95,7 +95,7 @@ func TestArchiveStatusRewriteKeepsFivePieces(t *testing.T) {
 			if err != nil || len(loadedHistory) != 2 {
 				t.Fatalf("reopen history len=%d err=%v", len(loadedHistory), err)
 			}
-			transcript, err := store.Transcript(projectID, sessionID)
+			transcript, err := store.EventRange(projectID, sessionID, 1, 0)
 			if err != nil || len(transcript) != 2 {
 				t.Fatalf("reopen transcript len=%d err=%v", len(transcript), err)
 			}

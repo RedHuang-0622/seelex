@@ -16,7 +16,8 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/view/sessionaccess"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 var _ contract.AgentConversationPort = (*Runtime)(nil)
@@ -104,7 +105,7 @@ func (r *Runtime) teammateConversationRecords(ctx context.Context, ref dto.Conve
 		history  []types.Message
 		status   string
 		recovery = dto.RecoveryMissing
-		record   store.NodeSessionRecord
+		record   storeworkunit.Record
 		hasRec   bool
 	)
 	if live, ok := r.teammateLiveSession(ref.SessionID); ok {
@@ -185,18 +186,18 @@ func (r *Runtime) subagentConversationRecords(ref dto.ConversationSessionRef) ([
 	return records, status, recovery, nil
 }
 
-func (r *Runtime) teammateConversationTarget(ctx context.Context, ref dto.ConversationSessionRef) (store.TeamworkWorkItem, error) {
+func (r *Runtime) teammateConversationTarget(ctx context.Context, ref dto.ConversationSessionRef) (storeteamwork.WorkItem, error) {
 	mainSessionID := strings.TrimSpace(ref.MainSessionID)
 	if mainSessionID == "" {
-		return store.TeamworkWorkItem{}, errors.New("conversation: teammate main session ID is required")
+		return storeteamwork.WorkItem{}, errors.New("conversation: teammate main session ID is required")
 	}
 	coordinator, err := r.coordinatorForSession(mainSessionID)
 	if err != nil {
-		return store.TeamworkWorkItem{}, err
+		return storeteamwork.WorkItem{}, err
 	}
 	views, err := coordinator.Items(ctx)
 	if err != nil {
-		return store.TeamworkWorkItem{}, err
+		return storeteamwork.WorkItem{}, err
 	}
 	for _, view := range views {
 		item := view.Item
@@ -204,14 +205,14 @@ func (r *Runtime) teammateConversationTarget(ctx context.Context, ref dto.Conver
 			continue
 		}
 		if role := strings.TrimSpace(ref.Role); role != "" && role != strings.TrimSpace(item.Role) {
-			return store.TeamworkWorkItem{}, fmt.Errorf("conversation: WorkItem %q belongs to role %q, not %q", item.ID, item.Role, role)
+			return storeteamwork.WorkItem{}, fmt.Errorf("conversation: WorkItem %q belongs to role %q, not %q", item.ID, item.Role, role)
 		}
 		if sessionID := strings.TrimSpace(item.SessionID); sessionID != "" && sessionID != strings.TrimSpace(ref.SessionID) {
-			return store.TeamworkWorkItem{}, fmt.Errorf("conversation: WorkItem %q uses session %q, not %q", item.ID, sessionID, ref.SessionID)
+			return storeteamwork.WorkItem{}, fmt.Errorf("conversation: WorkItem %q uses session %q, not %q", item.ID, sessionID, ref.SessionID)
 		}
 		return item, nil
 	}
-	return store.TeamworkWorkItem{}, fmt.Errorf("conversation: WorkItem %q is not in the team plan", ref.WorkItemID)
+	return storeteamwork.WorkItem{}, fmt.Errorf("conversation: WorkItem %q is not in the team plan", ref.WorkItemID)
 }
 
 func (r *Runtime) chatTeammateConversation(ctx context.Context, ref dto.ConversationSessionRef, message string, waitMS int) (dto.ChatReceipt, error) {
@@ -305,9 +306,9 @@ func (r *Runtime) chatSubagentConversation(ctx context.Context, ref dto.Conversa
 	return strings.TrimSpace(output), nil
 }
 
-func (r *Runtime) loadSubagentRecord(mainSessionID, nodeID string) (store.NodeSessionRecord, bool) {
+func (r *Runtime) loadSubagentRecord(mainSessionID, nodeID string) (storeworkunit.Record, bool) {
 	if r == nil || r.nodeSessionStore == nil {
-		return store.NodeSessionRecord{}, false
+		return storeworkunit.Record{}, false
 	}
 	projectID := r.sessionProjectIDFor(mainSessionID)
 	if projectID == "" {
@@ -315,7 +316,7 @@ func (r *Runtime) loadSubagentRecord(mainSessionID, nodeID string) (store.NodeSe
 	}
 	record, err := r.nodeSessionStore.Load(projectID, mainSessionID, nodeID)
 	if err != nil {
-		return store.NodeSessionRecord{}, false
+		return storeworkunit.Record{}, false
 	}
 	return record, true
 }
@@ -383,7 +384,7 @@ func ensureSystemRecord(records []dto.ConversationRecord, prompt string) []dto.C
 	return append(prefix, records...)
 }
 
-func prependRecoveryNote(records []dto.ConversationRecord, record store.NodeSessionRecord, kind workunit.Kind) []dto.ConversationRecord {
+func prependRecoveryNote(records []dto.ConversationRecord, record storeworkunit.Record, kind workunit.Kind) []dto.ConversationRecord {
 	note := workunit.RecoveryNote(kind, record)
 	if strings.TrimSpace(note) == "" {
 		return records

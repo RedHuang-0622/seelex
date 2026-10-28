@@ -12,7 +12,7 @@ package goal
 import (
 	"context"
 
-	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // MaxAuditTextRunes 是审计文本字段（reason/result/detail）的 rune 上限，
@@ -26,7 +26,7 @@ type AuditAccount interface {
 }
 
 // AuditEntry 是一次 goal 状态迁移的审计条目（goal 域形态；落库时映射为
-// store.GoalAuditEntry，Seq 由会话账本分配）。
+// storecontext.GoalAuditEntry，Seq 由会话账本分配）。
 type AuditEntry struct {
 	Kind   EventKind
 	GoalID string
@@ -67,7 +67,7 @@ func (s *ContextStateStore) AppendGoalAudit(ctx context.Context, entry AuditEntr
 		return err
 	}
 	entry = entry.normalized()
-	record := store.GoalAuditEntry{
+	record := storecontext.GoalAuditEntry{
 		Kind:          string(entry.Kind),
 		GoalID:        entry.GoalID,
 		Title:         entry.Title,

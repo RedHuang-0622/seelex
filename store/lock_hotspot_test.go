@@ -64,7 +64,7 @@ func TestProbeNoHistoryCacheWritten(t *testing.T) {
 	const projectID, sessionID = "lock-project", "sess-history"
 
 	if err := router.SaveCommitWorkspace(projectID, sessionID, Commit{
-		Events: []Event{{Role: "user", Content: "seed", MessageID: "seed"}},
+		Events: []Event{{Seq: 1, Role: "user", Content: "seed", MessageID: "seed"}},
 	}); err != nil {
 		t.Fatal(err)
 	}

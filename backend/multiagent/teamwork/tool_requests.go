@@ -14,28 +14,27 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // PlanRequest 是 `team_plan` 的入参形状（与 `TeamPlanSchema` 一一对应）。
 type PlanRequest struct {
 	TeamID     string                    `json:"team_id"`
 	Version    int                       `json:"version"`
-	Members    []store.TeamworkMember    `json:"members"`
-	Milestones []store.TeamworkMilestone `json:"milestones"`
+	Members    []storeteamwork.Member    `json:"members"`
+	Milestones []storeteamwork.Milestone `json:"milestones"`
 }
 
 // DecodePlanRequest 解析 `team_plan` 入参并补默认值（version 缺省 1；其余字段原样）。
-func DecodePlanRequest(argsJSON string) (store.TeamworkPlan, error) {
+func DecodePlanRequest(argsJSON string) (storeteamwork.Plan, error) {
 	var raw PlanRequest
 	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
-		return store.TeamworkPlan{}, err
+		return storeteamwork.Plan{}, err
 	}
 	if raw.Version == 0 {
 		raw.Version = 1
 	}
-	return store.TeamworkPlan{
+	return storeteamwork.Plan{
 		TeamID: raw.TeamID, Version: raw.Version,
 		Members: raw.Members, Milestones: raw.Milestones,
 	}, nil

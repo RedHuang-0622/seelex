@@ -10,24 +10,25 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/board"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 func teamworkScopeFixture() *TeamworkBackend {
 	return &TeamworkBackend{
-		KeyFor: func(sessionID string) (store.Key, bool) {
+		KeyFor: func(sessionID string) (dto.SessionKey, bool) {
 			switch sessionID {
 			case "s-good":
-				return store.Key{ProjectID: "p-1", SessionID: sessionID}, true
+				return dto.SessionKey{ProjectID: "p-1", SessionID: sessionID}, true
 			case "s-half-project":
-				return store.Key{SessionID: sessionID}, true
+				return dto.SessionKey{SessionID: sessionID}, true
 			case "s-half-session":
-				return store.Key{ProjectID: "p-1"}, true
+				return dto.SessionKey{ProjectID: "p-1"}, true
 			case "s-blank":
-				return store.Key{ProjectID: "  ", SessionID: "\t"}, true
+				return dto.SessionKey{ProjectID: "  ", SessionID: "\t"}, true
 			default:
-				return store.Key{}, false
+				return dto.SessionKey{}, false
 			}
 		},
 	}
@@ -83,9 +84,9 @@ func TestResolveTeamworkScopeJudgment(t *testing.T) {
 // 宿主的团队作用域解析与看板域的 `TeamworkPlanFor`，两边对"这个会话能不能定位"必须同解。
 func TestTeamworkKeyJudgmentMatchesBoardDomain(t *testing.T) {
 	r := &Runtime{teamworkBackend: teamworkScopeFixture()}
-	readPlan := func(context.Context, store.Key) (store.TeamworkPlan, error) {
+	readPlan := func(context.Context, dto.SessionKey) (storeteamwork.Plan, error) {
 		// 计划非空：这里只比较"键能不能定位"，不让空计划把看板域的结果带偏。
-		return store.TeamworkPlan{TeamID: "team-1"}, nil
+		return storeteamwork.Plan{TeamID: "team-1"}, nil
 	}
 	sessions := []string{
 		"s-good",

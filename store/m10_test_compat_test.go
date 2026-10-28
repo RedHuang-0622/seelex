@@ -7,23 +7,25 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 type BoardRepository interface {
-	WriteGoalBoard(context.Context, Key, GoalBoardMeta) error
-	ReadGoalBoard(context.Context, Key) (GoalBoardMeta, error)
-	WriteTeamBoard(context.Context, Key, TeamBoardMeta) error
-	ReadTeamBoard(context.Context, Key) (TeamBoardMeta, error)
+	WriteGoalBoard(context.Context, Key, dto.GoalBoardMeta) error
+	ReadGoalBoard(context.Context, Key) (dto.GoalBoardMeta, error)
+	WriteTeamBoard(context.Context, Key, dto.TeamBoardMeta) error
+	ReadTeamBoard(context.Context, Key) (dto.TeamBoardMeta, error)
 }
 
 type TeamworkRepository interface {
-	WriteTeamworkPlan(context.Context, Key, TeamworkPlan, int) error
-	ReadTeamworkPlan(context.Context, Key) (TeamworkPlan, error)
-	AppendTeamworkEvent(context.Context, Key, TeamworkEvent) error
-	ReadTeamworkEvents(context.Context, Key) ([]TeamworkEvent, error)
+	WriteTeamworkPlan(context.Context, Key, storeteamwork.Plan, int) error
+	ReadTeamworkPlan(context.Context, Key) (storeteamwork.Plan, error)
+	AppendTeamworkEvent(context.Context, Key, storeteamwork.Event) error
+	ReadTeamworkEvents(context.Context, Key) ([]storeteamwork.Event, error)
 	TeamworkJobOutputDir(context.Context, Key) (string, error)
-	AppendTeamworkBinding(context.Context, Key, TeamworkBinding) error
-	ReadTeamworkBindings(context.Context, Key) ([]TeamworkBinding, error)
+	AppendTeamworkBinding(context.Context, Key, storeteamwork.Binding) error
+	ReadTeamworkBindings(context.Context, Key) ([]storeteamwork.Binding, error)
 }
 
 func Boards(repository Repository) (BoardRepository, bool) {
@@ -34,11 +36,6 @@ func Boards(repository Repository) (BoardRepository, bool) {
 func Teamwork(repository Repository) (TeamworkRepository, bool) {
 	work, ok := repository.(TeamworkRepository)
 	return work, ok
-}
-
-func MediaStoreOf(repository Repository) (MediaStore, bool) {
-	media, ok := repository.(MediaStore)
-	return media, ok
 }
 
 func (router *Router) BoardsFor() (BoardRepository, bool) {
@@ -54,19 +51,19 @@ func (router *Router) BoardsFor() (BoardRepository, bool) {
 	return boards, ok
 }
 
-func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error) {
+func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (storeteamwork.Plan, error) {
 	return repository.layout.teamwork.ReadPlan(key)
 }
 
-func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key) ([]TeamworkEvent, error) {
+func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key) ([]storeteamwork.Event, error) {
 	return repository.layout.teamwork.ReadEvents(key)
 }
 
-func (repository *jsonRepository) ReadGoalBoard(ctx context.Context, key Key) (GoalBoardMeta, error) {
+func (repository *jsonRepository) ReadGoalBoard(ctx context.Context, key Key) (dto.GoalBoardMeta, error) {
 	return repository.layout.boards.ReadGoalBoard(ctx, key)
 }
 
-func (repository *jsonRepository) ReadTeamBoard(ctx context.Context, key Key) (TeamBoardMeta, error) {
+func (repository *jsonRepository) ReadTeamBoard(ctx context.Context, key Key) (dto.TeamBoardMeta, error) {
 	return repository.layout.boards.ReadTeamBoard(ctx, key)
 }
 
@@ -75,27 +72,27 @@ func (repository *jsonRepository) ReadToolRecordSnapshot(ctx context.Context, ke
 	return raw, found, err
 }
 
-func (repository *jsonRepository) WriteGoalBoard(ctx context.Context, key Key, meta GoalBoardMeta) error {
+func (repository *jsonRepository) WriteGoalBoard(ctx context.Context, key Key, meta dto.GoalBoardMeta) error {
 	return repository.layout.boards.WriteGoalBoard(ctx, key, meta)
 }
 
-func (repository *jsonRepository) WriteTeamBoard(ctx context.Context, key Key, meta TeamBoardMeta) error {
+func (repository *jsonRepository) WriteTeamBoard(ctx context.Context, key Key, meta dto.TeamBoardMeta) error {
 	return repository.layout.boards.WriteTeamBoard(ctx, key, meta)
 }
 
-func (repository *jsonRepository) WriteTeamworkPlan(ctx context.Context, key Key, plan TeamworkPlan, maxTeammates int) error {
+func (repository *jsonRepository) WriteTeamworkPlan(ctx context.Context, key Key, plan storeteamwork.Plan, maxTeammates int) error {
 	return repository.layout.teamwork.WritePlan(key, plan, maxTeammates)
 }
 
-func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key, event TeamworkEvent) error {
+func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key, event storeteamwork.Event) error {
 	return repository.layout.teamwork.AppendEvent(key, event)
 }
 
-func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key Key, binding TeamworkBinding) error {
+func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key Key, binding storeteamwork.Binding) error {
 	return repository.layout.teamwork.AppendBinding(key, binding)
 }
 
-func (repository *jsonRepository) ReadTeamworkBindings(_ context.Context, key Key) ([]TeamworkBinding, error) {
+func (repository *jsonRepository) ReadTeamworkBindings(_ context.Context, key Key) ([]storeteamwork.Binding, error) {
 	return repository.layout.teamwork.ReadBindings(key)
 }
 

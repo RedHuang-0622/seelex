@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // ── Work Item 口吻的端口替身 ─────────────────────────────────────────
@@ -149,7 +150,7 @@ func newItemFixtureWithJobs(t *testing.T, maxTeammates, maxJobs int) *itemFixtur
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:          store.Key{ProjectID: "p", SessionID: "s"},
+		Key:          dto.SessionKey{ProjectID: "p", SessionID: "s"},
 		Store:        st,
 		Jobs:         manager,
 		Workers:      runner,
@@ -172,16 +173,16 @@ func newItemFixtureWithJobs(t *testing.T, maxTeammates, maxJobs int) *itemFixtur
 //
 //	m-build（屏障入口）: wi-req → wi-impl → wi-test（里程碑内 DAG）
 //	m-ship （依赖 m-build）
-func itemPlan() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func itemPlan() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID:  "v-model",
 		Version: 1,
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "pm"},
 			{Role: "exec", ToolsPolicy: "readwrite", Permission: map[string]int{"rw": 3}},
 			{Role: "test_case", ToolsPolicy: "readonly", Permission: map[string]int{"ro": 1}},
 		},
-		Milestones: []store.TeamworkMilestone{
+		Milestones: []storeteamwork.Milestone{
 			{ID: "m-build", Name: "构建"},
 			{ID: "m-ship", Name: "发布", DependsOn: []string{"m-build"}},
 		},
@@ -208,7 +209,7 @@ func setupItemPlan(t *testing.T, fixture *itemFixture) {
 	}
 }
 
-func itemState(t *testing.T, fixture *itemFixture, id string) store.TeamworkWorkItem {
+func itemState(t *testing.T, fixture *itemFixture, id string) storeteamwork.WorkItem {
 	t.Helper()
 	views, err := fixture.coordinator.Items(context.Background())
 	if err != nil {
@@ -220,7 +221,7 @@ func itemState(t *testing.T, fixture *itemFixture, id string) store.TeamworkWork
 		}
 	}
 	t.Fatalf("工作项 %q 不在计划里", id)
-	return store.TeamworkWorkItem{}
+	return storeteamwork.WorkItem{}
 }
 
 // waitRequests 等到执行体收下至少 want 次派发（派发是后台的，载荷到达有先后）。
@@ -238,19 +239,19 @@ func waitRequests(t *testing.T, fixture *itemFixture, want int) []WorkerRequest 
 	return nil
 }
 
-func waitItemStatus(t *testing.T, fixture *itemFixture, id, want string) store.TeamworkWorkItem {
+func waitItemStatus(t *testing.T, fixture *itemFixture, id, want string) storeteamwork.WorkItem {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		item := itemState(t, fixture, id)
-		if store.TeamworkWorkItemStatusOrPending(item) == want {
+		if storeteamwork.WorkItemStatusOrPending(item) == want {
 			return item
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
 	item := itemState(t, fixture, id)
-	t.Fatalf("工作项 %s 状态 = %s，want %s（窗口内没收敛）", id, store.TeamworkWorkItemStatusOrPending(item), want)
-	return store.TeamworkWorkItem{}
+	t.Fatalf("工作项 %s 状态 = %s，want %s（窗口内没收敛）", id, storeteamwork.WorkItemStatusOrPending(item), want)
+	return storeteamwork.WorkItem{}
 }
 
 // ── 用例 4：分里程碑排活（不是一次把全程铺好）─────────────────────────
@@ -276,7 +277,7 @@ func TestNextMilestoneOpensOnlyAfterEveryItemIsDone(t *testing.T) {
 		if _, err := fixture.coordinator.DispatchItem(ctx, id); err != nil {
 			t.Fatalf("DispatchItem(%s): %v", id, err)
 		}
-		waitItemStatus(t, fixture, id, store.TeamworkItemReview)
+		waitItemStatus(t, fixture, id, storeteamwork.ItemReview)
 		if err := fixture.coordinator.AcceptItem(ctx, id, "验收通过"); err != nil {
 			t.Fatalf("AcceptItem(%s): %v", id, err)
 		}
@@ -285,10 +286,10 @@ func TestNextMilestoneOpensOnlyAfterEveryItemIsDone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if plan.Milestones[0].Status != store.TeamworkMilestoneDone {
+	if plan.Milestones[0].Status != storeteamwork.MilestoneDone {
 		t.Fatalf("全部工作项验收通过后，里程碑应 done: %+v", plan.Milestones[0])
 	}
-	if plan.Milestones[1].Status != store.TeamworkMilestoneActive {
+	if plan.Milestones[1].Status != storeteamwork.MilestoneActive {
 		t.Fatalf("屏障之后下一个里程碑应转 active: %+v", plan.Milestones[1])
 	}
 	// 现在才轮得到给 m-ship 排活。
@@ -306,7 +307,7 @@ func TestDispatchRefusesItemInMilestoneBehindTheBarrier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	plan.Milestones[1].Items = []store.TeamworkWorkItem{{ID: "wi-ship", Milestone: "m-ship", Role: "exec", Name: "发布"}}
+	plan.Milestones[1].Items = []storeteamwork.WorkItem{{ID: "wi-ship", Milestone: "m-ship", Role: "exec", Name: "发布"}}
 	if err := fixture.st.WritePlan(ctx, fixture.coordinator.Key(), plan, 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
@@ -334,7 +335,7 @@ func TestDependencyChainReleasesStepByStep(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem(wi-req): %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	// 还没验收（仍是 review）：wi-impl 的闸门不该开。
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-impl"); err == nil || !strings.Contains(err.Error(), "还没完成") {
 		t.Fatalf("前置还在待验收时下游必须被闸住，得到 %v", err)
@@ -365,7 +366,7 @@ func TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree(t *testing.T)
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-a"); err != nil {
 		t.Fatalf("DispatchItem(wi-a): %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-a", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-a", storeteamwork.ItemReview)
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-a", "通过"); err != nil {
 		t.Fatalf("AcceptItem(wi-a): %v", err)
 	}
@@ -375,7 +376,7 @@ func TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree(t *testing.T)
 	itemA := itemState(t, fixture, "wi-a")
 	itemB := itemState(t, fixture, "wi-b")
 	// 验收只销状态并释放 A 的 worktree；Session 指针保留到 team_close。
-	if store.TeamworkWorkItemStatusOrPending(itemA) != store.TeamworkItemDone {
+	if storeteamwork.WorkItemStatusOrPending(itemA) != storeteamwork.ItemDone {
 		t.Fatalf("A 应当已验收: %+v", itemA)
 	}
 	if itemA.SessionID == "" || itemA.Worktree == "" {
@@ -398,7 +399,7 @@ func TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree(t *testing.T)
 		t.Fatalf("验收应只释放 A 的 worktree，得到 %v", released)
 	}
 	// A 的现场已在验收时释放；收口只补收 B 的现场并清理两边 Session。
-	waitItemStatus(t, fixture, "wi-b", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-b", storeteamwork.ItemReview)
 	if _, err := fixture.coordinator.Close(ctx); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -433,11 +434,11 @@ func TestDispatchItemReturnsBeforeTheRoundFinishes(t *testing.T) {
 		t.Fatalf("派发之后作业应当在跑（后台），得到 %+v ok=%v", record, ok)
 	}
 	item := itemState(t, fixture, "wi-req")
-	if store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemRunning {
-		t.Fatalf("派发之后工作项应当是 running，得到 %s", store.TeamworkWorkItemStatusOrPending(item))
+	if storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemRunning {
+		t.Fatalf("派发之后工作项应当是 running，得到 %s", storeteamwork.WorkItemStatusOrPending(item))
 	}
 	close(block)
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 }
 
 // ── 用例 2：worktree / Session 生命周期（归 team 托管，收口才结束）────────
@@ -461,7 +462,7 @@ func TestWorktreeAndSessionSurviveUntilTeamClose(t *testing.T) {
 	}
 	// 跑完 → 合并（尾插）→ 现场仍在，等 leader 验收。
 	close(block)
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	_, _, released = fixture.spaces.snapshot()
 	if len(released) != 0 {
 		t.Fatalf("跑完但还没验收，工作区不该提前挂掉: %v", released)
@@ -514,7 +515,7 @@ func TestTeamCloseEndsEveryLiveBinding(t *testing.T) {
 		t.Fatal("还在跑时收口必须被拦（现场正被尾插使用）")
 	}
 	close(block)
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	alreadyClosed, err := fixture.coordinator.Close(ctx)
 	if err != nil {
 		t.Fatalf("Close: %v", err)
@@ -592,7 +593,7 @@ func newItemFixtureOver(t *testing.T, source *itemFixture) *itemFixture {
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:          store.Key{ProjectID: "p", SessionID: "s"},
+		Key:          dto.SessionKey{ProjectID: "p", SessionID: "s"},
 		Store:        source.st,
 		Jobs:         manager,
 		Workers:      runner,
@@ -635,7 +636,7 @@ func TestAdjustItemRefusesStartedAndFinishedWork(t *testing.T) {
 	if err := fixture.coordinator.AdjustItem(ctx, "wi-req", WorkItemSpec{Name: "偷改"}); err == nil || !strings.Contains(err.Error(), "既定的") {
 		t.Fatalf("已经开始的工作项必须拒绝调整，得到 %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-req", "通过"); err != nil {
 		t.Fatalf("AcceptItem: %v", err)
 	}
@@ -654,7 +655,7 @@ func TestSettleMergesTheWorktreeBeforeEnqueuing(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	_, merged, _ := fixture.spaces.snapshot()
 	if len(merged) != 1 || merged[0] != "wi-req" {
 		t.Fatalf("尾插之前必须先合并这件事的 worktree: %v", merged)
@@ -683,7 +684,7 @@ func TestSettleReportsMergeFailureAndAsksTheLeader(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	item := waitItemStatus(t, fixture, "wi-req", store.TeamworkItemFailed)
+	item := waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemFailed)
 	texts := fixture.queue.texts()
 	if len(texts) != 1 {
 		t.Fatalf("合并失败时也要插入（说明失败），得到 %v", texts)
@@ -742,8 +743,8 @@ func TestSettlePrintsTheRunErrorIntoTheTeammateMessage(t *testing.T) {
 		t.Fatalf("bug 必须直接打印进 teammate 的消息: %v", texts)
 	}
 	item := itemState(t, fixture, "wi-req")
-	if store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemFailed {
-		t.Fatalf("带错误收尾应当判失败（可重派），得到 %s", store.TeamworkWorkItemStatusOrPending(item))
+	if storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemFailed {
+		t.Fatalf("带错误收尾应当判失败（可重派），得到 %s", storeteamwork.WorkItemStatusOrPending(item))
 	}
 }
 
@@ -796,7 +797,7 @@ func TestCloseIsIdempotentAndKeepsThePlanFacts(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	if _, err := fixture.coordinator.Close(ctx); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -804,11 +805,11 @@ func TestCloseIsIdempotentAndKeepsThePlanFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if plan.State.State != store.TeamworkStateClosed {
+	if plan.State.State != storeteamwork.StateClosed {
 		t.Fatalf("收口后计划必须标 closed: %+v", plan.State)
 	}
 	// 收口不改工作项的结论（事实不因收口被改写）。
-	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemReview {
+	if item := itemState(t, fixture, "wi-req"); storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemReview {
 		t.Fatalf("收口不该改写工作项的结论: %+v", item)
 	}
 	if alreadyClosed, err := fixture.coordinator.Close(ctx); err != nil || !alreadyClosed {

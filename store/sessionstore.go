@@ -23,8 +23,11 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	storesession "github.com/RedHuang-0622/seelex/store/session"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 const (
@@ -108,7 +111,7 @@ type ToolResult struct {
 	// Multimodal 承载本次工具结果的媒体资产引用（`media:<sha256>`）。
 	// 正文仍然是 Content（文本结果或摘要），图片等二进制只以引用形式挂在
 	// 这里：记录本身不复制字节，字节在会话媒体分区（meta/<hash>/<原名>）。
-	Multimodal []MediaRef `json:"multimodal,omitempty"`
+	Multimodal []storeartifact.MediaRef `json:"multimodal,omitempty"`
 }
 
 // Commit replaces the bounded provider cache and append-only transcript
@@ -148,10 +151,6 @@ type Repository interface {
 	ReadEventTail(context.Context, Key, int, int) ([]Event, error)
 	// ReadEventRange 按 EventSeq 范围（含端点）读取事件流，保持 Seq 连续性。
 	ReadEventRange(context.Context, Key, uint64, uint64) ([]Event, error)
-	// ReadConversationRange 只解析 state blob 的 conversation 模块（不解析
-	// Plan/Execution/Projection 等非 conversation 子树），offset/limit 语义
-	// 与 ReadRange 一致（limit <= 0 返回窗口尾段；总数为完整消息数）。
-	ReadConversationRange(context.Context, Key, int, int) ([]ConversationMessage, int, error)
 	ReadToolResult(context.Context, Key, string) (ToolResult, error)
 	// ListToolResults 返回会话 tool-results 通道的全部不可变结果（含
 	// compressed:<segment_id> 压缩原文归档）。fork 深拷贝需要物理复制整个
@@ -172,8 +171,8 @@ type Repository interface {
 	// WriteProjectRecord/ReadProjectRecord 是项目级模块语义记录（plan.md §3.7.1）。
 	// 与会话记录不同，它按 projectID 独立存储、跨会话共享；会话只读（read-only
 	// contract），只有 project_refresh 工具调用写入。
-	WriteProjectRecord(context.Context, string, ProjectRecord) error
-	ReadProjectRecord(context.Context, string) (ProjectRecord, error)
+	WriteProjectRecord(context.Context, string, storeproject.ProjectRecord) error
+	ReadProjectRecord(context.Context, string) (storeproject.ProjectRecord, error)
 	// AppendFrameworkEvent/ReadFrameworkEvents 是会话级执行事实事件库
 	// （双轨事件的事实轨，slice 8；event.Sink → store 事件库）。
 	// 追加顺序 = 落库顺序；读取按 Seq 排序。
@@ -196,10 +195,11 @@ type Router struct {
 	mu         sync.RWMutex
 	repository Repository
 	projectID  string
-	// projectBoardRootFor 是「会话 → 项目根」的解析器（装配期注入一次；nil = 未装配）。
+	// projectBoardReclaim 是会话删除后回收项目看板投影的装配期回调。
 	// 项目看板的落点是项目目录，而存储层不认识工作区——只有会话删除时的投影回收需要
 	// 它（见 project_board.go 的 SetProjectBoardRootFor / ReclaimProjectBoard）。
-	projectBoardRootFor func(sessionID string) string
+	projectBoardReclaim func(sessionID string) error
+	workUnits           *storeworkunit.SessionStore
 	// opsMu/activeOps/opsCond 统计在途 repository 操作：Repository 切换与
 	// Close 只在活跃操作归零后关闭旧后端；数据操作本身不再持有 router.mu，
 	// 不同会话的读写可并行（跨会话锁竞争消除）。
@@ -301,19 +301,6 @@ func (router *Router) LoadEventTailWorkspace(projectID, sessionID string, tokenB
 		return err
 	})
 	return events, err
-}
-
-// LoadConversationRangeWorkspace 读取会话 conversation 模块的指定窗口
-// （只解析 state blob 的 conversation 子树，不解析执行/计划模块）。
-func (router *Router) LoadConversationRangeWorkspace(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error) {
-	var messages []ConversationMessage
-	var total int
-	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
-		var err error
-		messages, total, err = repository.ReadConversationRange(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, offset, limit)
-		return err
-	})
-	return messages, total, err
 }
 
 // LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
@@ -527,7 +514,7 @@ func (router *Router) CompactFramesWorkspace(projectID, sessionID string) ([]Com
 		for _, row := range rows {
 			frames = append(frames, CompactFrame{
 				SegmentID: row.FrameID, PrevSegmentID: row.PrevID,
-				MessageFrom: row.MessageFrom, MessageTo: row.MessageTo,
+				MessageFrom: row.MessageFrom, MessageTo: row.MessageTo, MessageToSeq: row.MessageToSeq,
 				Summary: row.Summary, CompressedAt: row.CompressedAt,
 			})
 		}
@@ -726,41 +713,6 @@ func (router *Router) LoadSessionDisplayMetaWorkspace(projectID string) ([]byte,
 	return payload, err
 }
 
-// DerivedRecordWorkspace 返回派生 SessionRecord JSON（S20：record 通道退役后
-// 由 message head.Meta + message 行 + lifecycle 派生）。handled=false 表示
-// 后端未 v8 化；payload 为空 = 会话不存在。
-func (router *Router) DerivedRecordWorkspace(projectID, sessionID string) ([]byte, bool, error) {
-	var payload []byte
-	handled := false
-	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
-		jsonRepository, ok := repository.(*jsonRepository)
-		if !ok {
-			return nil
-		}
-		handled = true
-		derived, err := jsonRepository.derivedRecordPayload(Key{ProjectID: projectID, SessionID: sessionID})
-		payload = derived
-		return err
-	})
-	return payload, handled, err
-}
-
-// DerivedResumeRecordWorkspace 返回冷加载可见后缀的派生 record，并以最新
-// compact 指针跳过已折出的前缀；total 用于保持历史偏移连续。
-func (router *Router) DerivedResumeRecordWorkspace(projectID, sessionID string) (payload []byte, total int, handled bool, err error) {
-	err = router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
-		jsonRepository, ok := repository.(*jsonRepository)
-		if !ok {
-			return nil
-		}
-		handled = true
-		var inner error
-		payload, total, inner = jsonRepository.derivedResumeRecordPayload(Key{ProjectID: projectID, SessionID: sessionID})
-		return inner
-	})
-	return payload, total, handled, err
-}
-
 // AppendGoalAuditEvent 把 goal 审计条目写进 EVENT 通道（S19：GoalAudit 的
 // 权威从 context blob 迁到 EVENT goal.*）。handled=false 表示后端未 v8 化。
 func (router *Router) AppendGoalAuditEvent(projectID, sessionID string, entry GoalAuditEntry) (bool, error) {
@@ -795,7 +747,7 @@ func (router *Router) GoalAuditEvents(projectID, sessionID string) ([]GoalAuditE
 
 // SaveProjectRecord 写入项目级模块语义记录（project_refresh 工具的落盘路径）。
 // 只读契约：会话不写项目记录；本方法只被 project_refresh 工具调用（plan.md §3.7.1）。
-func (router *Router) SaveProjectRecord(projectID string, record ProjectRecord) error {
+func (router *Router) SaveProjectRecord(projectID string, record storeproject.ProjectRecord) error {
 	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		return repository.WriteProjectRecord(context.Background(), projectID, record)
 	})
@@ -833,8 +785,8 @@ func (router *Router) ReadFrameworkEventsWorkspace(ctx context.Context, projectI
 // LoadProjectRecord 读取项目级模块语义记录（会话开始前即可读）。
 // 记录尚未构建时返回 fs.ErrNotExist，由调用方按「未构建」处理
 // （判定统一走 IsSessionNotFound；SQL 后端已退役，不再有 sql.ErrNoRows 路径）。
-func (router *Router) LoadProjectRecord(projectID string) (ProjectRecord, error) {
-	var record ProjectRecord
+func (router *Router) LoadProjectRecord(projectID string) (storeproject.ProjectRecord, error) {
+	var record storeproject.ProjectRecord
 	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		var err error
 		record, err = repository.ReadProjectRecord(context.Background(), projectID)
@@ -873,9 +825,22 @@ func (router *Router) DeleteWorkspace(projectID, sessionID string) error {
 	}
 	// 派生投影与会话同批回收：项目看板是"按会话派生"的投影（可删可重建），会话没了
 	// 它的行就该退场（否则会在项目看板里留成"幽灵活"）。回收实现只有一处
-	// （ReclaimProjectBoard，见 project_board.go）——这里只做绑定，且**只在真正删成
+	// （由组合根注入的回调）——这里只做绑定，且**只在真正删成
 	// 之后**才做（失败不掩盖删除错误）。
-	return router.ReclaimProjectBoard(projectID, sessionID)
+	if router.projectBoardReclaim == nil {
+		return nil
+	}
+	return router.projectBoardReclaim(sessionID)
+}
+
+// ConfigureProjectBoardReclaimer 在组合根注入会话删除后的投影回收回调。
+func ConfigureProjectBoardReclaimer(router *Router, reclaim func(sessionID string) error) {
+	if router == nil {
+		return
+	}
+	router.mu.Lock()
+	defer router.mu.Unlock()
+	router.projectBoardReclaim = reclaim
 }
 
 func (router *Router) MessageCount(sessionID string) (int, error) {
@@ -1152,7 +1117,7 @@ func (repository *jsonRepository) ReadState(_ context.Context, key Key) ([]byte,
 	return nil, fs.ErrNotExist
 }
 
-func (repository *jsonRepository) WriteProjectRecord(_ context.Context, projectID string, record ProjectRecord) error {
+func (repository *jsonRepository) WriteProjectRecord(_ context.Context, projectID string, record storeproject.ProjectRecord) error {
 	if err := validateProjectID(projectID); err != nil {
 		return err
 	}
@@ -1509,19 +1474,19 @@ func (repository *jsonRepository) readEventLogLocked(path string) ([]EventLogEnt
 	return dedupeEventLogEntries(entries), nil
 }
 
-func (repository *jsonRepository) ReadProjectRecord(_ context.Context, projectID string) (ProjectRecord, error) {
+func (repository *jsonRepository) ReadProjectRecord(_ context.Context, projectID string) (storeproject.ProjectRecord, error) {
 	if err := validateProjectID(projectID); err != nil {
-		return ProjectRecord{}, err
+		return storeproject.ProjectRecord{}, err
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 	data, err := os.ReadFile(filepath.Join(repository.projectDir(projectID), "project-record.json"))
 	if err != nil {
-		return ProjectRecord{}, err
+		return storeproject.ProjectRecord{}, err
 	}
-	var record ProjectRecord
+	var record storeproject.ProjectRecord
 	if err := json.Unmarshal(data, &record); err != nil {
-		return ProjectRecord{}, err
+		return storeproject.ProjectRecord{}, err
 	}
 	return record, nil
 }

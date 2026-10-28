@@ -255,7 +255,7 @@ func TestStructuralEventForkRowsSurviveConsecutiveForks(t *testing.T) {
 	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	parent := Key{ProjectID: "p-ev", SessionID: "parent"}
 	if _, err := store.messageCommit(parent, "", []Event{
-		{Role: "user", Content: "a"}, {Role: "assistant", Content: "b"},
+		{Seq: 1, Role: "user", Content: "a"}, {Seq: 2, Role: "assistant", Content: "b"},
 	}); err != nil {
 		t.Fatal(err)
 	}

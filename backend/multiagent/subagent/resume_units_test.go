@@ -10,14 +10,14 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 func stringPointer(value string) *string { return &value }
 
-func resumeRecord(nodeID, sessionID, status string) store.NodeSessionRecord {
-	record := store.NodeSessionRecord{
-		SchemaVersion: store.NodeSessionSchemaVersion,
+func resumeRecord(nodeID, sessionID, status string) storeworkunit.Record {
+	record := storeworkunit.Record{
+		SchemaVersion: storeworkunit.SchemaVersion,
 		NodeID:        nodeID, SessionID: sessionID, Status: status,
 		Goal: "实现渲染件", UpdatedAt: time.Unix(1700000000, 0),
 	}
@@ -29,7 +29,7 @@ func resumeRecord(nodeID, sessionID, status string) store.NodeSessionRecord {
 // 在跑 ⇒ active（要续跑）；判失败 ⇒ failed；其余 ⇒ done；**已有结论一律按终结**
 // （结论唯一：残留记录只是半同步残留）。
 func TestLocateResumeUnitsStatusDerivation(t *testing.T) {
-	records := []store.NodeSessionRecord{
+	records := []storeworkunit.Record{
 		resumeRecord("n-running", "sess-1", "running"),
 		resumeRecord("n-queued", "sess-2", "queued"),
 		resumeRecord("n-failed", "sess-3", "failed"),
@@ -75,7 +75,7 @@ func TestResumeUnitKeyFallsBackToSession(t *testing.T) {
 	if got := ResumeUnitKey(workunit.Progress{}); got != "" {
 		t.Fatalf("没有身份时回空键：%q", got)
 	}
-	records := []store.NodeSessionRecord{{SessionID: "", NodeID: ""}}
+	records := []storeworkunit.Record{{SessionID: "", NodeID: ""}}
 	if units := LocateResumeUnits("sess-main", records, nil); len(units) != 0 {
 		t.Fatalf("没有身份的记录不该进恢复批次：%+v", units)
 	}
@@ -123,7 +123,7 @@ func TestSceneOfPrefersSummaryAndFallsBackToLastStage(t *testing.T) {
 	if scene.Summary != "已写完解析" {
 		t.Fatalf("摘要应取记录自带的那份：%q", scene.Summary)
 	}
-	var decoded store.NodeSessionRecord
+	var decoded storeworkunit.Record
 	if err := json.Unmarshal(scene.Payload, &decoded); err != nil || decoded.NodeID != "n1" {
 		t.Fatalf("载荷应当是记录本身：%v %+v", err, decoded)
 	}

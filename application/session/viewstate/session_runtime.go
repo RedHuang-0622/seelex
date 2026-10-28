@@ -118,29 +118,22 @@ func (c *Coordinator) EnrichDirectoryRowsLocked(rows []protocol.SessionInfo) []p
 	return rows
 }
 
-// SessionStatusLocked returns the visible status of one session.
+// SessionStatusLocked projects the visible status of one session.
 func (c *Coordinator) SessionStatusLocked(sessionID string) protocol.SessionStatus {
 	if sessionID == "" {
 		return protocol.SessionStatusDraft
 	}
-	if c.IsRestoringLocked(sessionID) {
-		return protocol.SessionStatusRestoring
-	}
+	facts := session.VisibleStatusFacts{Restoring: c.IsRestoringLocked(sessionID)}
 	unit := c.units.Unit(sessionID)
-	if unit == nil {
-		return protocol.SessionStatusIdle
+	if unit != nil {
+		chat := unit.ChatState()
+		facts.HasUnit = true
+		facts.PendingApprovalCount = unit.PendingApprovalCount()
+		facts.Running = chat.Running
+		facts.PendingRequests = len(unit.PendingRequests())
+		facts.QueuedCount = chat.QueuedCount
 	}
-	if unit.PendingApprovalCount() > 0 {
-		return protocol.SessionStatusAwaitingApproval
-	}
-	runtime := unit.ChatState()
-	if runtime.Running {
-		return protocol.SessionStatusRunning
-	}
-	if len(unit.PendingRequests()) > 0 || runtime.QueuedCount > 0 {
-		return protocol.SessionStatusQueued
-	}
-	return protocol.SessionStatusIdle
+	return session.ProjectVisibleStatus(facts)
 }
 
 // IsRestoringLocked reports whether a session is in the cold-restore shell.

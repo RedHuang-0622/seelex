@@ -69,7 +69,7 @@ func TestPendingTailProbeDecodesOnlyCandidateTail(t *testing.T) {
 			role = "assistant"
 			kind = EventKindLLM
 		}
-		row := messageRow(0, "published-"+time.Unix(int64(index), 0).Format("150405"), role, kind, "published")
+		row := messageRow(uint64(index+1), "published-"+time.Unix(int64(index), 0).Format("150405"), role, kind, "published")
 		row.TokenCount = 1
 		rows = append(rows, row)
 	}
@@ -82,7 +82,7 @@ func TestPendingTailProbeDecodesOnlyCandidateTail(t *testing.T) {
 	t.Cleanup(func() { shardDecodeHook = nil })
 
 	appendPendingTail(t, store, key, lastShardName(t, store, key), []Event{
-		messageRow(0, "tail-1", "user", EventKindUserInput, "tail"),
+		messageRow(951, "tail-1", "user", EventKindUserInput, "tail"),
 	})
 	decodes.Store(0)
 	report, err := store.pendingTailReport(key)
@@ -117,8 +117,8 @@ func TestPendingTailProbeDecodesOnlyCandidateTail(t *testing.T) {
 func TestPendingTailCleanAfterNormalCommit(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -136,15 +136,15 @@ func TestPendingTailCleanAfterNormalCommit(t *testing.T) {
 func TestPendingTailRecoversRowsBeyondPublishedPoint(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// 崩溃窗口：第二轮两行已落盘（seq 2、3），head 仍停在 1。
 	shard := lastShardName(t, store, key)
 	appendPendingTail(t, store, key, shard, []Event{
-		messageRow(0, "a1", "assistant", EventKindLLM, "半轮：LLM 已返回"),
-		messageRow(0, "t1", "tool", EventKindToolOutput, "半轮：工具已返回"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "半轮：LLM 已返回"),
+		messageRow(3, "t1", "tool", EventKindToolOutput, "半轮：工具已返回"),
 	})
 
 	// 夹具有效性：此刻通道自校验必定失败、读者也看不到草稿行。
@@ -206,14 +206,14 @@ func TestPendingTailRecoversRowsBeyondPublishedPoint(t *testing.T) {
 func TestPendingTailRecoversExtraShardFile(t *testing.T) {
 	store, key := messageFixture(t, 2)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	appendPendingTail(t, store, key, "message_3_4.jsonl", []Event{
-		messageRow(0, "u2", "user", EventKindUserInput, "第二问"),
-		messageRow(0, "a2", "assistant", EventKindLLM, "第二答"),
+		messageRow(3, "u2", "user", EventKindUserInput, "第二问"),
+		messageRow(4, "a2", "assistant", EventKindLLM, "第二答"),
 	})
 	if rows, err := store.readAllRows(key); err != nil || len(rows) != 2 {
 		t.Fatalf("readAllRows = %d rows (%v), want 2（新分片对读者不可见）", len(rows), err)
@@ -246,9 +246,9 @@ func TestPendingTailRecoversExtraShardFile(t *testing.T) {
 func TestPendingTailGapIsReportedButNotPublished(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
-		messageRow(0, "t1", "tool", EventKindToolOutput, "工具"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(3, "t1", "tool", EventKindToolOutput, "工具"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestPendingTailGapIsReportedButNotPublished(t *testing.T) {
 func TestPendingTailDiscardIsExplicit(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestPendingTailDiscardIsExplicit(t *testing.T) {
 func TestPendingTailRecoverKeepsHeadOnlyFields(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestPendingTailRecoverKeepsHeadOnlyFields(t *testing.T) {
 
 	shard := lastShardName(t, store, key)
 	appendPendingTail(t, store, key, shard, []Event{
-		messageRow(0, "a1", "assistant", EventKindLLM, "半轮"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "半轮"),
 	})
 	if _, err := store.recoverPendingTail(key); err != nil {
 		t.Fatal(err)

@@ -367,7 +367,7 @@ func TestForkStoreSubagentTree(t *testing.T) {
 func TestForkStoreSubagentReusesMainBlob(t *testing.T) {
 	store, key := lifecycleFixture(t)
 	commitRoundRows(t, store, key, roundRows(10))
-	blob, err := store.writeBlob(key, "big_tool", "超长输出-"+string(make([]byte, 0))+repeatStr("数据", 10))
+	blob, err := writeBlobForTest(store, key, "big_tool", "超长输出-"+string(make([]byte, 0))+repeatStr("数据", 10))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestForkStoreSubagentReusesMainBlob(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 子消息引用主会话 blob：可读回。
-	content, err := store.readBlob(key, blob.Hash)
+	content, err := readBlobForTest(store, key, blob.Hash)
 	if err != nil || !containsStr(content, "数据") {
 		t.Fatalf("read blob err=%v", err)
 	}
@@ -431,25 +431,25 @@ func TestForkStoreArchiveSubagentParentOK(t *testing.T) {
 // 回收；任一仍引用则保留。
 func TestForkStoreBlobGC(t *testing.T) {
 	store, key := lifecycleFixture(t)
-	first, err := store.writeBlob(key, "bash", "第一次大输出内容")
+	first, err := writeBlobForTest(store, key, "bash", "第一次大输出内容")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.writeBlob(key, "read", "第二次大输出内容")
+	second, err := writeBlobForTest(store, key, "read", "第二次大输出内容")
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed, err := store.blobGarbageCollect(key, map[string]bool{first.Hash: true}, false)
+	removed, err := collectBlobsForTest(store, key, map[string]bool{first.Hash: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(removed) != 1 || removed[0] != second.Hash {
 		t.Fatalf("removed = %+v", removed)
 	}
-	if _, err := store.readBlob(key, first.Hash); err != nil {
+	if _, err := readBlobForTest(store, key, first.Hash); err != nil {
 		t.Fatalf("referenced blob removed: %v", err)
 	}
-	if _, err := store.readBlob(key, second.Hash); err == nil {
+	if _, err := readBlobForTest(store, key, second.Hash); err == nil {
 		t.Fatal("unreferenced blob survived GC")
 	}
 }

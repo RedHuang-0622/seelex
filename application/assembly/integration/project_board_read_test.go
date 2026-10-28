@@ -16,7 +16,8 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/board"
 	"github.com/RedHuang-0622/seelex/kernel/board/boardtest"
-	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"reflect"
 	"sort"
 	"strings"
@@ -69,7 +70,7 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 		t.Fatalf("活体工作表格行数 = %d，希望 4（todo/task/plan/subagent 各一）", len(live))
 	}
 
-	scope := store.ProjectBoardScope{Project: boardtest.Project, Session: session}
+	scope := dto.ProjectBoardScope{Project: boardtest.Project, Session: session}
 	rows := board.BuildProjectBoardRows(scope, 1, boardtest.At, live, nil, nil, 800)
 	again := board.BuildProjectBoardRows(scope, 1, boardtest.At, live, nil, nil, 800)
 	if boardtest.MarshalRows(t, rows) != boardtest.MarshalRows(t, again) {
@@ -86,13 +87,13 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 	}
 	sort.Slice(expected, func(left, right int) bool { return expected[left].ID < expected[right].ID })
 
-	folded := store.FoldProjectBoardRows(rows, nil)
+	folded := storeboard.Fold(rows, nil)
 	if len(folded) != len(expected) {
 		t.Fatalf("折叠读行数 = %d，希望 %d（活体里的 todo/task 行数）", len(folded), len(expected))
 	}
 	for index, row := range folded {
 		item := expected[index]
-		if row.Kind != store.ProjectBoardKindWork {
+		if row.Kind != dto.ProjectBoardKindWork {
 			t.Fatalf("折叠读第 %d 行 kind = %q，希望 work", index, row.Kind)
 		}
 		if row.Key != "work:"+item.ID {
@@ -104,7 +105,7 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 		if got := boardtest.PayloadText(row, "task"); got != item.Task {
 			t.Fatalf("折叠读第 %d 行 task = %q，活体 = %q", index, got, item.Task)
 		}
-		if row.Seq != 1 || row.At != boardtest.At || row.Schema != store.ProjectBoardSchema {
+		if row.Seq != 1 || row.At != boardtest.At || row.Schema != dto.ProjectBoardSchema {
 			t.Fatalf("折叠读第 %d 行信封 = seq:%d at:%d schema:%d", index, row.Seq, row.At, row.Schema)
 		}
 		if row.Scope != scope {
@@ -128,10 +129,10 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 
 	// 篡改投影文件：把那条 todo 改成 done（外加一行 schema/kind 都认不得的垃圾行）。
 	st := boardtest.NewStore()
-	if _, err := st.AppendProjectBoardRows(boardtest.ProjectRoot, session, store.ProjectBoardWorkFile,
-		[]store.ProjectBoardRow{
-			{Schema: store.ProjectBoardSchema, Kind: store.ProjectBoardKindWork, Key: "work:todo:0", Seq: 99, At: boardtest.At,
-				Scope:   store.ProjectBoardScope{Project: boardtest.Project, Session: session},
+	if _, err := st.AppendProjectBoardRows(boardtest.ProjectRoot, session, dto.ProjectBoardWorkFile,
+		[]dto.ProjectBoardRow{
+			{Schema: dto.ProjectBoardSchema, Kind: dto.ProjectBoardKindWork, Key: "work:todo:0", Seq: 99, At: boardtest.At,
+				Scope:   dto.ProjectBoardScope{Project: boardtest.Project, Session: session},
 				Payload: map[string]any{"id": "todo:0", "kind": "todo", "status": "done"}},
 			{Schema: 99, Kind: "not-a-kind", Key: "work:todo:1", Seq: 100, At: boardtest.At,
 				Payload: map[string]any{"status": "done"}},
@@ -140,7 +141,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 
 	// 文件的读**确实**被改了（否则这个反例什么都没证明）。
-	folded := st.Folded(boardtest.ProjectRoot, session, store.ProjectBoardWorkFile)
+	folded := st.Folded(boardtest.ProjectRoot, session, dto.ProjectBoardWorkFile)
 	if len(folded) != 1 || boardtest.PayloadText(folded[0], "status") != "done" {
 		t.Fatalf("篡改后的文件读 = %+v，希望一条 done", folded)
 	}
@@ -155,7 +156,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 		t.Fatalf("篡改投影文件后 task 注册表变了：%+v", records)
 	}
 	// 投影输入（活体取数）也不受文件影响：再映射一次仍是 doing。
-	rows := board.BuildProjectBoardRows(store.ProjectBoardScope{Project: boardtest.Project, Session: session},
+	rows := board.BuildProjectBoardRows(dto.ProjectBoardScope{Project: boardtest.Project, Session: session},
 		1, boardtest.At, service.components.projectBoardQuery.WorkTableRowsFor(session), nil, nil, 800)
 	if len(rows) != 1 || boardtest.PayloadText(rows[0], "status") != "doing" {
 		t.Fatalf("活体输入映射出的行 = %+v，希望 status=doing", rows)
@@ -179,9 +180,9 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	// 已装配 teamwork 计划端口（Runtime 额外实现了 board.TeamworkPlanSource）：装配期注入，不做事后改 Deps。
 	planSource := &boardPlanRuntime{
 		fakeRuntime: &fakeRuntime{},
-		plan: store.TeamworkPlan{
+		plan: storeteamwork.Plan{
 			TeamID: "team-1",
-			State:  store.TeamworkState{State: store.TeamworkStateClosed},
+			State:  storeteamwork.State{State: storeteamwork.StateClosed},
 		},
 	}
 	service := newLegacyTestService(t, &fakeEngine{},
@@ -209,7 +210,7 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 		t.Fatalf("装配后计划 = %+v，希望 team-1", plan)
 	}
 	state := assembly.ComponentsFor(service.Service).Execution.ProjectBoard.ProjectBoardTeamStateFor(session)
-	if state == nil || state.State != store.TeamworkStateClosed {
+	if state == nil || state.State != storeteamwork.StateClosed {
 		t.Fatalf("装配后运行态 = %+v，希望 closed", state)
 	}
 	if got := len(service.components.projectBoardQuery.WorkTableRowsFor(session)); got != 0 {
@@ -234,12 +235,12 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 
 type boardPlanRuntime struct {
 	*fakeRuntime
-	plan store.TeamworkPlan
+	plan storeteamwork.Plan
 }
 
-func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
+func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (storeteamwork.Plan, bool) {
 	if strings.TrimSpace(sessionID) == "" {
-		return store.TeamworkPlan{}, false
+		return storeteamwork.Plan{}, false
 	}
 	return runtime.plan, true
 }
@@ -309,7 +310,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 	recorder := &recordingBoardSink{next: syncer}
 	service.components.projectBoard.Store(recorder)
 
-	workFile := store.ProjectBoardWorkFile
+	workFile := dto.ProjectBoardWorkFile
 	complete := func(ctx context.Context, name, id string, toolErr error) {
 		service.components.conversationTurn.projection.Complete(ctx, name, id, "", "result", toolErr, time.Millisecond, nil)
 	}

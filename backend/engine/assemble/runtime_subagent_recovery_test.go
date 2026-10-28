@@ -49,7 +49,7 @@ func TestSubagentConclusionFollowsMainAndAnchorsRebuild(t *testing.T) {
 	}
 	defer router.Close()
 	eventStore := store.NewEventStore(router)
-	nodeStore := store.NewNodeSessionStore(router)
+	nodeStore := store.NewWorkUnitSessionStore(router)
 
 	runtime.AttachHistoryRouter(router)
 	runtime.AttachSubSessionStore(nodeStore)

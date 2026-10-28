@@ -2,9 +2,9 @@
 
 ## 生态位
 
-存储引擎底座：数据根、存储装配、提交写序、JSON v8 布局、模块 head 发布与 fork 子树
+存储引擎底座：JSON v8 布局、模块 head 发布、提交/组合根与领域作用域适配
 
-覆盖：`json_layout*.go`、`module_heads*.go`、`fork_store*.go`、`router_storage*.go`、`commit_writer*.go`、`stores*.go`；未归属文件由覆盖自检拦下。
+覆盖：`json_layout*.go`、`module_heads*.go`、`fork_store*.go`、`router_storage*.go`、`commit_writer*.go`、`stores*.go`、`workunit_roots*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -55,11 +55,6 @@
 - `func (repository *jsonRepository) hasDraft(key Key) bool` — hasDraft 报告会话是否存在未发送草稿（§2.5.4 草稿行判据，S20）。
 - `func (repository *jsonRepository) writeSessionDisplayMetaLayout(projectID string, payload []byte) error` — writeSessionDisplayMetaLayout / readSessionDisplayMetaLayout 是项目级会话
 - `func (repository *jsonRepository) readSessionDisplayMetaLayout(projectID string) ([]byte, error)`
-- `func (repository *jsonRepository) derivedRecordPayload(key Key) ([]byte, error)` — derivedRecordPayload 按 §2.5.4 派生 SessionRecord 形状的 JSON（version/id/
-- `func (repository *jsonRepository) derivedResumeRecordPayload(key Key) ([]byte, int, error)` — derivedResumeRecordPayload 从最新 compact 指针恢复冷加载所需的可见后缀。
-- `func (repository *jsonRepository) encodeDerivedRecord( key Key, meta frameworkStorage.SessionMeta, messages []ConversationMessage, total int, ) ([]byte, error)`
-- `func derivedConversationMessages(rows []Event) []ConversationMessage` — derivedConversationMessages 把 message 事件行派生为 conversation 消息，
-- `func derivedToolCallMessageID(rowID string, index int) string` — derivedToolCallMessageID 给同一行派生出的调用消息分配稳定且唯一的 ID。
 - `func (repository *jsonRepository) assembleWireWorkspace(key Key, budget, k int) ([]types.Message, bool, error)` — assembleWireWorkspace 对 会话执行 wire 装配（frame 摘要 + tail + 最近 K
 - `func wireToTypesMessages(wire []wireMessage) []types.Message` — wireToTypesMessages 把 R2 wire 消息映射为 provider types.Message。
 - `func (repository *jsonRepository) commitCompactFrameWorkspace(key Key, frame CompactFrame) (bool, error)` — commitCompactFrameWorkspace 把运行期 compact 帧桥接进 compact 通道
@@ -135,4 +130,12 @@
 ### stores.go
 
 - `func OpenStores(defaultPath string, limits ...storeroot.Settings) (*Stores, error)` — OpenStores opens the single JSON data root once and returns the shared owner
+- `func (layout rolePermissionLayout) WithProjectDir(projectID string, fn func(dir string) error) error`
+- `func (resolver artifactScopeResolver) ArtifactScope(projectID, sessionID string) (storelayout.Scope, error)`
 - `func (stores *Stores) Close() error`
+
+### workunit_roots.go
+
+- `func (roots workunitSessionRoots) CurrentProjectID() string`
+- `func (roots workunitSessionRoots) WithSessionRoot(projectID, sessionID string, fn func(root string) error) error`
+- `func NewWorkUnitSessionStore(router *Router) *storeworkunit.SessionStore` — NewWorkUnitSessionStore 构造绑定 Router 的 WorkUnit 会话记录入口。

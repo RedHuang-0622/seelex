@@ -27,7 +27,7 @@ func TestRetentionAdvisoryDoesNotPublishMessageHeadOutsideModuleLock(t *testing.
 	const projectID, sessionID = "project-advisory", "session-advisory"
 	router := newLockProfileRouter(t, t.TempDir())
 	if err := router.SaveCommitWorkspace(projectID, sessionID, Commit{Events: []Event{
-		{Role: "user", Content: "第一问", MessageID: "u1"},
+		{Seq: 1, Role: "user", Content: "第一问", MessageID: "u1"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestRetentionAdvisoryHealsMessageHeadWhenLockIsFree(t *testing.T) {
 	const projectID, sessionID = "project-advisory-heal", "session-advisory-heal"
 	router := newLockProfileRouter(t, t.TempDir())
 	if err := router.SaveCommitWorkspace(projectID, sessionID, Commit{Events: []Event{
-		{Role: "user", Content: "第一问", MessageID: "u1"},
+		{Seq: 1, Role: "user", Content: "第一问", MessageID: "u1"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestRetentionAdvisoryHealsMessageHeadWhenLockIsFree(t *testing.T) {
 	}
 	// 自愈后的 head 仍能支撑提交（自愈不改写 generation 与只存在于 head 的字段）。
 	if _, err := layout.messageCommit(key, "c2", []Event{
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
 	}); err != nil {
 		t.Fatalf("自愈后继续提交失败: %v", err)
 	}

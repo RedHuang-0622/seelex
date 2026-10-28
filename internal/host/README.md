@@ -237,8 +237,7 @@ go test ./e2e/ -run 'Boundary|Store|Facade|Session' -count=1
 
 ### role_permission_port.go
 
-- `func rolePermissionStoreFor(router *store.Router) *store.RolePermissionStore` — rolePermissionStoreFor 取该数据根的登记存储（首次调用建实例，其后复用）。
-- `func (port SessionPort) rolePermissionStore() *store.RolePermissionStore` — rolePermissionStore 返回本端口的登记存储（存储未装配时 nil）。
+- `func (port SessionPort) rolePermissionStore() *storerole.PermissionStore` — rolePermissionStore 返回本端口的登记存储（存储未装配时 nil）。
 - `func (port SessionPort) rolePermissionProject(sessionID string) string` — rolePermissionProject 解析会话归属的项目（登记的键是 (项目, 会话, 角色)）。
 - `func (port SessionPort) RoleDefaultVectors(sessionID string) (map[string][]string, error)` — RoleDefaultVectors 实现 application/assembly 的 roleDefaultPort：该数据根下所有显式
 - `func (port SessionPort) RoleDefault(sessionID, role string) ([]string, bool, error)` — RoleDefault 实现 roleDefaultPort：读单个角色的默认；第二个返回值报告"是否定过"。
@@ -266,7 +265,7 @@ go test ./e2e/ -run 'Boundary|Store|Facade|Session' -count=1
 ### runtime_narrow_ports.go
 
 - `func (port RuntimePort) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：把某会话的团队看板
-- `func (port RuntimePort) SessionContextStoreFor(sessionID string) *store.SessionContextStore` — SessionContextStoreFor 实现 application/assembly 的会话上下文存储取用面：goal 第五栈
+- `func (port RuntimePort) SessionContextStoreFor(sessionID string) goaldomain.SessionContextPort` — SessionContextStoreFor 实现 application/assembly 的会话上下文存储取用面：goal 第五栈
 - `func (port RuntimePort) SessionBoardsFor(sessionID string) *storeboard.BoundStore`
 - `func (port RuntimePort) SetAccountWindow(name string, window int)` — SetAccountWindow 实现 contract.AccountWindowPort：界面「设置 → 账号」设的窗口经这里
 - `func (port RuntimePort) SetRoleAccount(role, account string) error` — SetRoleAccount 把角色默认账号推到运行时账号管理器。
@@ -284,7 +283,7 @@ go test ./e2e/ -run 'Boundary|Store|Facade|Session' -count=1
 - `func (port RuntimePort) TeamworkJobEvents() <-chan struct`
 - `func (port RuntimePort) WithPluginAssembly(ctx context.Context, plugins []string) context.Context` — WithPluginAssembly 实现 application/assembly 的「按轮插件装配」探测点（定时任务：
 - `func (port RuntimePort) SetSessionReasoningEffort(effort string) int` — SetSessionReasoningEffort 实现 contract.ReasoningEffortPort：把会话档位对应的 wire
-- `func (port RuntimePort) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)` — TeamworkPlanFor 实现 application/assembly 的 `TeamworkPlanSource` 窄可选端口
+- `func (port RuntimePort) TeamworkPlanFor(sessionID string) (storeteamwork.Plan, bool)` — TeamworkPlanFor 实现 application/assembly 的 `TeamworkPlanSource` 窄可选端口
 
 ### runtime_port.go
 
@@ -376,7 +375,7 @@ go test ./e2e/ -run 'Boundary|Store|Facade|Session' -count=1
 
 ### session_status_record.go
 
-- `func sessionStatusOfRecord(wire store.Status) dto.SessionStatus` — session_status_record.go — 会话可见状态在**存储面**上的转换点（全仓唯一一处）。
+- `func sessionStatusOfRecord(wire dto.SessionRecordStatus) dto.SessionStatus` — session_status_record.go — 会话可见状态在**存储面**上的转换点（全仓唯一一处）。
 
 ### session_workspace_ports.go
 
@@ -476,13 +475,12 @@ go test ./e2e/ -run 'Boundary|Store|Facade|Session' -count=1
 - `func (port SessionPort) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error`
 - `func storeRoleRows(rows []dto.RoleRow) []store.Event`
 - `func roleRows(events []store.Event) []dto.RoleRow`
-- `func storeRoleDraftRows(rows []dto.RoleDraftRow) []store.RoleDraftRow`
-- `func roleDraftRows(rows []store.RoleDraftRow) []dto.RoleDraftRow`
+- `func storeRoleDraftRows(rows []dto.RoleDraftRow) []storerole.DraftRow`
+- `func roleDraftRows(rows []storerole.DraftRow) []dto.RoleDraftRow`
 - `func storeCompactRef(ref *dto.CompactFrameRef) *store.CompactRef`
 - `func compactRef(ref *store.CompactRef) *dto.CompactFrameRef`
 - `func roleSnapshot(snapshot store.RoleSnapshot) dto.RoleSnapshot`
 - `func roleWireSnapshot(snapshot store.RoleWireSnapshot) dto.RoleWireSnapshot`
-- `func storeSchedulePayload(payload dto.ScheduleEventPayload) store.ScheduleEventPayload`
 - `func (port SessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (model.StoredToolResult, error)`
 - `func storeTranscriptEvents(events []model.TranscriptEvent) []store.Event`
 - `func adaptTranscriptEvents(events []store.Event) []model.TranscriptEvent`
@@ -493,9 +491,9 @@ go test ./e2e/ -run 'Boundary|Store|Facade|Session' -count=1
 - `func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error)`
 - `func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (model.SessionRecord, error)`
 - `func (port SessionPort) LoadSessionResumeRecordWorkspace(workspaceID, id string) (model.SessionRecord, int, bool, error)` — LoadSessionResumeRecordWorkspace 是冷加载专用读面：有 compact 指针时只
+- `func (port SessionPort) loadProjectedSessionRecord(workspaceID, sessionID string, fromSeq uint64) (model.SessionRecord, int, error)` — loadProjectedSessionRecord 读取原始 message 行，并调用 Kernel Session 的
 - `func (port SessionPort) deriveSessionRecord(workspaceID, sessionID string) (model.SessionRecord, error)` — deriveSessionRecord 从该会话自身的事件流构造最小 SessionRecord（S20：
 - `func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, offset, limit int) ([]model.Message, int, error)`
-- `func adaptStoredConversationMessage(message store.ConversationMessage) model.Message` — adaptStoredConversationMessage 把存储层 conversation DTO 转为 UI 消息
 - `func decodeSessionRecord(payload []byte, sessionID string) (model.SessionRecord, error)`
 - `func migrateSessionArchive(sessionID string, archive model.SessionArchive) model.SessionRecord`
 - `func adaptGranularInfos(sessions []store.SessionInfo) []model.SessionInfo`

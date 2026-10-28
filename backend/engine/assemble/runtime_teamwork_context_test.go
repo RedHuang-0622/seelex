@@ -20,7 +20,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // fakeMemberJobs 是收窄端口的最小假体：它**只**有读法（读面的类型级保证）。
@@ -151,7 +151,7 @@ func TestTeamworkContextBounded(t *testing.T) {
 
 func TestTeamworkContextRolesFilterAndClosedFlag(t *testing.T) {
 	plan := boardPlanFixture()
-	plan.State = store.TeamworkState{State: store.TeamworkStateClosed}
+	plan.State = storeteamwork.State{State: storeteamwork.StateClosed}
 	port := &fakeMemberJobs{}
 	view := buildTeamworkContextView(context.Background(), plan, nil, port, nil,
 		teamworkContextOptions{Roles: []string{" impl_ui ", ""}})

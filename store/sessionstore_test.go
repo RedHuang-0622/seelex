@@ -66,13 +66,13 @@ func TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope(t *testing.T) {
 
 	router.SetWorkspace("project-a")
 	if err := router.SaveCommitWorkspace("project-a", "shared", Commit{Events: []Event{
-		{Role: "user", Content: "a-0", MessageID: "a-0"},
+		{Seq: 1, Role: "user", Content: "a-0", MessageID: "a-0"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	router.SetWorkspace("project-b")
 	if err := router.SaveCommitWorkspace("project-b", "shared", Commit{Events: []Event{
-		{Role: "user", Content: "b-0", MessageID: "b-0"},
+		{Seq: 1, Role: "user", Content: "b-0", MessageID: "b-0"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestJSONRepositoryReadRangeWindowed(t *testing.T) {
 	history := messages(250, "round") // 3 shards（100/100/50）
 	// v8 布局（S11）：provider 历史缓存退役，正文以事件行写入、读由行派生。
 	if err := repository.WriteCommit(context.Background(), key, Commit{
-		Events: messagesToEventRows(history),
+		Events: sequentialTestRows(messagesToEventRows(history)),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestJSONRepositoryReadRangeTotalOnly(t *testing.T) {
 	key := Key{ProjectID: "project", SessionID: "session"}
 	history := messages(250, "round") // 3 shards（100/100/50）
 	if err := repository.WriteCommit(context.Background(), key, Commit{
-		Events: messagesToEventRows(history),
+		Events: sequentialTestRows(messagesToEventRows(history)),
 	}); err != nil {
 		t.Fatal(err)
 	}

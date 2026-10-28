@@ -55,22 +55,22 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 
 - `func (report PendingTailReport) RowCount() int` — RowCount returns the number of unpublished rows.
 - `func EmptyMessageHead(sessionID string) MessageHead` — EmptyMessageHead returns the canonical zero head for a session.
-- `func AssignRowSeqs(rows []protocol.TranscriptEvent, base uint64, commitID string) ([]protocol.TranscriptEvent, error)` — AssignRowSeqs is the single event seq allocator. Explicit seq <= base is
+- `func AssignRowSeqs(rows []protocol.TranscriptEvent, base uint64, commitID string) ([]protocol.TranscriptEvent, error)` — AssignRowSeqs validates runtime-assigned event identities before persistence.
 - `func StructuralEventsCommitID(events []StructuralEvent) string` — StructuralEventsCommitID derives the deterministic EVENT commit identity.
 - `func MessageRowsCommitID(rows []protocol.TranscriptEvent) string` — MessageRowsCommitID derives the deterministic transcript commit identity.
 - `func ApplyPendingTailHead( head MessageHead, rows []protocol.TranscriptEvent, shards []ShardInfo, total uint64, commitID string, now time.Time, ) MessageHead` — ApplyPendingTailHead builds the head that publishes a validated draft tail.
 - `func ApplyCommittedMessageHead( head MessageHead, delta []protocol.TranscriptEvent, commitID string, now time.Time, ) MessageHead` — ApplyCommittedMessageHead updates the published head after message rows were
-- `func QueueHeadState(items []QueueItem) QueueState` — QueueHeadState returns the current queue head state.
+- `func QueueHeadState(items []QueueRow) QueueState` — QueueHeadState returns the current queue head state.
 - `func ValidateCompactFrame(frame CompactFrameRecord, publishedSeq uint64) error` — ValidateCompactFrame rejects frames beyond the published message head.
 - `func ValidateForkStart( parentProject, parentSession, childProject, childSession string, watermark, fromSeq uint64, childExists bool, ) error` — ValidateForkStart enforces distinct child, watermark and non-overwrite rules.
 - `func ValidateRetentionPrefix(remaining []protocol.TranscriptEvent, upToSeq, lastSeq uint64) error` — ValidateRetentionPrefix rejects deleting a non-contiguous published prefix.
-- `func NextQueueSeq(items []QueueItem) uint64` — NextQueueSeq returns the next stable queue sequence.
-- `func NewQueueItem(state LifecycleState, requestID, content string, now time.Time) QueueItem` — NewQueueItem creates one queued item with deterministic identity.
+- `func NextQueueSeq(items []QueueRow) uint64` — NextQueueSeq returns the next stable queue sequence.
+- `func NewQueueRow(state LifecycleState, requestID, content string, now time.Time) QueueRow` — NewQueueRow creates one queued row with deterministic identity.
 - `func Enqueue(state LifecycleState, requestID, content string, now time.Time) (LifecycleState, bool)` — Enqueue appends one item unless the same requestID is already queued.
 - `func SaveDraft(state LifecycleState, sessionID, content string, now time.Time) LifecycleState` — SaveDraft installs a normal unsent draft.
 - `func MoveDraftToQueue(state LifecycleState, sessionID, content string, now time.Time) LifecycleState` — MoveDraftToQueue atomically clears draft and appends the queued copy.
 - `func DirectSendState(state LifecycleState, content string, now time.Time) (LifecycleState, bool)` — DirectSendState clears draft and appends only when an older queue item exists.
-- `func SendFront(state LifecycleState) (LifecycleState, QueueItem, error)` — SendFront transitions the FIFO head to sending.
+- `func SendFront(state LifecycleState) (LifecycleState, QueueRow, error)` — SendFront transitions the FIFO head to sending.
 - `func ConfirmFront(state LifecycleState, requestID string) (LifecycleState, error)` — ConfirmFront removes the head after a published send.
 - `func FailFront(state LifecycleState, sessionID string, now time.Time) (LifecycleState, error)` — FailFront removes the head and returns its content to draft.
 - `func FailDirect(state LifecycleState, sessionID, content string, now time.Time) LifecycleState` — FailDirect returns a directly-sent content back to draft.

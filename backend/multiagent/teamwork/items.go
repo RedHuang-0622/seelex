@@ -26,7 +26,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // WorkItemSpec 是 leader 排活 / 调整时的输入（**不含状态**：状态由编排面维护，
@@ -42,7 +42,7 @@ type WorkItemSpec struct {
 
 // ItemView 是一个工作项的只读读面（计划条目 + 当前绑定 + 队列位置）。
 type ItemView struct {
-	Item store.TeamworkWorkItem `json:"item"`
+	Item storeteamwork.WorkItem `json:"item"`
 	// Live 报告这件事现在是不是真的有一份工作区绑定（账本里的最后一行未释放）。
 	Live bool `json:"live"`
 	// Interrupted 报告"状态说在跑，但本进程的作业表里查不到它的句柄"——
@@ -94,7 +94,7 @@ func SceneNodeID(role, itemID string) string {
 }
 
 // milestoneIndex 返回里程碑在计划里的下标（不存在 = -1）。
-func milestoneIndex(plan store.TeamworkPlan, id string) int {
+func milestoneIndex(plan storeteamwork.Plan, id string) int {
 	for index, milestone := range plan.Milestones {
 		if milestone.ID == id {
 			return index
@@ -104,7 +104,7 @@ func milestoneIndex(plan store.TeamworkPlan, id string) int {
 }
 
 // findItem 定位一个工作项，返回它所属的里程碑与**可变指针**。
-func findItem(plan *store.TeamworkPlan, id string) (*store.TeamworkMilestone, *store.TeamworkWorkItem, bool) {
+func findItem(plan *storeteamwork.Plan, id string) (*storeteamwork.Milestone, *storeteamwork.WorkItem, bool) {
 	if plan == nil {
 		return nil, nil, false
 	}
@@ -124,7 +124,7 @@ func findItem(plan *store.TeamworkPlan, id string) (*store.TeamworkMilestone, *s
 // 判据是**两条**都成立才算 done：① 它的依赖里程碑都 done（屏障）；② 它自己的工作项
 // 都 done。没有工作项的里程碑是"占位/遗留"，状态归 leader 的 team_milestone 管，
 // 这里不覆盖（阶段制时代的计划照旧读）。
-func recomputeMilestones(plan *store.TeamworkPlan) {
+func recomputeMilestones(plan *storeteamwork.Plan) {
 	if plan == nil || len(plan.Milestones) == 0 {
 		return
 	}
@@ -135,7 +135,7 @@ func recomputeMilestones(plan *store.TeamworkPlan) {
 	}
 }
 
-func resolveMilestoneStatus(plan *store.TeamworkPlan, index int, memo map[int]string, visiting map[int]bool) string {
+func resolveMilestoneStatus(plan *storeteamwork.Plan, index int, memo map[int]string, visiting map[int]bool) string {
 	if status, ok := memo[index]; ok {
 		return status
 	}
@@ -149,13 +149,13 @@ func resolveMilestoneStatus(plan *store.TeamworkPlan, index int, memo map[int]st
 	}
 	if visiting[index] {
 		// 环：计划校验已拦下；这里是纯防御，返回 pending 而不是无限递归。
-		return store.TeamworkMilestonePending
+		return storeteamwork.MilestonePending
 	}
 	visiting[index] = true
 	depsDone := true
 	for _, dependency := range milestone.DependsOn {
 		dependencyIndex := milestoneIndex(*plan, dependency)
-		if dependencyIndex < 0 || resolveMilestoneStatus(plan, dependencyIndex, memo, visiting) != store.TeamworkMilestoneDone {
+		if dependencyIndex < 0 || resolveMilestoneStatus(plan, dependencyIndex, memo, visiting) != storeteamwork.MilestoneDone {
 			depsDone = false
 		}
 	}
@@ -163,17 +163,17 @@ func resolveMilestoneStatus(plan *store.TeamworkPlan, index int, memo map[int]st
 	// 空工作项的里程碑**不算完成**（没排活 = 还没干），但屏障打开时它是 active。
 	allDone := len(milestone.Items) > 0
 	for _, item := range milestone.Items {
-		if store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemDone {
+		if storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemDone {
 			allDone = false
 			break
 		}
 	}
-	status := store.TeamworkMilestonePending
+	status := storeteamwork.MilestonePending
 	if depsDone {
-		status = store.TeamworkMilestoneActive
+		status = storeteamwork.MilestoneActive
 	}
 	if depsDone && allDone {
-		status = store.TeamworkMilestoneDone
+		status = storeteamwork.MilestoneDone
 	}
 	memo[index] = status
 	milestone.Status = status
@@ -224,7 +224,7 @@ func (c *Coordinator) PlanMilestone(ctx context.Context, milestoneID string, spe
 		if strings.TrimSpace(spec.Name) == "" {
 			return fmt.Errorf("teamwork: 工作项 %q 的 name is required（工作内容必须有名字）", id)
 		}
-		plan.Milestones[index].Items = append(plan.Milestones[index].Items, store.TeamworkWorkItem{
+		plan.Milestones[index].Items = append(plan.Milestones[index].Items, storeteamwork.WorkItem{
 			ID:          id,
 			Milestone:   milestoneID,
 			Role:        role,
@@ -232,7 +232,7 @@ func (c *Coordinator) PlanMilestone(ctx context.Context, milestoneID string, spe
 			Description: strings.TrimSpace(spec.Description),
 			Goal:        strings.TrimSpace(spec.Goal),
 			DependsOn:   trimmedList(spec.DependsOn),
-			Status:      store.TeamworkItemPending,
+			Status:      storeteamwork.ItemPending,
 		})
 	}
 	recomputeMilestones(&plan)
@@ -240,8 +240,8 @@ func (c *Coordinator) PlanMilestone(ctx context.Context, milestoneID string, spe
 		return err
 	}
 	for _, spec := range specs {
-		if err := c.audit(ctx, store.TeamworkEvent{
-			Kind: store.TeamworkEventItem, TeamID: plan.TeamID, Milestone: milestoneID,
+		if err := c.audit(ctx, storeteamwork.Event{
+			Kind: storeteamwork.EventItem, TeamID: plan.TeamID, Milestone: milestoneID,
 			Role: strings.TrimSpace(spec.Role), WorkItem: strings.TrimSpace(spec.ID),
 			Detail: "排活：" + strings.TrimSpace(spec.Name),
 		}); err != nil {
@@ -269,9 +269,9 @@ func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkIt
 	if !ok {
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
 	}
-	if store.TeamworkWorkItemStatusOrPending(*item) != store.TeamworkItemPending {
+	if storeteamwork.WorkItemStatusOrPending(*item) != storeteamwork.ItemPending {
 		return fmt.Errorf("teamwork: 工作项 %q 已经开始（状态 %s），开始与结束的工作是既定的，不可调整",
-			item.ID, store.TeamworkWorkItemStatusOrPending(*item))
+			item.ID, storeteamwork.WorkItemStatusOrPending(*item))
 	}
 	if err := c.milestoneOpen(plan, *milestone); err != nil {
 		return err
@@ -304,8 +304,8 @@ func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkIt
 	if err := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return err
 	}
-	return c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventItem, TeamID: plan.TeamID, Milestone: item.Milestone,
+	return c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventItem, TeamID: plan.TeamID, Milestone: item.Milestone,
 		Role: item.Role, WorkItem: item.ID, Detail: "调整（未开始）：" + item.Name,
 	})
 }
@@ -341,16 +341,16 @@ func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, optio
 	if err := c.milestoneOpen(plan, *milestone); err != nil {
 		return "", err
 	}
-	status := store.TeamworkWorkItemStatusOrPending(*item)
+	status := storeteamwork.WorkItemStatusOrPending(*item)
 	switch status {
-	case store.TeamworkItemDone:
+	case storeteamwork.ItemDone:
 		return "", fmt.Errorf("teamwork: 工作项 %q 已经完成（验收通过之后不可重派）", itemID)
-	case store.TeamworkItemRunning:
+	case storeteamwork.ItemRunning:
 		if c.handleAlive(item.Handle) {
 			return jobs.Handle(item.Handle), nil // 在跑：折叠到那一条（幂等）
 		}
 		// 句柄不在册（进程重启 / 被驱逐）：视为**可重派**，会话号照旧复用。
-	case store.TeamworkItemReview:
+	case storeteamwork.ItemReview:
 		return "", fmt.Errorf("teamwork: 工作项 %q 已跑完待验收（先 team_accept 或 team_fail）", itemID)
 	}
 	for _, dependency := range item.DependsOn {
@@ -358,9 +358,9 @@ func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, optio
 		if !exists {
 			return "", fmt.Errorf("teamwork: 工作项 %q 依赖的 %q 不在计划里", itemID, dependency)
 		}
-		if store.TeamworkWorkItemStatusOrPending(*dependencyItem) != store.TeamworkItemDone {
+		if storeteamwork.WorkItemStatusOrPending(*dependencyItem) != storeteamwork.ItemDone {
 			return "", fmt.Errorf("teamwork: 工作项 %q 依赖的 %q 还没完成（状态 %s）——里程碑内的依赖是硬闸门（V 模型：exec 做完 test 才能跟上）",
-				itemID, dependency, store.TeamworkWorkItemStatusOrPending(*dependencyItem))
+				itemID, dependency, storeteamwork.WorkItemStatusOrPending(*dependencyItem))
 		}
 	}
 	member, enrolled := memberFor(plan, item.Role)
@@ -462,7 +462,7 @@ func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, optio
 		return "", err
 	}
 	now := c.clock().UTC().Unix()
-	item.Status = store.TeamworkItemRunning
+	item.Status = storeteamwork.ItemRunning
 	// 重派 = 这一格描述的事实已经变了：上一次留下的"未合并"标记属于旧现场。
 	if plan.State.Unmerged != nil {
 		delete(plan.State.Unmerged, item.ID)
@@ -477,15 +477,15 @@ func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, optio
 	}
 	recomputeMilestones(&plan)
 	// 账本：绑定事实一行（KV 语义，读侧取最后一行）。
-	if err := c.st.AppendBinding(ctx, c.key, store.TeamworkBinding{
+	if err := c.st.AppendBinding(ctx, c.key, storeteamwork.Binding{
 		WorkItem: item.ID, Milestone: milestone.ID, Role: item.Role,
 		SessionID: sessionID, Worktree: binding.Worktree, WorkspaceMode: binding.WorkspaceMode, At: now,
 	}); err != nil {
 		c.abortDeclaredJob(ctx, handle, binding, created)
 		return handle, err
 	}
-	if err := c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventDispatch, TeamID: plan.TeamID, Milestone: milestone.ID,
+	if err := c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventDispatch, TeamID: plan.TeamID, Milestone: milestone.ID,
 		Role: item.Role, Handle: describeHandle(handle), Node: item.ID, WorkItem: item.ID,
 		Detail: item.Name,
 	}); err != nil {
@@ -500,7 +500,7 @@ func (c *Coordinator) DispatchItemWith(ctx context.Context, itemID string, optio
 	if err := c.jobs.Start(ctx, handle); err != nil {
 		// 现场与计划都应可解释；作业没有启动，保留 worktree 交给恢复/人工处置，
 		// 但状态不能继续冒充 running。
-		item.Status = store.TeamworkItemFailed
+		item.Status = storeteamwork.ItemFailed
 		item.Note = "worker 未启动：" + err.Error()
 		c.abortDeclaredJob(ctx, handle, WorkspaceBinding{}, "")
 		if writeErr := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); writeErr != nil {
@@ -569,7 +569,7 @@ func (c *Coordinator) ItemStatus(ctx context.Context, itemID string) (string, bo
 	if !ok {
 		return "", false
 	}
-	return store.TeamworkWorkItemStatusOrPending(*item), true
+	return storeteamwork.WorkItemStatusOrPending(*item), true
 }
 
 // ItemSettled 报告这件事是不是已经收过尾（计划里已经不是 running）。
@@ -579,7 +579,7 @@ func (c *Coordinator) ItemStatus(ctx context.Context, itemID string) (string, bo
 // "一个说还在跑、一个说收过了"。
 func (c *Coordinator) ItemSettled(ctx context.Context, itemID string) bool {
 	status, ok := c.ItemStatus(ctx, itemID)
-	return ok && status != store.TeamworkItemRunning
+	return ok && status != storeteamwork.ItemRunning
 }
 
 // MergeWorkItem 是尾插程序的**合并半段**：只回答"改动并回主工作区了吗"，返回合并失败
@@ -602,7 +602,7 @@ func (c *Coordinator) MergeWorkItem(ctx context.Context, request WorkerRequest) 
 		c.unlockPlan()
 		return err
 	}
-	if _, item, ok := findItem(&plan, itemID); !ok || store.TeamworkWorkItemStatusOrPending(*item) != store.TeamworkItemRunning {
+	if _, item, ok := findItem(&plan, itemID); !ok || storeteamwork.WorkItemStatusOrPending(*item) != storeteamwork.ItemRunning {
 		c.unlockPlan()
 		return nil // 已经收口过了（幂等：合并恰好一次）
 	}
@@ -611,7 +611,7 @@ func (c *Coordinator) MergeWorkItem(ctx context.Context, request WorkerRequest) 
 		c.unlockPlan()
 		return err
 	}
-	binding, hasBinding := store.TeamworkBindings(bindings)[itemID]
+	binding, hasBinding := storeteamwork.Bindings(bindings)[itemID]
 	teamID := plan.TeamID
 	c.unlockPlan()
 
@@ -646,7 +646,7 @@ func (c *Coordinator) SettleWorkItemWith(ctx context.Context, request WorkerRequ
 		return workunit.Outcome{}, err
 	}
 	milestone, item, ok := findItem(&plan, itemID)
-	if !ok || store.TeamworkWorkItemStatusOrPending(*item) != store.TeamworkItemRunning {
+	if !ok || storeteamwork.WorkItemStatusOrPending(*item) != storeteamwork.ItemRunning {
 		return workunit.Outcome{}, nil // 合并期间已被收口：幂等返回（不再重复尾插 / 写态）
 	}
 	// 步 2：尾插（有界一行；bug 原文与合并失败说明都在里面）。
@@ -668,8 +668,8 @@ func (c *Coordinator) SettleWorkItemWith(ctx context.Context, request WorkerRequ
 	if err := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return outcome, err
 	}
-	if err := c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventSettle, TeamID: plan.TeamID, Milestone: milestone.ID,
+	if err := c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventSettle, TeamID: plan.TeamID, Milestone: milestone.ID,
 		Role: item.Role, Handle: item.Handle, WorkItem: item.ID, Detail: text,
 	}); err != nil {
 		return outcome, err
@@ -688,14 +688,14 @@ func (c *Coordinator) SettleWorkItemWith(ctx context.Context, request WorkerRequ
 //
 // 未合并标记（plan.State.Unmerged）不是第二份状态，它只给**收口闸门**用：这类现场里
 // 还留着没合进去的改动，静默拆掉就是丢产出（闸门不允许反向放松，见 unsettledItems）。
-func applySettleOutcome(plan *store.TeamworkPlan, item *store.TeamworkWorkItem, outcome workunit.Outcome, receipt string) {
+func applySettleOutcome(plan *storeteamwork.Plan, item *storeteamwork.WorkItem, outcome workunit.Outcome, receipt string) {
 	// 先清这一格的旧值：这一格描述的现场事实刚刚被重新判定过（避免重派/重跑留下残值）。
 	if plan.State.Unmerged != nil {
 		delete(plan.State.Unmerged, item.ID)
 	}
 	switch outcome.Kind {
 	case workunit.OutcomeFailed:
-		item.Status = store.TeamworkItemFailed
+		item.Status = storeteamwork.ItemFailed
 		item.Note = receipt
 		return
 	case workunit.OutcomeUncommitted, workunit.OutcomeMergeBlocked:
@@ -704,7 +704,7 @@ func applySettleOutcome(plan *store.TeamworkPlan, item *store.TeamworkWorkItem, 
 		}
 		plan.State.Unmerged[item.ID] = outcome.Notice
 	}
-	item.Status = store.TeamworkItemReview
+	item.Status = storeteamwork.ItemReview
 	item.Note = strings.TrimSpace(outcome.Notice + "；" + receipt)
 }
 
@@ -749,24 +749,24 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	if !ok {
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
 	}
-	switch store.TeamworkWorkItemStatusOrPending(*item) {
-	case store.TeamworkItemReview:
+	switch storeteamwork.WorkItemStatusOrPending(*item) {
+	case storeteamwork.ItemReview:
 		// 尾插已走完（合并 → 回执 → 状态）：链尾该动的地方，放行。
-	case store.TeamworkItemRunning:
+	case storeteamwork.ItemRunning:
 		if c.jobRunning(item.Handle) {
 			return fmt.Errorf("teamwork: 工作项 %q 还在跑（handle %s 的作业状态是 running），不能验收——先等它的回执（尾插会先合并、再插回执），或先 jobs_manage(op=kill, handle=\"%s\") 把它停掉，那时现场才归你处置",
 				item.ID, item.Handle, item.Handle)
 		}
-	case store.TeamworkItemFailed:
+	case storeteamwork.ItemFailed:
 		// 链尾只有**一个**销项动作，就是验收：failed 的现场与记忆都留给 leader
 		// （人工解冲突 / 变基 / 合并，或判定放弃），处置完由此销项。收口的闸门要求
 		// 账先收干净（见 Close 的 unsettledItems），所以这条路必须留着——否则一个
 		// failed 的工作项既不能验收、又挡着收口，整队就永远收不了。
-	case store.TeamworkItemDone:
+	case storeteamwork.ItemDone:
 		// 已验收但上次清理失败：只重试 worktree 释放，不再改状态、不再清 Session。
 		return c.cleanupAcceptedItem(ctx, plan.TeamID, *item)
 	default:
-		return fmt.Errorf("teamwork: 工作项 %q 还没跑完（状态 %s），不能验收", item.ID, store.TeamworkWorkItemStatusOrPending(*item))
+		return fmt.Errorf("teamwork: 工作项 %q 还没跑完（状态 %s），不能验收", item.ID, storeteamwork.WorkItemStatusOrPending(*item))
 	}
 	// 现场与会话**不动**（这里删掉的是旧的 releaseItem("accept") 调用）：teammate 的
 	// session/worktree 归 team 托管，只由整队收口（team_close）回收。验收留下的
@@ -777,7 +777,7 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	if plan.State.Unmerged != nil {
 		delete(plan.State.Unmerged, item.ID)
 	}
-	item.Status = store.TeamworkItemDone
+	item.Status = storeteamwork.ItemDone
 	if trimmed := strings.TrimSpace(note); trimmed != "" {
 		item.Note = trimmed
 	} else if strings.TrimSpace(item.Note) == "" {
@@ -798,20 +798,20 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	if cleanupErr := c.cleanupAcceptedItem(ctx, plan.TeamID, *item); cleanupErr != nil {
 		return cleanupErr
 	}
-	return c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventAccept, TeamID: plan.TeamID, Milestone: item.Milestone,
+	return c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventAccept, TeamID: plan.TeamID, Milestone: item.Milestone,
 		Role: item.Role, WorkItem: item.ID, Detail: item.Note,
 	})
 }
 
 // cleanupAcceptedItem 是 team_accept 的唯一清理段：只释放该 WorkItem 的
 // worktree，并追加释放账本；绝不重置 Session。无活绑定 = 已清理（幂等）。
-func (c *Coordinator) cleanupAcceptedItem(ctx context.Context, teamID string, item store.TeamworkWorkItem) error {
+func (c *Coordinator) cleanupAcceptedItem(ctx context.Context, teamID string, item storeteamwork.WorkItem) error {
 	rows, err := c.st.ReadBindings(ctx, c.key)
 	if err != nil {
 		return err
 	}
-	binding, live := store.TeamworkBindings(rows)[item.ID]
+	binding, live := storeteamwork.Bindings(rows)[item.ID]
 	if !live {
 		return nil
 	}
@@ -839,17 +839,17 @@ func (c *Coordinator) FailItem(ctx context.Context, itemID, note string) error {
 	if !ok {
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
 	}
-	if store.TeamworkWorkItemStatusOrPending(*item) == store.TeamworkItemDone {
+	if storeteamwork.WorkItemStatusOrPending(*item) == storeteamwork.ItemDone {
 		return fmt.Errorf("teamwork: 工作项 %q 已经完成，不能判失败", item.ID)
 	}
-	item.Status = store.TeamworkItemFailed
+	item.Status = storeteamwork.ItemFailed
 	item.Note = strings.TrimSpace(note)
 	item.FinishedAt = c.clock().UTC().Unix()
 	if err := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return err
 	}
-	return c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventFail, TeamID: plan.TeamID, Milestone: item.Milestone,
+	return c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventFail, TeamID: plan.TeamID, Milestone: item.Milestone,
 		Role: item.Role, WorkItem: item.ID, Detail: item.Note,
 	})
 }
@@ -864,7 +864,7 @@ func (c *Coordinator) Items(ctx context.Context) ([]ItemView, error) {
 	if err != nil {
 		return nil, err
 	}
-	live := store.TeamworkBindings(bindings)
+	live := storeteamwork.Bindings(bindings)
 	views := make([]ItemView, 0)
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
@@ -891,7 +891,7 @@ type RecoveryReport struct {
 	// Interrupted 是"状态说在跑、而本进程作业表里查不到句柄"的工作项（可重派）。
 	Interrupted []string `json:"interrupted,omitempty"`
 	// Bindings 是仍然活着的 worktree / session 绑定（生命周期到 team_close 为止）。
-	Bindings []store.TeamworkBinding `json:"bindings,omitempty"`
+	Bindings []storeteamwork.Binding `json:"bindings,omitempty"`
 }
 
 // Recover 做**中断恢复**：把计划与绑定账本读回来，把"句柄已作废"显式化。
@@ -908,21 +908,21 @@ func (c *Coordinator) Recover(ctx context.Context) (RecoveryReport, error) {
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			report.Items++
-			switch store.TeamworkWorkItemStatusOrPending(item) {
-			case store.TeamworkItemPending:
+			switch storeteamwork.WorkItemStatusOrPending(item) {
+			case storeteamwork.ItemPending:
 				report.Pending++
-			case store.TeamworkItemRunning:
+			case storeteamwork.ItemRunning:
 				report.Running++
 				if !c.handleAlive(item.Handle) {
 					// 句柄只在内存（jobs I-4）：重启之后它必然作废，这不是错误，
 					// 是"这一件事可以重派"的信号。会话号与现场都留着。
 					report.Interrupted = append(report.Interrupted, item.ID)
 				}
-			case store.TeamworkItemReview:
+			case storeteamwork.ItemReview:
 				report.Review++
-			case store.TeamworkItemDone:
+			case storeteamwork.ItemDone:
 				report.Done++
-			case store.TeamworkItemFailed:
+			case storeteamwork.ItemFailed:
 				report.Failed++
 			}
 		}
@@ -933,11 +933,11 @@ func (c *Coordinator) Recover(ctx context.Context) (RecoveryReport, error) {
 	}
 	// 账本是**追加型**：释放是再记一行而不是删行，因此这里必须按 KV 语义折叠
 	// （取每个 work item 的最后一行）——直接遍历会把"历史行"当成"活绑定"。
-	for _, binding := range store.TeamworkBindings(bindings) {
+	for _, binding := range storeteamwork.Bindings(bindings) {
 		report.Bindings = append(report.Bindings, binding)
 	}
-	if err := c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventRecover, TeamID: plan.TeamID,
+	if err := c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventRecover, TeamID: plan.TeamID,
 		Detail: fmt.Sprintf("恢复：items=%d running=%d review=%d done=%d failed=%d 可重派=%d 活绑定=%d",
 			report.Items, report.Running, report.Review, report.Done, report.Failed,
 			len(report.Interrupted), len(report.Bindings)),
@@ -949,7 +949,7 @@ func (c *Coordinator) Recover(ctx context.Context) (RecoveryReport, error) {
 
 // releaseBinding 结束一份绑定的执行隔离：释放现场 → 清这件事的会话内容 → 追加释放
 // 行。它只用于 team_close；team_accept 只调 releaseWorktree，不调 resetBindingSession。
-func (c *Coordinator) releaseBinding(ctx context.Context, binding store.TeamworkBinding, teamID, reason string) error {
+func (c *Coordinator) releaseBinding(ctx context.Context, binding storeteamwork.Binding, teamID, reason string) error {
 	if err := c.releaseWorktree(ctx, binding, teamID); err != nil {
 		return err
 	}
@@ -960,7 +960,7 @@ func (c *Coordinator) releaseBinding(ctx context.Context, binding store.Teamwork
 }
 
 // releaseWorktree 是「只释放 worktree」的单责动作。
-func (c *Coordinator) releaseWorktree(ctx context.Context, binding store.TeamworkBinding, teamID string) error {
+func (c *Coordinator) releaseWorktree(ctx context.Context, binding storeteamwork.Binding, teamID string) error {
 	if c.spaces != nil {
 		if err := c.spaces.ReleaseWorkspaceItem(ctx, c.workspaceBinding(binding, teamID)); err != nil {
 			return fmt.Errorf("teamwork: 释放工作项 %q 的工作区失败: %w", binding.WorkItem, err)
@@ -970,7 +970,7 @@ func (c *Coordinator) releaseWorktree(ctx context.Context, binding store.Teamwor
 }
 
 // resetBindingSession 是「只清 WorkItem Session」的单责动作，仅用于 team_close。
-func (c *Coordinator) resetBindingSession(ctx context.Context, binding store.TeamworkBinding) error {
+func (c *Coordinator) resetBindingSession(ctx context.Context, binding storeteamwork.Binding) error {
 	if c.sessions != nil && strings.TrimSpace(binding.SessionID) != "" {
 		if err := c.sessions.ResetSession(ctx, binding.SessionID); err != nil {
 			return fmt.Errorf("teamwork: 清工作项 %q 的会话内容失败: %w", binding.WorkItem, err)
@@ -980,8 +980,8 @@ func (c *Coordinator) resetBindingSession(ctx context.Context, binding store.Tea
 }
 
 // appendReleasedBinding 追加一行「这份绑定已释放」（账本 KV 语义：最后一行说了算）。
-func (c *Coordinator) appendReleasedBinding(ctx context.Context, binding store.TeamworkBinding, reason string) error {
-	return c.st.AppendBinding(ctx, c.key, store.TeamworkBinding{
+func (c *Coordinator) appendReleasedBinding(ctx context.Context, binding storeteamwork.Binding, reason string) error {
+	return c.st.AppendBinding(ctx, c.key, storeteamwork.Binding{
 		WorkItem: binding.WorkItem, Milestone: binding.Milestone, Role: binding.Role,
 		SessionID: binding.SessionID, Worktree: binding.Worktree, WorkspaceMode: binding.WorkspaceMode,
 		At: c.clock().UTC().Unix(), Released: true, Reason: reason,
@@ -1003,7 +1003,7 @@ func (c *Coordinator) releaseRoleItemScenes(ctx context.Context, role, teamID, r
 		return err
 	}
 	failures := make([]error, 0)
-	for _, binding := range store.TeamworkBindings(rows) {
+	for _, binding := range storeteamwork.Bindings(rows) {
 		if strings.TrimSpace(binding.Role) != strings.TrimSpace(role) {
 			continue
 		}
@@ -1022,7 +1022,7 @@ func (c *Coordinator) releaseRoleItemScenes(ctx context.Context, role, teamID, r
 
 // teammateLevelBinding 报告一行账本是不是**角色级**（teammate 级）现场：它的指派名
 // 就是 `seelex/<role>`（nodeID = 角色名），没有里程碑归属。
-func teammateLevelBinding(binding store.TeamworkBinding, role string) bool {
+func teammateLevelBinding(binding storeteamwork.Binding, role string) bool {
 	if strings.TrimSpace(binding.Milestone) != "" {
 		return false
 	}
@@ -1036,7 +1036,7 @@ func (c *Coordinator) markTeammateBindingReleased(ctx context.Context, role, rea
 	if err != nil {
 		return err
 	}
-	for _, binding := range store.TeamworkBindings(rows) {
+	for _, binding := range storeteamwork.Bindings(rows) {
 		if teammateLevelBinding(binding, role) {
 			return c.appendReleasedBinding(ctx, binding, reason)
 		}
@@ -1078,7 +1078,7 @@ func (c *Coordinator) releaseAllItems(ctx context.Context, teamID string) error 
 	if err != nil {
 		return err
 	}
-	active := store.TeamworkBindings(rows)
+	active := storeteamwork.Bindings(rows)
 	// 先折叠成"当前绑定"（KV 语义：一个 work item 只有最后一行说了算），再逐个结束——
 	// 否则历史行会被重复释放，而且同一个 work item 会被当成多份现场。
 	for _, binding := range active {
@@ -1111,7 +1111,7 @@ func (c *Coordinator) releaseAllItems(ctx context.Context, teamID string) error 
 
 // workspaceBinding 把账本里的一行绑定折成工作区端口认识的现场（补上会话作用域键与
 // 团队 id：账本存的是"发生过的事实"，端口要的是"现在该怎么动这个现场"）。
-func (c *Coordinator) workspaceBinding(binding store.TeamworkBinding, teamID string) WorkspaceBinding {
+func (c *Coordinator) workspaceBinding(binding storeteamwork.Binding, teamID string) WorkspaceBinding {
 	return WorkspaceBinding{
 		MainSessionID: c.key.SessionID,
 		TeamID:        teamID,
@@ -1127,8 +1127,8 @@ func (c *Coordinator) workspaceBinding(binding store.TeamworkBinding, teamID str
 // AppendTeammateMessage 把一条尾插消息记进 teammate 的**消息队列**（= 审计流里的一行
 // message 事件，按 role_session_id 读）。队列按**追加**增长，读法是有界过滤。
 func (c *Coordinator) AppendTeammateMessage(ctx context.Context, message TeammateMessage) error {
-	return c.audit(ctx, store.TeamworkEvent{
-		Kind:          store.TeamworkEventMessage,
+	return c.audit(ctx, storeteamwork.Event{
+		Kind:          storeteamwork.EventMessage,
 		TeamID:        message.TeamID,
 		Role:          message.Role,
 		RoleSessionID: message.RoleSessionID,
@@ -1140,15 +1140,15 @@ func (c *Coordinator) AppendTeammateMessage(ctx context.Context, message Teammat
 
 // TeammateMessages 读一个 teammate（按角色会话号）的消息队列，最近 limit 条
 // （limit <= 0 = 不截断）。
-func (c *Coordinator) TeammateMessages(ctx context.Context, roleSessionID string, limit int) ([]store.TeamworkEvent, error) {
+func (c *Coordinator) TeammateMessages(ctx context.Context, roleSessionID string, limit int) ([]storeteamwork.Event, error) {
 	events, err := c.st.ReadEvents(ctx, c.key)
 	if err != nil {
 		return nil, err
 	}
 	roleSessionID = strings.TrimSpace(roleSessionID)
-	queue := make([]store.TeamworkEvent, 0)
+	queue := make([]storeteamwork.Event, 0)
 	for _, event := range events {
-		if event.Kind != store.TeamworkEventMessage {
+		if event.Kind != storeteamwork.EventMessage {
 			continue
 		}
 		if roleSessionID != "" && event.RoleSessionID != roleSessionID {
@@ -1164,7 +1164,7 @@ func (c *Coordinator) TeammateMessages(ctx context.Context, roleSessionID string
 
 // milestoneOpen 是屏障闸门：里程碑的依赖没完成，就不许给它排活、也不许派发它下面的
 // 工作项（"完成一个里程碑之后再做下一个里程碑的工作"）。
-func (c *Coordinator) milestoneOpen(plan store.TeamworkPlan, milestone store.TeamworkMilestone) error {
+func (c *Coordinator) milestoneOpen(plan storeteamwork.Plan, milestone storeteamwork.Milestone) error {
 	if MilestoneClosed(plan, milestone.ID) {
 		return closedMilestoneError(milestone.ID)
 	}
@@ -1174,7 +1174,7 @@ func (c *Coordinator) milestoneOpen(plan store.TeamworkPlan, milestone store.Tea
 			return fmt.Errorf("teamwork: 里程碑 %q 依赖的 %q 不在计划里", milestone.ID, dependency)
 		}
 		status := plan.Milestones[dependencyIndex].Status
-		if len(plan.Milestones[dependencyIndex].Items) > 0 && status != store.TeamworkMilestoneDone {
+		if len(plan.Milestones[dependencyIndex].Items) > 0 && status != storeteamwork.MilestoneDone {
 			return fmt.Errorf("teamwork: 里程碑 %q 依赖的里程碑 %q 还没完成（状态 %q）——里程碑之间串行：完成一整个里程碑再排下一个",
 				milestone.ID, dependency, status)
 		}
@@ -1231,7 +1231,7 @@ func (c *Coordinator) retireSettledJob(ctx context.Context, handle string) {
 }
 
 // workItemGoal 把工作内容折成这一轮的正文（名称 / 描述 / 达成目标三件）。
-func workItemGoal(item store.TeamworkWorkItem) string {
+func workItemGoal(item storeteamwork.WorkItem) string {
 	builder := &strings.Builder{}
 	builder.WriteString("工作项：" + item.Name)
 	if item.Description != "" {
@@ -1244,7 +1244,7 @@ func workItemGoal(item store.TeamworkWorkItem) string {
 }
 
 // settleMessage 组装尾插正文（**有界**：看板与上下文都吃这一行）。
-func settleMessage(item store.TeamworkWorkItem, milestone store.TeamworkMilestone, mergeErr, runErr error) string {
+func settleMessage(item storeteamwork.WorkItem, milestone storeteamwork.Milestone, mergeErr, runErr error) string {
 	builder := &strings.Builder{}
 	builder.WriteString("[" + item.ID + "] " + item.Name + "（里程碑 " + milestone.ID + "，角色 " + item.Role + "）")
 	switch {

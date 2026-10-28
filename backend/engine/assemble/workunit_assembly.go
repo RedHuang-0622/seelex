@@ -37,7 +37,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 端口（生命周期实现只认识这三个名字）──────────────────────────────────
@@ -343,35 +342,35 @@ func (p *hostPorts) Clear(ctx context.Context, own workunit.Ownership, nodeID, s
 //
 // Kind 留空（`Progress.Kind` 是描述性标注）：本格是**两层共用**的记录端口（父实现的服务面），
 // 给读数贴一个层标注就是说谎——调用方不需要它，需要时按自己的层给。
-func (p *hostPorts) unitReader(ctx context.Context, own workunit.Ownership, sessionPath string) (*workunit.UnitReader, store.Key, bool) {
+func (p *hostPorts) unitReader(ctx context.Context, own workunit.Ownership, sessionPath string) (*workunit.UnitReader, dto.SessionKey, bool) {
 	if p == nil || p.r == nil {
-		return nil, store.Key{}, false
+		return nil, dto.SessionKey{}, false
 	}
 	ledger := p.r.teamUnitLedger()
 	if ledger == nil {
-		return nil, store.Key{}, false
+		return nil, dto.SessionKey{}, false
 	}
 	key, ok := p.sessionScope(ctx, own, sessionPath)
 	if !ok {
-		return nil, store.Key{}, false
+		return nil, dto.SessionKey{}, false
 	}
 	return workunit.NewUnitReader(ledger, key.ProjectID, key.SessionID, "", nil), key, true
 }
 
 // sessionScope 解析本层的会话账本作用域（**唯一一处解析**）：团队归属的单元记在团队账本
 // 同一个键上（组合根注入的 KeyFor），其余记在会话自己的工作区绑定上。
-func (p *hostPorts) sessionScope(ctx context.Context, own workunit.Ownership, sessionPath string) (store.Key, bool) {
+func (p *hostPorts) sessionScope(ctx context.Context, own workunit.Ownership, sessionPath string) (dto.SessionKey, bool) {
 	if p == nil || p.r == nil {
-		return store.Key{}, false
+		return dto.SessionKey{}, false
 	}
 	sessionID := strings.TrimSpace(sessionPath)
 	if sessionID == "" {
-		return store.Key{}, false
+		return dto.SessionKey{}, false
 	}
 	if p.Owned(ctx, sessionID, own) {
 		return p.r.teamUnitScope(sessionID)
 	}
-	key := store.Key{ProjectID: p.r.sessionProjectIDFor(sessionID), SessionID: sessionID}
+	key := dto.SessionKey{ProjectID: p.r.sessionProjectIDFor(sessionID), SessionID: sessionID}
 	return key, true
 }
 

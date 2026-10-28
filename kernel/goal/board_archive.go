@@ -34,13 +34,13 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // boardClosedReasonFallback 是"栈空但审计里还没有终态条目"时的关闭原因兜底。
 //
 // 为什么需要兜底：看板存档的 closed 状态**必须有** closed_reason（见
-// store.ValidateGoalBoardMeta），而弹栈那一刻权威原因还没落账。这里先
+// storeboard.ValidateGoalBoardMeta），而弹栈那一刻权威原因还没落账。这里先
 // 落一个非空占位（语义 = "关闭了，原因待权威条目覆写"），紧随其后的终态审计
 // 刷新会用 goal.finish/goal.abort 的 reason/kind 覆写它。
 const boardClosedReasonFallback = "goal.closed"
@@ -48,12 +48,12 @@ const boardClosedReasonFallback = "goal.closed"
 // GoalGovernanceViewFromBoardArchive converts a persisted goal board into the
 // application read projection. An active archive is marked Recovered because
 // it did not come from a live controller in this process.
-func GoalGovernanceViewFromBoardArchive(archive store.GoalBoardMeta) (dto.GoalGovernanceView, bool) {
-	if archive.State != store.BoardStateActive && archive.State != store.BoardStateClosed {
+func GoalGovernanceViewFromBoardArchive(archive dto.GoalBoardMeta) (dto.GoalGovernanceView, bool) {
+	if archive.State != dto.BoardStateActive && archive.State != dto.BoardStateClosed {
 		return dto.GoalGovernanceView{}, false
 	}
 	history := goalBoardHistoryViews(archive.History)
-	if archive.State != store.BoardStateActive || archive.Active == nil {
+	if archive.State != dto.BoardStateActive || archive.Active == nil {
 		return dto.GoalGovernanceView{Active: false, History: history}, true
 	}
 	active := archive.Active
@@ -81,7 +81,7 @@ func GoalGovernanceViewFromBoardArchive(archive store.GoalBoardMeta) (dto.GoalGo
 	}, true
 }
 
-func goalBoardHistoryViews(entries []store.GoalBoardHistory) []dto.GoalHistoryView {
+func goalBoardHistoryViews(entries []dto.GoalBoardHistory) []dto.GoalHistoryView {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -116,7 +116,7 @@ func isTerminalAuditKind(kind string) bool {
 }
 
 // auditLedger 返回本会话的 goal 审计账本（未装配会话存储 → nil）。
-func (s *ContextStateStore) auditLedger() []store.GoalAuditEntry {
+func (s *ContextStateStore) auditLedger() []storecontext.GoalAuditEntry {
 	if s == nil || s.session == nil {
 		return nil
 	}
@@ -135,9 +135,9 @@ func (s *ContextStateStore) refreshGoalBoard(ctx context.Context, records []*Goa
 		return nil
 	}
 	active := activeFrame(records)
-	state := store.BoardStateActive
+	state := dto.BoardStateActive
 	if active == nil {
-		state = store.BoardStateClosed
+		state = dto.BoardStateClosed
 	}
 	prev, err := boards.ReadGoalBoard(ctx)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -150,7 +150,7 @@ func (s *ContextStateStore) refreshGoalBoard(ctx context.Context, records []*Goa
 	}
 	if err != nil {
 		// 还没有存档（首次写）：seq/opened_at 从头算。
-		prev = store.GoalBoardMeta{}
+		prev = dto.GoalBoardMeta{}
 	}
 	meta, write := planGoalBoard(prev, active, s.auditLedger(), time.Now())
 	if !write {
@@ -189,7 +189,7 @@ func (s *ContextStateStore) refreshBoardAfterAudit(ctx context.Context, entry Au
 // 两个方向都**不改变栈的保存语义**：栈在这之前已经落盘，这里既不回滚也不跳过
 // 栈写入（存档是扇出，不是前置条件）。
 func reportBoardWriteFailure(state string, err error) error {
-	if state == store.BoardStateClosed {
+	if state == dto.BoardStateClosed {
 		return fmt.Errorf("goal: 关闭未记账（goal 看板存档写失败，不把这次关闭当已存档）: %w", err)
 	}
 	return nil
@@ -199,22 +199,22 @@ func reportBoardWriteFailure(state string, err error) error {
 //   - active 非 nil → state=active；
 //   - active 为 nil → state=closed + closed_at/closed_reason（看板退场，不留空壳）。
 func planGoalBoard(
-	prev store.GoalBoardMeta,
-	active *store.GoalBoardActive,
-	audit []store.GoalAuditEntry,
+	prev dto.GoalBoardMeta,
+	active *dto.GoalBoardActive,
+	audit []storecontext.GoalAuditEntry,
 	now time.Time,
-) (store.GoalBoardMeta, bool) {
-	meta := store.GoalBoardMeta{
+) (dto.GoalBoardMeta, bool) {
+	meta := dto.GoalBoardMeta{
 		Active:  active,
 		History: mergeBoardHistory(prev, active, audit),
 	}
 	// board_kind 由类型侧校验（ValidateGoalBoardMeta）：这里显式写死，避免存档
 	// 在没有校验的路径上被别处"顺手"改掉。
-	meta.Kind = store.BoardKindGoal
+	meta.Kind = dto.BoardKindGoal
 	if active != nil {
-		meta.State = store.BoardStateActive
+		meta.State = dto.BoardStateActive
 	} else {
-		meta.State = store.BoardStateClosed
+		meta.State = dto.BoardStateClosed
 		meta.ClosedAt, meta.ClosedReason = closedInfo(prev, audit, now)
 	}
 	// seq/opened_at：首次 open 置 seq=1 与 opened_at；此后每次**实际写盘**
@@ -228,7 +228,7 @@ func planGoalBoard(
 	meta.Fingerprint = boardFingerprint(meta)
 	if prev.Seq >= 1 && prev.Fingerprint != "" && prev.Fingerprint == meta.Fingerprint {
 		// 载荷内容（去掉 seq/updated_at 后）没变：不写盘，seq/updated_at 也不动。
-		return store.GoalBoardMeta{}, false
+		return dto.GoalBoardMeta{}, false
 	}
 	return meta, true
 }
@@ -244,11 +244,11 @@ func planGoalBoard(
 //     goal"（即上一次刷新时它还在栈顶）时才判定得出，否则为 0——不猜、不留第二
 //     份事实。
 func mergeBoardHistory(
-	prev store.GoalBoardMeta,
-	active *store.GoalBoardActive,
-	audit []store.GoalAuditEntry,
-) []store.GoalBoardHistory {
-	merged := make([]store.GoalBoardHistory, 0, len(prev.History)+len(audit))
+	prev dto.GoalBoardMeta,
+	active *dto.GoalBoardActive,
+	audit []storecontext.GoalAuditEntry,
+) []dto.GoalBoardHistory {
+	merged := make([]dto.GoalBoardHistory, 0, len(prev.History)+len(audit))
 	seen := make(map[string]bool, len(prev.History)+len(audit))
 	for _, entry := range prev.History {
 		if entry.GoalID == "" || seen[entry.GoalID] {
@@ -262,7 +262,7 @@ func mergeBoardHistory(
 			continue
 		}
 		seen[entry.GoalID] = true
-		derived := store.GoalBoardHistory{
+		derived := dto.GoalBoardHistory{
 			GoalID: entry.GoalID, Title: entry.Title, Status: entry.Status,
 			ClosedAt: entry.At, ClosedReason: entry.Reason,
 		}
@@ -299,7 +299,7 @@ func mergeBoardHistory(
 // 的终态审计条目（Status/At/Reason 里的 At/Reason）；取不到（弹栈那一刻账本里还
 // 没有终态条目，或本次关闭没有任何终态条目）就沿用前值，保持指纹稳定，等紧随其后
 // 的终态审计刷新用权威值覆写。
-func closedInfo(prev store.GoalBoardMeta, audit []store.GoalAuditEntry, now time.Time) (int64, string) {
+func closedInfo(prev dto.GoalBoardMeta, audit []storecontext.GoalAuditEntry, now time.Time) (int64, string) {
 	departed := ""
 	if prev.Active != nil {
 		departed = prev.Active.GoalID
@@ -328,8 +328,8 @@ func closedInfo(prev store.GoalBoardMeta, audit []store.GoalAuditEntry, now time
 
 // terminalAuditFor 在审计账本里找终态条目：优先 goalID 匹配的那条，否则退回
 // 最后一条终态条目（账本按 Seq 追加顺序，取最后一条即最近一次收口）。
-func terminalAuditFor(audit []store.GoalAuditEntry, goalID string) (store.GoalAuditEntry, bool) {
-	last, found := store.GoalAuditEntry{}, false
+func terminalAuditFor(audit []storecontext.GoalAuditEntry, goalID string) (storecontext.GoalAuditEntry, bool) {
+	last, found := storecontext.GoalAuditEntry{}, false
 	for _, entry := range audit {
 		if !isTerminalAuditKind(entry.Kind) {
 			continue
@@ -341,19 +341,19 @@ func terminalAuditFor(audit []store.GoalAuditEntry, goalID string) (store.GoalAu
 	}
 	if goalID != "" {
 		// 指定的 goal 没有终态条目：不用别的 goal 的条目冒充原因。
-		return store.GoalAuditEntry{}, false
+		return storecontext.GoalAuditEntry{}, false
 	}
 	return last, found
 }
 
 // activeFrame 把栈顶（records 末元素）投影成看板当前帧快照；空栈 → nil。
-func activeFrame(records []*GoalRecord) *store.GoalBoardActive {
+func activeFrame(records []*GoalRecord) *dto.GoalBoardActive {
 	for index := len(records) - 1; index >= 0; index-- {
 		record := records[index]
 		if record == nil {
 			continue
 		}
-		frame := &store.GoalBoardActive{
+		frame := &dto.GoalBoardActive{
 			GoalID:     record.ID,
 			Title:      record.Title,
 			Statement:  record.Statement,
@@ -375,7 +375,7 @@ func activeFrame(records []*GoalRecord) *store.GoalBoardActive {
 
 // boardFingerprint 计算看板载荷的内容指纹：对"去掉 Seq/UpdatedAt/Fingerprint"
 // 的载荷取 sha256（字段顺序由结构体定义固定，无 map，序列化稳定）。
-func boardFingerprint(meta store.GoalBoardMeta) string {
+func boardFingerprint(meta dto.GoalBoardMeta) string {
 	meta.Seq = 0
 	meta.UpdatedAt = 0
 	meta.Fingerprint = ""

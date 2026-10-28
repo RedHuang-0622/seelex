@@ -7,7 +7,6 @@ package store
 // 互相阻塞。所以这里一条查身份、一条查行为，两条都不赌调度、不用 sleep 判绿。
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
@@ -68,7 +67,7 @@ func TestMediaReadNotBlockedByHeldMessageLock(t *testing.T) {
 	router := newLockProfileRouter(t, t.TempDir())
 	const projectID, sessionID = "project-media-lock", "session-media-lock"
 	if err := router.SaveCommitWorkspace(projectID, sessionID, Commit{Events: []Event{
-		{Role: "user", Content: "seed", MessageID: "seed"},
+		{Seq: 1, Role: "user", Content: "seed", MessageID: "seed"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +81,7 @@ func TestMediaReadNotBlockedByHeldMessageLock(t *testing.T) {
 	messageLock.Lock()
 	done := make(chan error, 1)
 	go func() {
-		_, err := repository.ListMedia(context.Background(), key)
+		_, err := repository.layout.artifacts.ListMedia(layoutScope(key))
 		done <- err
 	}()
 	select {

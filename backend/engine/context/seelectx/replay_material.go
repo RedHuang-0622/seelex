@@ -45,7 +45,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // CompactReplayMaterialEvidenceRefPrefix 标记"重放素材被规整过"的帧证据 ref。
@@ -103,11 +103,11 @@ func (r ReplayMaterialReport) Terse() string {
 
 // ReplayMaterialEvidence 把素材规整事实写成帧证据。与 ReplayEvidence / LocalCompactEvidence
 // 同一条纪律：没有这件事（素材逐字未动）就不留痕。
-func ReplayMaterialEvidence(report ReplayMaterialReport) []store.EvidenceRef {
+func ReplayMaterialEvidence(report ReplayMaterialReport) []storecontext.EvidenceRef {
 	if !report.Repaired() {
 		return nil
 	}
-	return []store.EvidenceRef{{
+	return []storecontext.EvidenceRef{{
 		Ref:     CompactReplayMaterialEvidenceRefPrefix + "normalized",
 		Summary: report.Terse(),
 	}}
@@ -227,11 +227,11 @@ func (c ReplayCoverage) Terse() string {
 
 // ReplayCoverageEvidence 把覆盖事实写成帧证据：**只在不覆盖时留痕**（"没有这件事
 // 就不留痕"，与 ReplayMaterialEvidence 同一条纪律）。
-func ReplayCoverageEvidence(coverage ReplayCoverage) []store.EvidenceRef {
+func ReplayCoverageEvidence(coverage ReplayCoverage) []storecontext.EvidenceRef {
 	if coverage.Covered() {
 		return nil
 	}
-	return []store.EvidenceRef{{
+	return []storecontext.EvidenceRef{{
 		Ref: fmt.Sprintf("%suncovered:%d/%d",
 			CompactReplayCoverageEvidenceRefPrefix, coverage.CoveredUnits, coverage.OverflowUnits),
 		Summary: coverage.Terse(),

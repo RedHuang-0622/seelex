@@ -92,7 +92,9 @@ func (c *Coordinator) PrepareFork(location Location, childID, parentID string, r
 	if derivedParent {
 		// S20：record 退役后父会话正文由 message 事件行派生（fork 截断仍按
 		// 既有 cut 语义在该派生化 conversation 上执行）。
-		record.Conversation.Messages = conversationMessagesFromEvents(rawEvents)
+		record.Conversation.Messages = ProjectConversationEvents(rawEvents, ConversationProjectionPolicy{
+			IsInternal: c.isInternalContent,
+		})
 	}
 	cut, cutEvent, err := resolveForkCut(rawEvents, request)
 	if err != nil {
@@ -188,22 +190,6 @@ func forkTranscriptEvents(events []store.Event) []model.TranscriptEvent {
 		}
 	}
 	return adapted
-}
-
-// conversationMessagesFromEvents 把 message 事件行派生为 record conversation
-// 消息（S20：record 通道退役后的父会话正文事实源）。
-func conversationMessagesFromEvents(events []store.Event) []model.Message {
-	messages := make([]model.Message, 0, len(events))
-	for _, event := range events {
-		id := event.MessageID
-		if id == "" {
-			id = fmt.Sprintf("seq-%d", event.Seq)
-		}
-		messages = append(messages, model.Message{
-			ID: id, Role: event.Role, Content: event.Content, EventSeq: event.Seq, CreatedAt: event.CreatedAt,
-		})
-	}
-	return messages
 }
 
 func forkStoredToolResults(results []store.ToolResult) []model.StoredToolResult {

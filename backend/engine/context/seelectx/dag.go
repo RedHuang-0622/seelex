@@ -31,7 +31,6 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplantypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/Seele/workplan/runtime/runner"
-	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
@@ -163,7 +162,7 @@ const LocalCompactReplayFailedCode = "replay-failed"
 type compactionDAGState struct {
 	input         CompactionInput
 	record        storecontext.PromptStackSnapshot
-	prevTop       *store.CompactFrame
+	prevTop       *storecontext.CompactFrame
 	overflow      []historyUnit
 	unitCount     int
 	chapter1      string
@@ -175,7 +174,7 @@ type compactionDAGState struct {
 	// 不记正常。
 	degradeCode string
 	degradeNote string
-	frame       store.CompactFrame
+	frame       storecontext.CompactFrame
 	// carry 是「上一帧 Chapter 2 并入」的决策事实（帧摘要传递上限）。
 	carry CarryDiagnostics
 	// replay 是分片重放的计划事实（未分片 → 空计划）。
@@ -191,9 +190,9 @@ type compactionDAGState struct {
 // Execute 运行压缩 DAG 并返回拼装完成的 CompactFrame（不含 PushCompact；
 // 压栈与去重由调用方保留，见文件头注释）。失败时按详设 §4.5 逐级兜底：
 // Chapter 2 失败 → 本地压缩；装配/未执行失败 → 串行化兜底。
-func (d *CompactionDAG) Execute(ctx context.Context, input CompactionInput) (store.CompactFrame, error) {
+func (d *CompactionDAG) Execute(ctx context.Context, input CompactionInput) (storecontext.CompactFrame, error) {
 	if d == nil {
-		return store.CompactFrame{}, fmt.Errorf("seelexctx: compaction dag is nil")
+		return storecontext.CompactFrame{}, fmt.Errorf("seelexctx: compaction dag is nil")
 	}
 	state := d.newState(input)
 	plan, planErr := codec.Import[compactionNodeInput](
@@ -202,16 +201,16 @@ func (d *CompactionDAG) Execute(ctx context.Context, input CompactionInput) (sto
 		if _, runErr := runner.New(plan).Run(ctx); runErr == nil {
 			return state.frame, nil
 		} else if ctx.Err() != nil {
-			return store.CompactFrame{}, ctx.Err()
+			return storecontext.CompactFrame{}, ctx.Err()
 		} else if state.startedCount() > 0 {
 			// 节点已开始执行后失败：不重复跑（避免重复模型调用/副作用）。
-			return store.CompactFrame{}, fmt.Errorf("seelexctx: compaction dag run: %w", runErr)
+			return storecontext.CompactFrame{}, fmt.Errorf("seelexctx: compaction dag run: %w", runErr)
 		}
 		// 节点尚未开始 → 按串行化兜底执行。
 		planErr = nil
 	}
 	if err := d.runSerial(ctx, state); err != nil {
-		return store.CompactFrame{}, fmt.Errorf("seelexctx: compaction dag serial fallback: %w", err)
+		return storecontext.CompactFrame{}, fmt.Errorf("seelexctx: compaction dag serial fallback: %w", err)
 	}
 	return state.frame, nil
 }
@@ -502,7 +501,7 @@ func (d *CompactionDAG) replayChunkPlan(state *compactionDAGState) ReplayChunkPl
 
 // dagOrdinalBase 返回本次压缩单元区号的基准 = 已被覆盖帧覆盖的单元数
 // （栈顶 To+1），无前驱 0。基准取自**已记录**的帧边界。
-func dagOrdinalBase(prevTop *store.CompactFrame) int {
+func dagOrdinalBase(prevTop *storecontext.CompactFrame) int {
 	if prevTop == nil {
 		return 0
 	}
@@ -530,7 +529,7 @@ func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Contex
 		if requestFrom == "" || requestTo == "" {
 			requestFrom, requestTo = ChatQueueRequestLabels(from, to)
 		}
-		frame := store.CompactFrame{
+		frame := storecontext.CompactFrame{
 			SegmentID:     d.segmentID(),
 			From:          from,
 			To:            to,
@@ -557,7 +556,7 @@ func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Contex
 // 区间覆盖 → 帧摘要传递 → 分片重放计划 → 素材规整 → 素材覆盖 → 降级出口。
 // 每一条都只在"有这件事"时出现（nil 切片被 append 吸收）——不留"什么都没发生"
 // 的空痕。
-func frameEvidence(state *compactionDAGState) []store.EvidenceRef {
+func frameEvidence(state *compactionDAGState) []storecontext.EvidenceRef {
 	evidence := overflowEvidence(state.overflow, state.record)
 	evidence = append(evidence, CarryEvidence(state.carry)...)
 	evidence = append(evidence, ReplayEvidence(state.replay)...)

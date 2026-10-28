@@ -43,8 +43,9 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/context"
-	"github.com/RedHuang-0622/seelex/store"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：把某会话的团队看板
@@ -60,11 +61,15 @@ func (port RuntimePort) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoa
 // SessionContextStoreFor 实现 application/assembly 的会话上下文存储取用面：goal 第五栈
 // （以及绑定它的两块看板存档面）经它按会话注入。未实例化/未绑定 → nil，goal 域退回
 // 内存态（不报错、不阻断）——那是能力缺失的降级，不是错误。
-func (port RuntimePort) SessionContextStoreFor(sessionID string) *store.SessionContextStore {
+func (port RuntimePort) SessionContextStoreFor(sessionID string) goaldomain.SessionContextPort {
 	if port.Runtime == nil {
 		return nil
 	}
-	return port.Runtime.SessionContextStoreFor(sessionID)
+	session := port.Runtime.SessionContextStoreFor(sessionID)
+	if session == nil {
+		return nil
+	}
+	return session
 }
 
 func (port RuntimePort) SessionBoardsFor(sessionID string) *storeboard.BoundStore {
@@ -264,9 +269,9 @@ func (port RuntimePort) SetSessionReasoningEffort(effort string) int {
 // nil ⇒ 项目看板的"这件事的团队计划/运行态"两格整块为空（`ProjectBoardTeamStateFor`
 // 也一起空）。这与 2026-10-02 那次 TeamworkBoardSnapshot 漏接是同一类：bridge 上
 // 有这个方法、core 也在探测，中间少了一行转发就功能整块消失。
-func (port RuntimePort) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
+func (port RuntimePort) TeamworkPlanFor(sessionID string) (storeteamwork.Plan, bool) {
 	if port.Runtime == nil {
-		return store.TeamworkPlan{}, false
+		return storeteamwork.Plan{}, false
 	}
 	return port.Runtime.TeamworkPlanFor(sessionID)
 }
@@ -291,7 +296,7 @@ var (
 		ReadbackCompactionSummary(context.Context, string, context_runtime.CompactionIndexRequest) (context_runtime.CompactionIndexReceipt, error)
 	} = RuntimePort{}
 	_ interface {
-		SessionContextStoreFor(string) *store.SessionContextStore
+		SessionContextStoreFor(string) goaldomain.SessionContextPort
 	} = RuntimePort{}
 	_ interface{ ForkInFlight(string) bool }  = RuntimePort{}
 	_ interface{ PerSessionExecution() bool } = RuntimePort{}
@@ -304,6 +309,6 @@ var (
 	// board.TeamworkPlanSource（middle/view/board/syncer.go，包内命名接口）：
 	// 项目看板按会话取 teamwork 计划 + 运行态。断言失败 = 那两格恒空。
 	_ interface {
-		TeamworkPlanFor(string) (store.TeamworkPlan, bool)
+		TeamworkPlanFor(string) (storeteamwork.Plan, bool)
 	} = RuntimePort{}
 )

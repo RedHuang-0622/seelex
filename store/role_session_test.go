@@ -14,7 +14,7 @@ func roleSessionFixture(t *testing.T) (*storeEngine, Key) {
 	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "project-1", SessionID: "main-session"}
 	if _, err := store.messageCommit(key, "init", []Event{{
-		Role: "user", Content: "start", Kind: EventKindUserInput,
+		Seq: 1, Role: "user", Content: "start", Kind: EventKindUserInput,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -328,8 +328,8 @@ func TestRoleSnapshotMarksRowsOutsidePrefixMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.messageCommit(mainKey, "turn-2", []Event{
-		{Role: "assistant", Content: "goal 这一回合", Kind: EventKindLLM},
-		{Role: "assistant", Content: "exec 这一回合", Kind: EventKindLLM},
+		{Seq: 2, Role: "assistant", Content: "goal 这一回合", Kind: EventKindLLM},
+		{Seq: 3, Role: "assistant", Content: "exec 这一回合", Kind: EventKindLLM},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestRoleSnapshotMarksRowsOutsidePrefixMatch(t *testing.T) {
 func TestAssembleRoleWireForMainIsMainSessionContext(t *testing.T) {
 	store, mainKey := roleSessionFixture(t)
 	if _, err := store.messageCommit(mainKey, "turn-2", []Event{{
-		Role: "assistant", Content: "改了 chat.go 的注入顺序", Kind: EventKindLLM,
+		Seq: 2, Role: "assistant", Content: "改了 chat.go 的注入顺序", Kind: EventKindLLM,
 	}}); err != nil {
 		t.Fatal(err)
 	}

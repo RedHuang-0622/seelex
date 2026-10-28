@@ -18,7 +18,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // SetEventPersister 安装执行事实持久化钩子（事件库的事实轨）。
@@ -111,7 +111,7 @@ func (r *Runtime) beginNodeWorktree(scope dto.SceneScope, nodeID string) *worktr
 	}
 	wt := r.worktreeMgr.Begin(scope, nodeID)
 	if wt != nil && r.subagentSessions != nil {
-		r.subagentSessions.NoteWorktree(nodeID, store.NodeWorktreeRecord{
+		r.subagentSessions.NoteWorktree(nodeID, storeworkunit.WorktreeRecord{
 			Path: wt.Path, Branch: wt.Branch, BaseCommit: wt.BaseCommit, MainBranch: wt.MainBranch,
 		})
 	}

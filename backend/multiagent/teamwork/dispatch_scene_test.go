@@ -24,7 +24,8 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // boundWorktrees 返回建现场时收到的**指派名**——现场在册与否看的就是这个键。放在这
@@ -85,7 +86,7 @@ func TestDispatchBindsTeammateSceneAndRecordsLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	live := store.TeamworkBindings(rows)
+	live := storeteamwork.Bindings(rows)
 	found := false
 	for _, binding := range live {
 		if binding.Role == "exec" && binding.Worktree == "seelex/exec" {
@@ -124,7 +125,7 @@ func TestCloseReleasesEverySceneOfRole(t *testing.T) {
 		if _, err := fixture.coordinator.DispatchItem(ctx, id); err != nil {
 			t.Fatalf("DispatchItem(%s): %v", id, err)
 		}
-		waitItemStatus(t, fixture, id, store.TeamworkItemReview)
+		waitItemStatus(t, fixture, id, storeteamwork.ItemReview)
 		if err := fixture.coordinator.FailItem(ctx, id, "留现场待处置"); err != nil {
 			t.Fatalf("FailItem(%s): %v", id, err)
 		}
@@ -149,7 +150,7 @@ func TestCloseReleasesEverySceneOfRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	live := store.TeamworkBindings(rows)
+	live := storeteamwork.Bindings(rows)
 	for _, id := range []string{"wi-a", "wi-b"} {
 		if _, ok := live[id]; !ok {
 			t.Fatalf("收口之前 %q 的绑定应当还在册（收口才结束它）: %+v", id, live)
@@ -186,7 +187,7 @@ func TestCloseReleasesEverySceneOfRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	for _, binding := range store.TeamworkBindings(rows) {
+	for _, binding := range storeteamwork.Bindings(rows) {
 		if binding.Role == "exec" {
 			t.Fatalf("收口后该角色名下不该还有活绑定: %+v", binding)
 		}
@@ -237,7 +238,7 @@ func newSceneFixture(t *testing.T, spaces *failingSpaces) *itemFixture {
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:          store.Key{ProjectID: "p", SessionID: "s"},
+		Key:          dto.SessionKey{ProjectID: "p", SessionID: "s"},
 		Store:        st,
 		Jobs:         manager,
 		Workers:      runner,
@@ -281,7 +282,7 @@ func TestCloseNamesTheItemWhoseSceneFailedToRelease(t *testing.T) {
 		if _, err := fixture.coordinator.DispatchItem(ctx, id); err != nil {
 			t.Fatalf("DispatchItem(%s): %v", id, err)
 		}
-		waitItemStatus(t, fixture, id, store.TeamworkItemReview)
+		waitItemStatus(t, fixture, id, storeteamwork.ItemReview)
 		// 销项会释放该 WorkItem 的 worktree；wi-b 的清理失败是明确的
 		// accepted_with_cleanup_pending 中间态，由后续 team_close 再兜底重试。
 		if err := fixture.coordinator.AcceptItem(ctx, id, "销项"); err != nil && !IsAcceptedWithCleanupPending(err) {
@@ -302,7 +303,7 @@ func TestCloseNamesTheItemWhoseSceneFailedToRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	if _, alive := store.TeamworkBindings(rows)["wi-b"]; !alive {
+	if _, alive := storeteamwork.Bindings(rows)["wi-b"]; !alive {
 		t.Fatal("释放失败的现场不该记成已释放（账不先销，现场还在）")
 	}
 }

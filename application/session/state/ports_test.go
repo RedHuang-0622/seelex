@@ -38,10 +38,6 @@ func TestSessionUnitComponents(t *testing.T) {
 	if unit.View == nil || unit.Queue == nil || unit.Context == nil {
 		t.Fatal("V/Q/C must be non-nil in the unit skeleton")
 	}
-	if got := unit.Status(); got != StatusDraft {
-		t.Fatalf("initial status = %q, want draft", got)
-	}
-
 	// 队列 seq 有序、会话隔离
 	unit.Queue.Enqueue("first", nil)
 	unit.Queue.Enqueue("second", nil)
@@ -53,80 +49,6 @@ func TestSessionUnitComponents(t *testing.T) {
 	other.Enqueue("other", nil)
 	if unit.Queue.Len() != 2 {
 		t.Fatalf("queue polluted by other session: len = %d", unit.Queue.Len())
-	}
-}
-
-// TestLifecycleThinStateMachine（T2.3）：status 由 HasSession 驱动，
-// 非法迁移拒绝（空 id、运行中 unload、未加载提交）。
-func TestLifecycleThinStateMachine(t *testing.T) {
-	unit, err := NewSessionUnit("sess-a")
-	if err != nil {
-		t.Fatalf("NewSessionUnit: %v", err)
-	}
-
-	// 未加载提交拒绝
-	if err := unit.Submit(false); err == nil {
-		t.Fatal("submit without loaded engine must be rejected")
-	}
-	// 未加载卸载幂等（不报错）
-	if err := unit.Unload(); err != nil {
-		t.Fatalf("unload of cold session: %v", err)
-	}
-
-	// 冷加载（HasSession=true）→ idle
-	if err := unit.ColdLoad(true); err != nil {
-		t.Fatalf("cold load: %v", err)
-	}
-	if got := unit.Status(); got != StatusIdle {
-		t.Fatalf("after cold load status = %q, want idle", got)
-	}
-	if !unit.HasSession() {
-		t.Fatal("HasSession must be true after cold load")
-	}
-
-	// 双 cold load 拒绝
-	if err := unit.ColdLoad(true); err == nil {
-		t.Fatal("double cold load must be rejected")
-	}
-
-	// idle --submit--> running
-	if err := unit.Submit(true); err != nil {
-		t.Fatalf("submit idle: %v", err)
-	}
-	if got := unit.Status(); got != StatusRunning {
-		t.Fatalf("after submit status = %q, want running", got)
-	}
-	// running --submit--> queued（入队）
-	if err := unit.Submit(true); err != nil {
-		t.Fatalf("submit while running: %v", err)
-	}
-	if got := unit.Status(); got != StatusQueued {
-		t.Fatalf("after running submit status = %q, want queued", got)
-	}
-	// 运行中 unload 拒绝
-	if err := unit.Unload(); err == nil {
-		t.Fatal("unload while running must be rejected")
-	}
-	// running --完成--> idle
-	if err := unit.Finish(); err != nil {
-		t.Fatalf("finish: %v", err)
-	}
-	if got := unit.Status(); got != StatusIdle {
-		t.Fatalf("after finish status = %q, want idle", got)
-	}
-	// idle --unload--> draft（释放引擎）
-	if err := unit.Unload(); err != nil {
-		t.Fatalf("unload idle: %v", err)
-	}
-	if unit.HasSession() {
-		t.Fatal("HasSession must be false after unload")
-	}
-	// cold 重建：cold --NewSessionWithID+seed--> idle
-	if err := unit.ColdLoad(true); err != nil {
-		t.Fatalf("re-cold-load: %v", err)
-	}
-	if got := unit.Status(); got != StatusIdle {
-		t.Fatalf("after re-cold-load status = %q, want idle", got)
 	}
 }
 
@@ -162,39 +84,6 @@ func TestEmptyAndNilHandles(t *testing.T) {
 	}
 }
 
-// TestIllegalLifecycleTransitions（B2）：空 id / 运行中 unload /
-// 未加载提交 / 双 cold load 均拒绝。
-func TestIllegalLifecycleTransitions(t *testing.T) {
-	unit, err := NewSessionUnit("sess-b")
-	if err != nil {
-		t.Fatalf("NewSessionUnit: %v", err)
-	}
-	if err := unit.ColdLoad(true); err != nil {
-		t.Fatalf("cold load: %v", err)
-	}
-	if err := unit.Submit(true); err != nil {
-		t.Fatalf("submit: %v", err)
-	}
-	if err := unit.Unload(); err == nil {
-		t.Fatal("unload while running must be rejected")
-	}
-	if err := unit.ColdLoad(true); err == nil {
-		t.Fatal("double cold load must be rejected")
-	}
-	// 未加载提交
-	cold, _ := NewSessionUnit("sess-c")
-	if err := cold.Submit(false); err == nil {
-		t.Fatal("submit on cold session must be rejected")
-	}
-	if err := cold.Submit(true); err == nil {
-		t.Fatal("submit before cold load must be rejected")
-	}
-	// 空 id
-	if _, err := NewSessionUnit(" "); err == nil {
-		t.Fatal("blank id must be rejected")
-	}
-}
-
 // TestLockOrdering（R2）：Transition→Domain→Unit→View 锁序下并发迁移 +
 // 注册表操作无死锁（超时门禁），视图读写不受会话迁移阻塞。
 func TestLockOrdering(t *testing.T) {
@@ -205,9 +94,6 @@ func TestLockOrdering(t *testing.T) {
 		unit, err := NewSessionUnit(string(rune('a' + index)))
 		if err != nil {
 			t.Fatalf("NewSessionUnit: %v", err)
-		}
-		if err := unit.ColdLoad(true); err != nil {
-			t.Fatalf("cold load: %v", err)
 		}
 		units[index] = unit
 	}
@@ -222,8 +108,9 @@ func TestLockOrdering(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for round := 0; round < 100; round++ {
-					_ = unit.Submit(true)
-					_ = unit.Finish()
+					unit.SetRequests([]QueuedRequest{{DisplayInput: "queued"}})
+					unit.AddApproval("approval")
+					unit.RemoveApproval("approval")
 					unit.View.Mutate(func(view *View) { view.Revision++ })
 				}
 			}()

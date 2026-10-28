@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -32,46 +33,46 @@ import (
 // 留作"这个桩不支持 goal 看板"的显式失败，而不是让类型断言在装配处就崩掉。
 type memBoardStore struct {
 	mu     sync.Mutex
-	metas  map[store.Key]store.TeamBoardMeta
-	writes []store.TeamBoardMeta
+	metas  map[dto.SessionKey]dto.TeamBoardMeta
+	writes []dto.TeamBoardMeta
 }
 
-func (m *memBoardStore) WriteGoalBoard(context.Context, store.Key, store.GoalBoardMeta) error {
+func (m *memBoardStore) WriteGoalBoard(context.Context, dto.SessionKey, dto.GoalBoardMeta) error {
 	return errors.New("测试桩：不支持 goal 看板存档")
 }
 
-func (m *memBoardStore) ReadGoalBoard(context.Context, store.Key) (store.GoalBoardMeta, error) {
-	return store.GoalBoardMeta{}, fs.ErrNotExist
+func (m *memBoardStore) ReadGoalBoard(context.Context, dto.SessionKey) (dto.GoalBoardMeta, error) {
+	return dto.GoalBoardMeta{}, fs.ErrNotExist
 }
 
-func (m *memBoardStore) WriteTeamBoard(_ context.Context, key store.Key, meta store.TeamBoardMeta) error {
+func (m *memBoardStore) WriteTeamBoard(_ context.Context, key dto.SessionKey, meta dto.TeamBoardMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.metas == nil {
-		m.metas = map[store.Key]store.TeamBoardMeta{}
+		m.metas = map[dto.SessionKey]dto.TeamBoardMeta{}
 	}
 	m.metas[key] = meta
 	m.writes = append(m.writes, meta)
 	return nil
 }
 
-func (m *memBoardStore) ReadTeamBoard(_ context.Context, key store.Key) (store.TeamBoardMeta, error) {
+func (m *memBoardStore) ReadTeamBoard(_ context.Context, key dto.SessionKey) (dto.TeamBoardMeta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta, ok := m.metas[key]
 	if !ok {
-		return store.TeamBoardMeta{}, fs.ErrNotExist
+		return dto.TeamBoardMeta{}, fs.ErrNotExist
 	}
 	return meta, nil
 }
 
-func (m *memBoardStore) snapshot() []store.TeamBoardMeta {
+func (m *memBoardStore) snapshot() []dto.TeamBoardMeta {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]store.TeamBoardMeta(nil), m.writes...)
+	return append([]dto.TeamBoardMeta(nil), m.writes...)
 }
 
-func (m *memBoardStore) latest(key store.Key) (store.TeamBoardMeta, bool) {
+func (m *memBoardStore) latest(key dto.SessionKey) (dto.TeamBoardMeta, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta, ok := m.metas[key]
@@ -83,11 +84,11 @@ func archiveBackend(plans *memPlanStore, boards *memBoardStore, sessionID string
 	return TeamworkBackend{
 		Store:  plans,
 		Boards: boards,
-		KeyFor: func(id string) (store.Key, bool) {
+		KeyFor: func(id string) (dto.SessionKey, bool) {
 			if id != sessionID {
-				return store.Key{}, false
+				return dto.SessionKey{}, false
 			}
-			return store.Key{ProjectID: "p-team", SessionID: sessionID}, true
+			return dto.SessionKey{ProjectID: "p-team", SessionID: sessionID}, true
 		},
 		MaxTeammates: 6,
 	}
@@ -113,7 +114,7 @@ func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seetelemetry.WithSessionID(context.Background(), "s-team")
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 
 	if _, err := r.teamPlanHandler(ctx, boardPlanArgs("t-archive", 1)); err != nil {
 		t.Fatalf("team_plan(v1): %v", err)
@@ -123,7 +124,7 @@ func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T) {
 		t.Fatalf("首次 team_plan 应恰好写一版存档，实际 %d：%+v", len(writes), writes)
 	}
 	first := writes[0]
-	if first.State != store.BoardStateActive || first.Version != 1 || first.Seq != 1 {
+	if first.State != dto.BoardStateActive || first.Version != 1 || first.Seq != 1 {
 		t.Fatalf("首版应为 active v1 seq=1：%+v", first)
 	}
 	if first.OpenedAt <= 0 || first.UpdatedAt <= 0 {
@@ -142,7 +143,7 @@ func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T) {
 		t.Fatalf("版本递进应写两次（关旧 + 开新），累计 3，实际 %d：%+v", len(writes), writes)
 	}
 	closed := writes[1]
-	if closed.State != store.BoardStateClosed || closed.ClosedReason != store.BoardCloseTeamReplan {
+	if closed.State != dto.BoardStateClosed || closed.ClosedReason != dto.BoardCloseTeamReplan {
 		t.Fatalf("旧版必须先记为 closed/team.replan：%+v", closed)
 	}
 	if closed.Version != 1 {
@@ -152,11 +153,11 @@ func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T) {
 		t.Fatal("closed 存档必须带 closed_at")
 	}
 	opened := writes[2]
-	if opened.State != store.BoardStateActive || opened.Version != 2 || opened.Seq != 1 {
+	if opened.State != dto.BoardStateActive || opened.Version != 2 || opened.Seq != 1 {
 		t.Fatalf("新版必须重新开一版 active v2 seq=1（不是续 seq）：%+v", opened)
 	}
 	latest, ok := boards.latest(key)
-	if !ok || latest.State != store.BoardStateActive || latest.Version != 2 {
+	if !ok || latest.State != dto.BoardStateActive || latest.Version != 2 {
 		t.Fatalf("盘上最终态应是 active v2：%+v", latest)
 	}
 }
@@ -169,7 +170,7 @@ func TestTeamBoardArchiveThrottlesIdenticalPayload(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seetelemetry.WithSessionID(context.Background(), "s-team")
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 
 	if _, err := r.teamPlanHandler(ctx, boardPlanArgs("t-archive", 1)); err != nil {
 		t.Fatalf("team_plan: %v", err)
@@ -197,11 +198,11 @@ func TestTeamworkBoardSnapshotRecoversFromArchive(t *testing.T) {
 	if err := r.SetTeamworkBackend(archiveBackend(&memPlanStore{}, boards, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 	snapshot := json.RawMessage(`{"team_id":"t-archive","version":3,"milestones":[{"id":"m-design","name":"设计"}]}`)
-	if err := boards.WriteTeamBoard(context.Background(), key, store.TeamBoardMeta{
-		BoardLifecycle: store.BoardLifecycle{
-			Kind: store.BoardKindTeam, State: store.BoardStateActive, Seq: 2,
+	if err := boards.WriteTeamBoard(context.Background(), key, dto.TeamBoardMeta{
+		BoardLifecycle: dto.BoardLifecycle{
+			Kind: dto.BoardKindTeam, State: dto.BoardStateActive, Seq: 2,
 		},
 		TeamID: "t-archive", Version: 3, Snapshot: snapshot,
 	}); err != nil {
@@ -234,11 +235,11 @@ func TestTeamworkBoardSnapshotNilWhenArchiveClosed(t *testing.T) {
 	if err := r.SetTeamworkBackend(archiveBackend(&memPlanStore{}, boards, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
-	if err := boards.WriteTeamBoard(context.Background(), key, store.TeamBoardMeta{
-		BoardLifecycle: store.BoardLifecycle{
-			Kind: store.BoardKindTeam, State: store.BoardStateClosed,
-			ClosedAt: 1760000000, ClosedReason: store.BoardCloseTeamClose,
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
+	if err := boards.WriteTeamBoard(context.Background(), key, dto.TeamBoardMeta{
+		BoardLifecycle: dto.BoardLifecycle{
+			Kind: dto.BoardKindTeam, State: dto.BoardStateClosed,
+			ClosedAt: 1760000000, ClosedReason: dto.BoardCloseTeamClose,
 		},
 		TeamID: "t-archive", Version: 1,
 		Snapshot: json.RawMessage(`{"team_id":"t-archive","version":1,"milestones":[{"id":"m-design"}]}`),
@@ -266,8 +267,8 @@ func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T) {
 	planStore := seeteamwork.NewPlanStore(plans)
 	if err := first.SetTeamworkBackend(TeamworkBackend{
 		Store: planStore, Boards: boards,
-		KeyFor: func(id string) (store.Key, bool) {
-			return store.Key{ProjectID: "p-archive", SessionID: id}, true
+		KeyFor: func(id string) (dto.SessionKey, bool) {
+			return dto.SessionKey{ProjectID: "p-archive", SessionID: id}, true
 		},
 		MaxTeammates: 6,
 	}); err != nil {
@@ -296,8 +297,8 @@ func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T) {
 	defer second.Shutdown()
 	if err := second.SetTeamworkBackend(TeamworkBackend{
 		Store: &memPlanStore{}, Boards: boards,
-		KeyFor: func(id string) (store.Key, bool) {
-			return store.Key{ProjectID: "p-archive", SessionID: id}, true
+		KeyFor: func(id string) (dto.SessionKey, bool) {
+			return dto.SessionKey{ProjectID: "p-archive", SessionID: id}, true
 		},
 		MaxTeammates: 6,
 	}); err != nil {

@@ -4,19 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// ScheduleEventPayload 是定时任务式插话 EVENT 的 payload（§8.3）。冷启动按
-// schedule.registered/cancelled/fired 重放重建 timer。
-type ScheduleEventPayload struct {
-	ScheduleID    string `json:"schedule_id"`
-	RoleName      string `json:"role_name"`
-	RoleSessionID string `json:"role_session_id"`
-	Cron          string `json:"cron,omitempty"`
-	Interval      string `json:"interval,omitempty"`
-	NextFireAt    string `json:"next_fire_at,omitempty"`
-	PayloadRef    string `json:"payload_ref,omitempty"`
-}
+// ScheduleEventPayload 的 wire 形状唯一归 contract/dto。
+type ScheduleEventPayload = dto.ScheduleEventPayload
 
 // scheduleEventCommit 写一条 schedule.* EVENT（唯一写序 = message → event）。
 func (store *storeEngine) scheduleEventCommit(key Key, kind structuralEventKind, payload ScheduleEventPayload) error {

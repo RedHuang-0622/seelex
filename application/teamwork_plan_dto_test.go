@@ -11,14 +11,14 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 func TestTeamworkPlanUsesContractIdentity(t *testing.T) {
-	if reflect.TypeOf(store.TeamworkPlan{}) != reflect.TypeOf(dto.TeamworkPlan{}) {
+	if reflect.TypeOf(storeteamwork.Plan{}) != reflect.TypeOf(dto.TeamworkPlan{}) {
 		t.Fatal("store TeamworkPlan 必须保留 contract/dto 同身份 alias")
 	}
-	if reflect.TypeOf(store.TeamworkState{}) != reflect.TypeOf(dto.TeamworkState{}) {
+	if reflect.TypeOf(storeteamwork.State{}) != reflect.TypeOf(dto.TeamworkState{}) {
 		t.Fatal("store TeamworkState 必须保留 contract/dto 同身份 alias")
 	}
 }

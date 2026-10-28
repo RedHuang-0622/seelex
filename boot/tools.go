@@ -34,6 +34,8 @@ import (
 	coretask "github.com/RedHuang-0622/seelex/kernel/task"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // pluginPromptEngine 是「能被推 system prompt 的引擎」这一格能力面（RegisterProductTools
@@ -112,7 +114,7 @@ func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Servic
 // 直接复用（内容版本化）；重建失败保留上一版本（可回退）。
 //
 // M5：成功刷新后**追加一步渲染**——把 `result.Record` 确定性渲染成
-// `project-known.md`（`store.ProjectKnownMarkdown` + `WriteProjectKnown`），
+// `project-known.md`（`store/project.ProjectKnownMarkdown` + `WriteKnown`），
 // 返回体里带 known_written / known_bytes。渲染**不改判定**：谁能产出
 // ProjectRecord 仍只有 RefreshProjectKnowledge 这条链。
 //
@@ -215,12 +217,12 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 		if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 			return "", fmt.Errorf("project_refresh: %w", err)
 		}
-		builder := store.NewProjectKnowledgeBuilder(store.ProjectKnowledgeSources{Root: input.ProjectRoot})
+		builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: input.ProjectRoot})
 		// 项目级记录的**键是工作区 ID**（`ws-<nano>`），不是扫描根路径：读面
 		// （下方 RuntimeDeps.ProjectKnowledge 的 store.LoadProjectRecord(store.Workspace())）
 		// 用的就是这个键。写键≠读键会让记录永远读不到（G5 断点②），
 		// 所以这里显式取一次工作区 ID 传进去，而不是让存储层去猜。
-		result, err := store.RefreshProjectKnowledge(ctx, st, st.Workspace(), builder, input.Force)
+		result, err := storeproject.RefreshProjectKnowledge(ctx, st, st.Workspace(), builder, input.Force)
 		if err != nil {
 			// 首建失败（无来源 / 落盘失败）：显式报错，**不产空渲染件**。
 			return "", fmt.Errorf("project_refresh: %w", err)
@@ -237,7 +239,7 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 			// 不在回退分支重写：盘上的上一版渲染件就是"上一版本"。
 			knownNote = "fallback：保留上一版本渲染件（未重写）"
 		} else {
-			markdown := store.ProjectKnownMarkdown(result.Record)
+			markdown := storeproject.ProjectKnownMarkdown(result.Record)
 			// 渲染件与看板同一个目录：<项目根>/.seelex/board/。项目根优先取**会话绑定**
 			// （与看板落点同源）；未绑定时退回本次扫描根（显式给了 project_root 的用法）。
 			sessionID := strings.TrimSpace(coretask.SessionIDFromContext(ctx))
@@ -248,7 +250,7 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 			if renderRoot == "" {
 				renderRoot = builder.Root()
 			}
-			if writeErr := st.WriteProjectKnown(renderRoot, markdown); writeErr != nil {
+			if writeErr := storeproject.WriteKnown(renderRoot, markdown); writeErr != nil {
 				return "", fmt.Errorf("project_refresh: %w", writeErr)
 			}
 			knownWritten = true
@@ -263,7 +265,7 @@ func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app
 			"built_at":      result.Record.BuiltAt.Format(time.RFC3339),
 			"known_written": knownWritten,
 			"known_bytes":   knownBytes,
-			"known_file":    store.ProjectBoardKnownFile,
+			"known_file":    storeproject.KnownFile,
 			"known_note":    knownNote,
 		}
 		encoded, err := json.Marshal(payload)
@@ -879,8 +881,8 @@ func ProjectBoardSinkFor(
 	limits limit.ProjectBoardLimits,
 	st board.ProjectBoardStore,
 	workTableRows func(sessionID string) []model.WorkItem,
-	teamPlanFor func(sessionID string) *store.TeamworkPlan,
-	teamStateFor func(sessionID string) *store.TeamworkState,
+	teamPlanFor func(sessionID string) *storeteamwork.Plan,
+	teamStateFor func(sessionID string) *storeteamwork.State,
 	projectRootFor func(sessionID string) string,
 	evidenceChars func() int,
 ) (board.ProjectBoardSink, func(), error) {

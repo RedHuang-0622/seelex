@@ -35,7 +35,7 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 			history := testMessages(defaultMessageShardSize+5, string(storageLayoutName))
 			// v8 JSON 布局（S11）：事件行为正文事实源，ReadRange 由行派生。
 			if err := repository.WriteCommit(context.Background(), key, Commit{
-				Events: messagesToEventRows(history),
+				Events: sequentialTestRows(messagesToEventRows(history)),
 			}); err != nil {
 				t.Fatal(err)
 			}

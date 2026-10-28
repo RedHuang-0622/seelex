@@ -11,15 +11,18 @@ import (
 	"strings"
 
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	applicationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
+	sessionruntime "github.com/RedHuang-0622/seelex/kernel/session"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storerole "github.com/RedHuang-0622/seelex/store/role"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 )
 
@@ -282,6 +285,10 @@ type SessionPort struct {
 	Meta *store.SessionMetaStore
 	// Boards is the session-board owner injected by the composition root.
 	Boards *storeboard.SessionStore
+	// RolePermissions is the Role permission-registration owner. It must be
+	// injected once per data root so its in-process entry cache remains shared.
+	RolePermissions *storerole.PermissionStore
+	RoleSessions    *store.RoleSessionAdapter
 }
 
 // SetSessionMeta 实现 session.SessionMetaPort：写单个会话的展示元数据到其归属
@@ -568,7 +575,7 @@ func (port SessionPort) SaveSessionSnapshotWorkspace(
 		return err
 	}
 	if ref := record.ForkedFrom; ref != nil {
-		if err := port.Manager.Router().ForkStacks(
+		if err := store.NewStackStore(port.Manager.Router()).ForkStacks(
 			ref.ParentWorkspaceID, ref.ParentSessionID, projectID, sessionID, ref.ForkPoint.EventSeq,
 		); err != nil {
 			return fmt.Errorf("fork session stacks: %w", err)
@@ -609,7 +616,7 @@ func (port SessionPort) AssembleWireHistoryWorkspace(projectID, sessionID string
 	if port.Manager == nil || port.Manager.Router() == nil {
 		return nil, false, nil
 	}
-	messages, ok, err := port.Manager.Router().AssembleWireWorkspace(projectID, sessionID, budget, k)
+	messages, ok, err := store.NewWireStore(port.Manager.Router()).AssembleWireWorkspace(projectID, sessionID, budget, k)
 	if err != nil || !ok {
 		return nil, ok, err
 	}
@@ -748,11 +755,11 @@ func (port SessionPort) roleRouter(mainSessionID string) (*store.Router, string,
 // ── R2/R4 角色会话与定时插话（S27：端口签名只用 dto 纯 DTO）────────────
 
 func (port SessionPort) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error) {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return dto.RoleSessionInfo{}, err
 	}
-	info, err := router.CreateRoleSessionWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq)
+	info, err := port.RoleSessions.CreateRoleSessionWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq)
 	if err != nil {
 		return dto.RoleSessionInfo{}, err
 	}
@@ -763,20 +770,20 @@ func (port SessionPort) CreateRoleSession(mainSessionID, roleName, roleSessionID
 }
 
 func (port SessionPort) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return err
 	}
-	return router.AppendRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID,
+	return port.RoleSessions.AppendRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID,
 		storeRoleDraftRows(rows))
 }
 
 func (port SessionPort) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error) {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := router.ReadRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	rows, err := port.RoleSessions.ReadRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -784,11 +791,11 @@ func (port SessionPort) ReadRoleDraft(mainSessionID, roleName, roleSessionID str
 }
 
 func (port SessionPort) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error) {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return dto.RoleDraftSyncResult{}, err
 	}
-	result, err := router.SyncRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID, order)
+	result, err := port.RoleSessions.SyncRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID, order)
 	if err != nil {
 		return dto.RoleDraftSyncResult{}, err
 	}
@@ -799,20 +806,20 @@ func (port SessionPort) SyncRoleDraft(mainSessionID, roleName, roleSessionID str
 }
 
 func (port SessionPort) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return err
 	}
-	return router.AppendRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID,
+	return port.RoleSessions.AppendRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID,
 		storeRoleRows(rows))
 }
 
 func (port SessionPort) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error) {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := router.ReadRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	rows, err := port.RoleSessions.ReadRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -820,11 +827,11 @@ func (port SessionPort) ReadRoleSessionRows(mainSessionID, roleName, roleSession
 }
 
 func (port SessionPort) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return dto.RoleSnapshot{}, err
 	}
-	snapshot, err := router.RoleSnapshotWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	snapshot, err := port.RoleSessions.RoleSnapshotWorkspace(projectID, mainSessionID, roleName, roleSessionID)
 	if err != nil {
 		return dto.RoleSnapshot{}, err
 	}
@@ -832,11 +839,11 @@ func (port SessionPort) RoleSnapshot(mainSessionID, roleName, roleSessionID stri
 }
 
 func (port SessionPort) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error) {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return dto.RoleWireSnapshot{}, err
 	}
-	snapshot, err := router.AssembleRoleWireWorkspace(projectID, mainSessionID, roleName, roleSessionID, budget, k)
+	snapshot, err := port.RoleSessions.AssembleRoleWireWorkspace(projectID, mainSessionID, roleName, roleSessionID, budget, k)
 	if err != nil {
 		return dto.RoleWireSnapshot{}, err
 	}
@@ -844,28 +851,28 @@ func (port SessionPort) AssembleRoleWire(mainSessionID, roleName, roleSessionID 
 }
 
 func (port SessionPort) SetLifecycleOrder(sessionID, policy string, roles []string) error {
-	router, projectID, err := port.roleRouter(sessionID)
+	_, projectID, err := port.roleRouter(sessionID)
 	if err != nil {
 		return err
 	}
-	return router.SetLifecycleOrderWorkspace(projectID, sessionID, policy, roles)
+	return port.RoleSessions.SetLifecycleOrderWorkspace(projectID, sessionID, policy, roles)
 }
 
 func (port SessionPort) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return err
 	}
-	return router.SetRoleLifecycleWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq,
+	return port.RoleSessions.SetRoleLifecycleWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq,
 		storeCompactRef(ref))
 }
 
 func (port SessionPort) ListRoleSessions(mainSessionID string) ([]string, error) {
-	router, projectID, err := port.roleRouter(mainSessionID)
+	_, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return nil, err
 	}
-	return router.ListRoleSessionsWorkspace(projectID, mainSessionID)
+	return port.RoleSessions.ListRoleSessionsWorkspace(projectID, mainSessionID)
 }
 
 func (port SessionPort) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error {
@@ -873,7 +880,7 @@ func (port SessionPort) ScheduleRegister(sessionID string, payload dto.ScheduleE
 	if err != nil {
 		return err
 	}
-	return router.ScheduleRegisterWorkspace(projectID, sessionID, storeSchedulePayload(payload))
+	return router.ScheduleRegisterWorkspace(projectID, sessionID, payload)
 }
 
 func (port SessionPort) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error {
@@ -881,7 +888,7 @@ func (port SessionPort) ScheduleCancel(sessionID string, payload dto.ScheduleEve
 	if err != nil {
 		return err
 	}
-	return router.ScheduleCancelWorkspace(projectID, sessionID, storeSchedulePayload(payload))
+	return router.ScheduleCancelWorkspace(projectID, sessionID, payload)
 }
 
 func (port SessionPort) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error {
@@ -889,7 +896,7 @@ func (port SessionPort) ScheduleFire(sessionID string, payload dto.ScheduleEvent
 	if err != nil {
 		return err
 	}
-	return router.ScheduleFireWorkspace(projectID, sessionID, storeSchedulePayload(payload))
+	return router.ScheduleFireWorkspace(projectID, sessionID, payload)
 }
 
 // ── DTO ↔ 存储映射（S27）：存储类型只在本文件出现 ────────────────────
@@ -933,10 +940,10 @@ func roleRows(events []store.Event) []dto.RoleRow {
 	return rows
 }
 
-func storeRoleDraftRows(rows []dto.RoleDraftRow) []store.RoleDraftRow {
-	stored := make([]store.RoleDraftRow, len(rows))
+func storeRoleDraftRows(rows []dto.RoleDraftRow) []storerole.DraftRow {
+	stored := make([]storerole.DraftRow, len(rows))
 	for index, row := range rows {
-		stored[index] = store.RoleDraftRow{
+		stored[index] = storerole.DraftRow{
 			RoundID: row.RoundID, RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
 			UnitSeq: row.UnitSeq, MessageID: row.MessageID,
 			Event: storeRoleRows([]dto.RoleRow{row.Event})[0],
@@ -945,7 +952,7 @@ func storeRoleDraftRows(rows []dto.RoleDraftRow) []store.RoleDraftRow {
 	return stored
 }
 
-func roleDraftRows(rows []store.RoleDraftRow) []dto.RoleDraftRow {
+func roleDraftRows(rows []storerole.DraftRow) []dto.RoleDraftRow {
 	drafts := make([]dto.RoleDraftRow, len(rows))
 	for index, row := range rows {
 		drafts[index] = dto.RoleDraftRow{
@@ -1016,14 +1023,6 @@ func roleWireSnapshot(snapshot store.RoleWireSnapshot) dto.RoleWireSnapshot {
 		TailStartSeq: snapshot.TailStartSeq, FrameApplied: snapshot.FrameApplied,
 		Open: snapshot.Open, PendingRows: snapshot.PendingRows,
 		DesignWarnings: append([]string(nil), snapshot.DesignWarnings...),
-	}
-}
-
-func storeSchedulePayload(payload dto.ScheduleEventPayload) store.ScheduleEventPayload {
-	return store.ScheduleEventPayload{
-		ScheduleID: payload.ScheduleID, RoleName: payload.RoleName, RoleSessionID: payload.RoleSessionID,
-		Cron: payload.Cron, Interval: payload.Interval, NextFireAt: payload.NextFireAt,
-		PayloadRef: payload.PayloadRef,
 	}
 }
 
@@ -1154,27 +1153,12 @@ func (port SessionPort) LoadCompactionRecordsWorkspace(workspaceID, id string) (
 func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error) {
 	granular := port.granular()
 	workspaceID := granular.ResolveProjectForSession(id)
-	payload, err := granular.LoadRecordRaw(workspaceID, id)
-	if err != nil {
-		if store.IsSessionNotFound(err) {
-			// S20：record 通道退役；无派生 payload 时按该会话自身的事件流
-			// 构造最小 record，避免上层回退到引擎共享历史造成视图串写。
-			return port.deriveSessionRecord(workspaceID, id)
-		}
-		return model.SessionRecord{}, err
-	}
-	return decodeSessionRecord(payload, id)
+	return port.LoadSessionRecordWorkspace(workspaceID, id)
 }
 
 func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (model.SessionRecord, error) {
-	payload, err := port.granular().LoadRecordRaw(workspaceID, id)
-	if err != nil {
-		if store.IsSessionNotFound(err) {
-			return port.deriveSessionRecord(workspaceID, id)
-		}
-		return model.SessionRecord{}, err
-	}
-	return decodeSessionRecord(payload, id)
+	record, _, err := port.loadProjectedSessionRecord(workspaceID, id, 1)
+	return record, err
 }
 
 // LoadSessionResumeRecordWorkspace 是冷加载专用读面：有 compact 指针时只
@@ -1184,7 +1168,7 @@ func (port SessionPort) LoadSessionResumeRecordWorkspace(workspaceID, id string)
 	if port.Manager == nil || port.Manager.Router() == nil {
 		return model.SessionRecord{}, 0, false, nil
 	}
-	payload, total, handled, err := port.Manager.Router().DerivedResumeRecordWorkspace(workspaceID, id)
+	frames, handled, err := port.Manager.Router().CompactFramesWorkspace(workspaceID, id)
 	if err != nil {
 		if store.IsSessionNotFound(err) {
 			return model.SessionRecord{}, 0, false, nil
@@ -1194,72 +1178,81 @@ func (port SessionPort) LoadSessionResumeRecordWorkspace(workspaceID, id string)
 	if !handled {
 		return model.SessionRecord{}, 0, false, nil
 	}
-	record, err := decodeSessionRecord(payload, id)
+	fromSeq := uint64(1)
+	if len(frames) > 0 {
+		fromSeq = frames[len(frames)-1].MessageToSeq + 1
+	}
+	record, total, err := port.loadProjectedSessionRecord(workspaceID, id, fromSeq)
+	return record, total, true, err
+}
+
+// loadProjectedSessionRecord 读取原始 message 行，并调用 Kernel Session 的
+// 唯一投影构造 record；Store 不参与 conversation 语义。
+func (port SessionPort) loadProjectedSessionRecord(workspaceID, sessionID string, fromSeq uint64) (model.SessionRecord, int, error) {
+	if fromSeq == 0 {
+		fromSeq = 1
+	}
+	summary, ok, err := port.granular().LoadSession(workspaceID, sessionID)
 	if err != nil {
-		return model.SessionRecord{}, 0, true, err
+		return model.SessionRecord{}, 0, err
 	}
-	if total <= 0 {
-		total = len(record.Conversation.Messages)
+	if !ok {
+		return model.SessionRecord{}, 0, fs.ErrNotExist
 	}
-	return record, total, true, nil
+	events, err := port.LoadEventRangeWorkspace(workspaceID, sessionID, fromSeq, math.MaxUint64)
+	if err != nil {
+		if store.IsSessionNotFound(err) {
+			return model.SessionRecord{}, 0, fs.ErrNotExist
+		}
+		return model.SessionRecord{}, 0, err
+	}
+	messages := sessionruntime.ProjectConversationEvents(events, sessionruntime.ConversationProjectionPolicy{
+		IsInternal: applicationcontext.IsInternalContent,
+	})
+	status, ok := dto.ParseSessionStatus(summary.Status.String())
+	if !ok {
+		status = dto.SessionStatusUnknown
+	}
+	record := model.SessionRecord{
+		Version: 3,
+		ID:      sessionID,
+		Title:   model.SessionTitle{Value: summary.Title, Source: "message_head"},
+		Status:  status,
+		Conversation: model.ConversationRecord{
+			Messages:      messages,
+			TotalMessages: len(messages) + int(fromSeq-1),
+			UpdatedAt:     summary.UpdatedAt,
+		},
+		UpdatedAt: summary.UpdatedAt,
+	}
+	return record, record.Conversation.TotalMessages, nil
 }
 
 // deriveSessionRecord 从该会话自身的事件流构造最小 SessionRecord（S20：
 // 保证每个会话的可见会话域只来自自己的持久事实）。
 func (port SessionPort) deriveSessionRecord(workspaceID, sessionID string) (model.SessionRecord, error) {
-	events, err := port.LoadEventRangeWorkspace(workspaceID, sessionID, 1, math.MaxUint64)
-	if err != nil {
-		if store.IsSessionNotFound(err) {
-			return model.SessionRecord{}, fs.ErrNotExist
-		}
-		return model.SessionRecord{}, err
-	}
-	record := model.SessionRecord{Version: 3, ID: sessionID}
-	for _, event := range events {
-		id := event.MessageID
-		if id == "" {
-			id = fmt.Sprintf("seq-%d", event.Seq)
-		}
-		record.Conversation.Messages = append(record.Conversation.Messages, model.Message{
-			ID: id, Role: event.Role, Content: event.Content, CreatedAt: event.CreatedAt,
-		})
-	}
-	return record, nil
+	record, _, err := port.loadProjectedSessionRecord(workspaceID, sessionID, 1)
+	return record, err
 }
 
 func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, offset, limit int) ([]model.Message, int, error) {
-	// conversation 模块冷读：只解析 state blob 的 conversation 子树，
-	// 不反序列化 Plan/Execution/Projection 等非 conversation 模块
-	// （模块化方案 plan.md §阶段1：长会话翻页不加载完整 state blob）。
-	messages, total, err := port.granular().ConversationRange(workspaceID, id, offset, limit)
+	record, _, err := port.loadProjectedSessionRecord(workspaceID, id, 1)
 	if err != nil {
 		return nil, 0, err
 	}
-	adapted := make([]model.Message, 0, len(messages))
-	for _, message := range messages {
-		adapted = append(adapted, adaptStoredConversationMessage(message))
+	messages := record.Conversation.Messages
+	total := len(messages)
+	if offset < 0 {
+		offset = 0
 	}
-	return adapted, total, nil
-}
-
-// adaptStoredConversationMessage 把存储层 conversation DTO 转为 UI 消息
-// （Tool 指针独立拷贝，避免共享内部状态）。
-func adaptStoredConversationMessage(message store.ConversationMessage) model.Message {
-	adapted := model.Message{
-		ID: message.ID, Role: message.Role, Content: message.Content, EventSeq: message.EventSeq,
-		ReasoningContent: message.ReasoningContent, CreatedAt: message.CreatedAt,
-		RoleName: message.RoleName, RoleSessionID: message.RoleSessionID,
-		RoundID: message.RoundID, UnitSeq: message.UnitSeq,
-		ConfigRole: message.ConfigRole, ConfigModel: message.ConfigModel, ConfigProvider: message.ConfigProvider,
+	if offset > total {
+		offset = total
 	}
-	if message.Tool != nil {
-		tool := *message.Tool
-		adapted.Tool = &model.ToolCall{
-			ID: tool.ID, Name: tool.Name, Arguments: tool.Arguments,
-			Result: tool.Result, Error: tool.Error, Status: model.ToolCallStatusOfRecord(tool.Status), Duration: tool.Duration,
-		}
+	end := offset + limit
+	if limit <= 0 || end > total {
+		end = total
 	}
-	return adapted
+	return append([]model.Message(nil), messages[offset:end]...), total, nil
 }
 
 func decodeSessionRecord(payload []byte, sessionID string) (model.SessionRecord, error) {

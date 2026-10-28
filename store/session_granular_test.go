@@ -46,7 +46,7 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			// S20：Title 不再落 record 通道；但它随 message head 的目录枚举面
 			// 持久化（head.Meta.Summary），派生 record 读回同一标题。
 			if loaded.ID != mainID || loaded.Kind != KindMain || loaded.Title != "主会话" ||
-				loaded.Status != StatusIdle || loaded.Binding.WorkspaceID != projectID {
+				loaded.Status != StatusActive || loaded.Binding.WorkspaceID != projectID {
 				t.Fatalf("loaded record = %+v", loaded)
 			}
 
@@ -72,11 +72,11 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("save transcript: %v", err)
 			}
-			transcript, err := store.Transcript(projectID, mainID)
+			transcript, err := store.EventRange(projectID, mainID, 1, 0)
 			if err != nil || len(transcript) != 2 {
 				t.Fatalf("transcript len=%d err=%v", len(transcript), err)
 			}
-			if transcript[0].Seq != 1 || transcript[1].Type != "assistant" {
+			if transcript[0].Seq != 1 || transcript[1].Role != "assistant" {
 				t.Fatalf("transcript = %+v", transcript)
 			}
 			if backend == storageLayoutName {

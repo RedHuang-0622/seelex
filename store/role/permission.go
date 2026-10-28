@@ -2,7 +2,7 @@ package role
 
 // permission.go 是**会话级角色权限登记**的持久化 + 进程内登记格。
 //
-// M9 从根 `store/role_permission.go` 迁入；实现逐字保持，只把 `*Router` /
+// M9 从根权限适配器迁入；实现逐字保持，只把 `*Router` /
 // `*jsonRepository` 耦合换成注入的窄端口 `ProjectLayoutPort`（根 store 实现）。
 // 本包不 import 根 `store`：它只需要"项目目录在哪 + 这段代码在谁的互斥窗口里跑"，
 // 不需要 Repository / storeEngine / 布局枚举。

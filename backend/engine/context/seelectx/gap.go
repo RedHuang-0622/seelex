@@ -24,14 +24,13 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	model "github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // GapCoverageOptions 是真空区覆盖的全部输入。
 type GapCoverageOptions struct {
 	// AllEvents 会话完整事件流（append-only 真相源，含已压缩轮次）。
-	AllEvents []store.Event
+	AllEvents []model.TranscriptEvent
 
 	// TailStartUnit 尾窗第一个单元在 AllEvents 单元空间中的起始下标，由存储
 	// 层选窗时回报（尾窗为空时等于单元总数）。[0, TailStartUnit) 即"窗口之前"。
@@ -63,7 +62,7 @@ type GapCoverageResult struct {
 	// Covered 本次是否发现并覆盖了真空区。
 	Covered bool
 	// Frame 推送（或将要推送）的合并帧。
-	Frame store.CompactFrame
+	Frame storecontext.CompactFrame
 	// UncoveredUnits 本次新覆盖的单元数。
 	UncoveredUnits int
 }
@@ -84,7 +83,7 @@ func CoverHistoryGap(ctx context.Context, opts GapCoverageOptions) (GapCoverageR
 	if opts.Tokens == nil {
 		opts.Tokens = ConservativeTokenCounter{}
 	}
-	allUnits := store.CompleteEventUnits(opts.AllEvents)
+	allUnits := model.CompleteEventUnits(opts.AllEvents)
 
 	// 覆盖终点 = 栈顶帧 To（累计单元索引；空栈 = -1）。
 	coverageEnd := -1
@@ -131,10 +130,10 @@ func CoverHistoryGap(ctx context.Context, opts GapCoverageOptions) (GapCoverageR
 func buildGapFrame(
 	ctx context.Context,
 	opts GapCoverageOptions,
-	uncovered [][]store.Event,
+	uncovered [][]model.TranscriptEvent,
 	gapEnd int,
-) (store.CompactFrame, error) {
-	var prevTop *store.CompactFrame
+) (storecontext.CompactFrame, error) {
+	var prevTop *storecontext.CompactFrame
 	if len(opts.Record.CompactStack) > 0 {
 		top := opts.Record.CompactStack[len(opts.Record.CompactStack)-1]
 		prevTop = &top
@@ -160,7 +159,7 @@ func buildGapFrame(
 		Record:           opts.Record,
 	})
 	summary := RenderFrameSummary(RenderAnchorChapter(prevTop), chapter2)
-	frame := store.CompactFrame{
+	frame := storecontext.CompactFrame{
 		SegmentID:     gapSegmentID(opts.SessionID),
 		From:          from,
 		To:            gapEnd,
@@ -181,9 +180,9 @@ func buildGapFrame(
 	if opts.Turns != nil {
 		ref, err := opts.Turns.StoreTurn(ctx, frame.SegmentID, gapUnitMessages(uncovered))
 		if err != nil {
-			return store.CompactFrame{}, err
+			return storecontext.CompactFrame{}, err
 		}
-		frame.Evidence = append(frame.Evidence, store.EvidenceRef{
+		frame.Evidence = append(frame.Evidence, storecontext.EvidenceRef{
 			Ref:     ref,
 			Summary: "vacuum turns original (read_compressed_turn)",
 		})
@@ -194,7 +193,7 @@ func buildGapFrame(
 
 // gapRequestRange 从真空区事件单元提取首尾 requestID（Event.TaskID 关联
 // 字段；事件流无 TaskID → 空，调用方回退 ChatQueue 标签）。
-func gapRequestRange(uncovered [][]store.Event) (string, string) {
+func gapRequestRange(uncovered [][]model.TranscriptEvent) (string, string) {
 	var requestFrom, requestTo string
 	for _, unit := range uncovered {
 		for _, event := range unit {
@@ -221,8 +220,8 @@ func gapSegmentID(sessionID string) string {
 
 // gapEvidence 从真空区单元提取证据引用：事件携带 ResultRef 时直接引用，
 // 否则按工具调用 ID 推导 result 句柄。
-func gapEvidence(uncovered [][]store.Event) []store.EvidenceRef {
-	var evidence []store.EvidenceRef
+func gapEvidence(uncovered [][]model.TranscriptEvent) []storecontext.EvidenceRef {
+	var evidence []storecontext.EvidenceRef
 	for _, unit := range uncovered {
 		for _, event := range unit {
 			if event.Role != "tool" {
@@ -233,7 +232,7 @@ func gapEvidence(uncovered [][]store.Event) []store.EvidenceRef {
 				ref = model.WireToolResultRef(event.ToolCallID)
 			}
 			if ref != "" {
-				evidence = append(evidence, store.EvidenceRef{Ref: ref})
+				evidence = append(evidence, storecontext.EvidenceRef{Ref: ref})
 			}
 		}
 	}
@@ -242,7 +241,7 @@ func gapEvidence(uncovered [][]store.Event) []store.EvidenceRef {
 
 // renderEventUnitLine 渲染一个事件单元的单行摘要（与控制器 renderUnitLine
 // 同风格：用户输入前 80 字符 + 工具名）。
-func renderEventUnitLine(unit []store.Event) string {
+func renderEventUnitLine(unit []model.TranscriptEvent) string {
 	var builder strings.Builder
 	for _, event := range unit {
 		switch {
@@ -270,7 +269,7 @@ func renderEventUnitLine(unit []store.Event) string {
 }
 
 // gapUnitMessages 把真空区单元展平为 types.Message（原文归档载荷）。
-func gapUnitMessages(uncovered [][]store.Event) []types.Message {
+func gapUnitMessages(uncovered [][]model.TranscriptEvent) []types.Message {
 	total := 0
 	for _, unit := range uncovered {
 		total += len(unit)

@@ -11,7 +11,7 @@ import (
 	"log"
 
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // unitRecoveryStrategy 是契约包里那一格策略接口的**同身份别名**（既有调用点与用例零改动）。
@@ -28,7 +28,7 @@ type subagentRecovery struct {
 
 func (s subagentRecovery) Kind() workunit.Kind { return workunit.KindSubagent }
 
-func (s subagentRecovery) Restore(records []store.NodeSessionRecord) {
+func (s subagentRecovery) Restore(records []storeworkunit.Record) {
 	if len(records) == 0 || s.runtime == nil {
 		return
 	}
@@ -60,7 +60,7 @@ type teamUnitRecovery struct {
 
 func (t teamUnitRecovery) Kind() workunit.Kind { return workunit.KindTeammate }
 
-func (t teamUnitRecovery) Restore(records []store.NodeSessionRecord) {
+func (t teamUnitRecovery) Restore(records []storeworkunit.Record) {
 	if len(records) == 0 || t.runtime == nil || t.runtime.worktreeMgr == nil {
 		return
 	}
@@ -78,7 +78,7 @@ func (r *Runtime) unitRecoveryStrategies(sessionID string) []unitRecoveryStrateg
 
 // restoreUnitRecords 是恢复链的分派点（装配侧接线）：读团队现场名单 → 交契约包按身份切开 →
 // 各层策略跑自己的恢复动作。
-func (r *Runtime) restoreUnitRecords(sessionID string, records []store.NodeSessionRecord) {
+func (r *Runtime) restoreUnitRecords(sessionID string, records []storeworkunit.Record) {
 	if r == nil || len(records) == 0 {
 		return
 	}

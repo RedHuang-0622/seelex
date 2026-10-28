@@ -16,7 +16,7 @@ func TestGuideNotRewrittenAfterModuleHeadWrites(t *testing.T) {
 
 	// 会话创建 = 布局创建，允许写一次 guide（空 message head 发布）。
 	if _, err := store.messageCommit(key, "c-init", []Event{
-		{Role: "user", Content: "first", MessageID: "m-1"},
+		{Seq: 1, Role: "user", Content: "first", MessageID: "m-1"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestGuideNotRewrittenAfterModuleHeadWrites(t *testing.T) {
 
 	// 后续各模块首写：message 追加 + 各模块 head 发布，均不得触碰 guide。
 	if _, err := store.messageCommit(key, "c-m2", []Event{
-		{Role: "assistant", Content: "second", MessageID: "m-2"},
+		{Seq: 2, Role: "assistant", Content: "second", MessageID: "m-2"},
 	}); err != nil {
 		t.Fatal(err)
 	}

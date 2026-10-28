@@ -51,7 +51,7 @@ type UnitFace interface {
 	RecoverUnits(ctx context.Context, sessionPath string) (Resume, error)
 }
 
-// RecordFace 是**会话记录端口**：一个工作单元 = 一条 `store.NodeSessionRecord`。
+// RecordFace 是**会话记录端口**：一个工作单元 = 一条 `storeworkunit.Record`。
 //
 // 作用域的解析（团队账本键 vs 会话工作区绑定）只有这一格知道——它是"记录落在哪个项目/会话
 // 目录"这件事的唯一一处实现（此前两个调用点各算一次，迟早算成两个目录）。

@@ -36,6 +36,13 @@ func IsActiveSkillContent(content string) bool {
 	return contextruntime.IsActiveSkillContent(content)
 }
 
+// IsInternalContent 是 visible conversation 的唯一内部行判据。
+func IsInternalContent(content string) bool {
+	return contextruntime.IsTaskContextCheckpoint(content) ||
+		contextruntime.IsProviderOnlyHistoryContent(content) ||
+		contextruntime.IsActiveSkillContent(content)
+}
+
 func IsOversizedToolResult(content string, limit int) bool {
 	return contextruntime.IsOversizedToolResult(content, limit)
 }

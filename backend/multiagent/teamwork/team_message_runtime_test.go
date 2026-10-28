@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // TestTeammateConversationRefUsesTheWorkItemSession 钉住 team_message 的窗口：
@@ -19,7 +19,7 @@ func TestTeammateConversationRefUsesTheWorkItemSession(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 
 	before := itemState(t, fixture, "wi-req")
 	ref, err := fixture.coordinator.TeammateConversationRef(ctx, "pm", "wi-req")

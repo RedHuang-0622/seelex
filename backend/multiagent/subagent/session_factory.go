@@ -22,7 +22,6 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // SessionFactoryDeps 是工厂需要的宿主面。
@@ -32,8 +31,8 @@ type SessionFactoryDeps struct {
 	Components func() frameworkSession.SessionComponents
 	// ModelName 取当前模型名（写进会话组件）。
 	ModelName func() string
-	// HistoryRouter 取历史路由（nil = 不挂 durable history，引擎侧退化为无历史）。
-	HistoryRouter func() *store.Router
+	// NewHistory 创建该会话的持久历史（nil = 不挂 durable history）。
+	NewHistory agentsession.HistoryFactory
 	// WorkspaceResolver 取该会话的"工作区解析器"（写进 durable history）。
 	WorkspaceResolver func(sessionID string) func() string
 	// InitialHistory supplies a persisted snapshot when a cold subagent chat
@@ -56,7 +55,7 @@ func NewSessionFactory(deps SessionFactoryDeps) *SessionFactory {
 		base: agentsession.New(agentsession.Deps{
 			Components:        deps.Components,
 			ModelName:         deps.ModelName,
-			HistoryRouter:     deps.HistoryRouter,
+			NewHistory:        deps.NewHistory,
 			WorkspaceResolver: deps.WorkspaceResolver,
 			InitialHistory:    deps.InitialHistory,
 		}),

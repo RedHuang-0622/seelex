@@ -14,7 +14,7 @@ import (
 func TestStackSubagentBatchSemantics(t *testing.T) {
 	store, key := lifecycleFixture(t)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		{Role: "user", Content: "go", MessageID: "m-1"},
+		{Seq: 1, Role: "user", Content: "go", MessageID: "m-1"},
 	}); err != nil {
 		t.Fatal(err)
 	}

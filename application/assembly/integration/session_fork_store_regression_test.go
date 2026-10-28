@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	sessionruntime "github.com/RedHuang-0622/seelex/kernel/session"
 	"github.com/RedHuang-0622/seelex/store"
 
 	// 真实 Router + SessionGranularStore 的 fork 回归：ForkSessionLatest 走真实
@@ -116,7 +117,27 @@ func (s *routerForkSessions) LoadSessionRecord(sessionID string) (model.SessionR
 func (s *routerForkSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (model.SessionRecord, error) {
 	payload, err := s.granular.LoadRecordRaw(projectID, sessionID)
 	if err != nil {
-		return model.SessionRecord{}, err
+		if !store.IsSessionNotFound(err) {
+			return model.SessionRecord{}, err
+		}
+		events, eventErr := s.granular.EventRange(projectID, sessionID, 1, ^uint64(0))
+		if eventErr != nil {
+			return model.SessionRecord{}, eventErr
+		}
+		summary, ok, summaryErr := s.granular.LoadSession(projectID, sessionID)
+		if summaryErr != nil {
+			return model.SessionRecord{}, summaryErr
+		}
+		if !ok {
+			return model.SessionRecord{}, os.ErrNotExist
+		}
+		messages := sessionruntime.ProjectConversationEvents(events, sessionruntime.ConversationProjectionPolicy{})
+		return model.SessionRecord{
+			Version: 3, ID: sessionID,
+			Title:        model.SessionTitle{Value: summary.Title, Source: "message_head"},
+			Conversation: model.ConversationRecord{Messages: messages, TotalMessages: len(messages)},
+			UpdatedAt:    summary.UpdatedAt,
+		}, nil
 	}
 	var record model.SessionRecord
 	if err := json.Unmarshal(payload, &record); err != nil {

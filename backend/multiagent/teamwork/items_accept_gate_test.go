@@ -8,7 +8,7 @@ import (
 	"github.com/RedHuang-0622/Seele/jobs"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // 验收闸门的判据（2026-10-15 审计 D2）：**按作业状态**，不按"句柄还在不在册"。
@@ -43,15 +43,15 @@ func TestAcceptPassesOnceTheJobIsTerminal(t *testing.T) {
 	if !ok || record.Running() {
 		t.Fatalf("外部终态之后作业应当是终态但在册，得到 %+v ok=%v", record, ok)
 	}
-	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemRunning {
-		t.Fatalf("这条路径上工作项应当仍是 running（尾插没跑，没人写状态），得到 %s", store.TeamworkWorkItemStatusOrPending(item))
+	if item := itemState(t, fixture, "wi-req"); storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemRunning {
+		t.Fatalf("这条路径上工作项应当仍是 running（尾插没跑，没人写状态），得到 %s", storeteamwork.WorkItemStatusOrPending(item))
 	}
 
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-req", "现场已停，人工处置完"); err != nil {
 		t.Fatalf("作业已终态时验收必须放行（旧口径按「在册」拒会让验收卡死）：%v", err)
 	}
-	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemDone {
-		t.Fatalf("验收之后工作项应 done，得到 %s", store.TeamworkWorkItemStatusOrPending(item))
+	if item := itemState(t, fixture, "wi-req"); storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemDone {
+		t.Fatalf("验收之后工作项应 done，得到 %s", storeteamwork.WorkItemStatusOrPending(item))
 	}
 }
 
@@ -77,8 +77,8 @@ func TestAcceptStillRefusesARunningJob(t *testing.T) {
 	if !strings.Contains(err.Error(), "jobs_manage(op=kill") {
 		t.Fatalf("拒绝文案必须给出可达的下一步（团队作业表用 jobs_manage）：%v", err)
 	}
-	if item := itemState(t, fixture, "wi-req"); store.TeamworkWorkItemStatusOrPending(item) != store.TeamworkItemRunning {
-		t.Fatalf("被拒的验收不得改状态，得到 %s", store.TeamworkWorkItemStatusOrPending(item))
+	if item := itemState(t, fixture, "wi-req"); storeteamwork.WorkItemStatusOrPending(item) != storeteamwork.ItemRunning {
+		t.Fatalf("被拒的验收不得改状态，得到 %s", storeteamwork.WorkItemStatusOrPending(item))
 	}
 }
 
@@ -94,7 +94,7 @@ func TestAcceptRetiresTheSettledJobRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	if _, ok := fixture.jobs.Observe(jobs.Handle(handle)); !ok {
 		t.Fatalf("尾插走完到验收之间，作业行必须还在册：它是看板与「做完自动返回」读的证据")
 	}

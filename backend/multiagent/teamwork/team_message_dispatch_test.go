@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // TestDialogueDispatchKeepsTheWorkItemState 钉住 team_message 不是派活：
@@ -18,7 +18,7 @@ func TestDialogueDispatchKeepsTheWorkItemState(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	before := itemState(t, fixture, "wi-req")
 
 	dispatch, err := fixture.coordinator.DeclareTeammateMessage(ctx, dto.ConversationSessionRef{

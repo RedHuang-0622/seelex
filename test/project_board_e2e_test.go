@@ -6,7 +6,6 @@ import (
 	"fmt"
 	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/store"
 
 	// project_board_e2e_test.go — M6 端到端：模型**真的**通过工具面把投影读回来。
 	//
@@ -23,6 +22,8 @@ import (
 	// 写侧的活体取数要求会话在**活体工作表格**里真有行；全链路 harness 的 task 注册表分区
 	// 口径与生产不同（同一次 todo 落在会话分区，视图分区为空），现场造不出来——把写侧搬进
 	// 这条用例只会得到"因为现场不存在所以什么都没发生"的假绿。故写侧分开钉，见上。
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeboardrouter "github.com/RedHuang-0622/seelex/internal/host/boardrouter"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -169,7 +170,7 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	}
 	harness.workspaces.BindSession(viewSession, workspace.ID)
 	// 按生产装配挂读取面（本用例要打的正是这把工具）。
-	boot.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
+	boot.RegisterProjectBoardReadTool(harness.runtime, storeboardrouter.New(), harness.app)
 
 	// 落一份**真**投影（走存储面，不是内存替身）：读面要读的就是它。
 	//
@@ -180,16 +181,16 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	if strings.TrimSpace(projectRootForSession) == "" {
 		t.Fatal("会话没有工作区绑定（没有落点）：本用例会退化成同义反复")
 	}
-	if _, err := harness.st.AppendProjectBoardRows(projectRootForSession, sessionID, store.ProjectBoardWorkFile,
-		[]store.ProjectBoardRow{{
-			Schema: store.ProjectBoardSchema, Kind: store.ProjectBoardKindWork,
+	if _, err := storeboardrouter.New().AppendProjectBoardRows(projectRootForSession, sessionID, dto.ProjectBoardWorkFile,
+		[]dto.ProjectBoardRow{{
+			Schema: dto.ProjectBoardSchema, Kind: dto.ProjectBoardKindWork,
 			Key: "work:todo:0", Seq: 1, At: time.Now().Unix(),
-			Scope:   store.ProjectBoardScope{Session: sessionID},
+			Scope:   dto.ProjectBoardScope{Session: sessionID},
 			Payload: map[string]any{"task": projectBoardE2EItem, "kind": "todo", "status": "doing"},
 		}}); err != nil {
 		t.Fatalf("写投影: %v", err)
 	}
-	if artifacts := projectBoardArtifacts(t, projectRoot); !containsArtifact(artifacts, store.ProjectBoardWorkFile) {
+	if artifacts := projectBoardArtifacts(t, projectRoot); !containsArtifact(artifacts, dto.ProjectBoardWorkFile) {
 		t.Fatalf("投影没有落在项目根的 .seelex/board 之下：%v", artifacts)
 	}
 

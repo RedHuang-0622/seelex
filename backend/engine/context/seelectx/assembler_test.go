@@ -11,12 +11,13 @@ import (
 
 	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
 func TestAssemblerProjectionOrder(t *testing.T) {
-	project := RenderProjectBlock(store.ProjectRecord{
+	project := RenderProjectBlock(storeproject.ProjectRecord{
 		Version: "v1",
-		Modules: []store.ModuleSemantics{{Name: "context", Summary: "上下文模块", Path: "seelexctx"}},
+		Modules: []storeproject.ModuleSemantics{{Name: "context", Summary: "上下文模块", Path: "seelexctx"}},
 	})
 	if project == nil {
 		t.Fatal("project block must render for non-empty record")
@@ -278,7 +279,7 @@ func blockNames(blocks []seelectx.PromptBlock) []string {
 }
 
 func TestRenderProjectBlockEmpty(t *testing.T) {
-	if block := RenderProjectBlock(store.ProjectRecord{}); block != nil {
+	if block := RenderProjectBlock(storeproject.ProjectRecord{}); block != nil {
 		t.Fatal("empty project record must not render a block")
 	}
 }

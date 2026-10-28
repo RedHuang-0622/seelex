@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // TestUnitStatusWordsComeFromTheContract：记录那一格的词只能来自对外契约（记录词 = wire 词）——
@@ -88,7 +88,7 @@ func TestUnitRecordKeyForFillsIdentity(t *testing.T) {
 func TestTeammateUnitRecordLinkWritesTheIdentity(t *testing.T) {
 	key := UnitRecordKey{Role: " exec ", Plugins: []string{"cad"}, SystemPrompt: "系统提示"}
 	link := TeammateUnitRecordLink(key)
-	record := store.NodeSessionRecord{NodeID: "exec-wi-1", Status: UnitStatusRunning}
+	record := storeworkunit.Record{NodeID: "exec-wi-1", Status: UnitStatusRunning}
 	got := link(record)
 	if got.NodeID != "exec-wi-1" || got.Status != UnitStatusRunning {
 		t.Fatalf("身份环不该动别的字段：%+v", got)
@@ -107,9 +107,9 @@ func TestTeammateUnitRecordLinkWritesTheIdentity(t *testing.T) {
 // 摘要裁剪、阶段编码与现场四栏都必须落到同一条记录上。
 func TestUnitRecordCarriesTheRoundFacts(t *testing.T) {
 	key := UnitRecordKey{NodeID: " exec-wi-1 ", RoleSessionID: " role-1 ", Goal: " 目标 "}
-	worktree := store.NodeWorktreeRecord{Path: "G:/tmp/wt", Branch: "b", MainBranch: "main", BaseCommit: "abc"}
+	worktree := storeworkunit.WorktreeRecord{Path: "G:/tmp/wt", Branch: "b", MainBranch: "main", BaseCommit: "abc"}
 	record := UnitRecord(key, " main-1 ", UnitStatusRunning, "  产出预览  ", "round_output", worktree)
-	if record.SchemaVersion != store.NodeSessionSchemaVersion || record.NodeID != "exec-wi-1" ||
+	if record.SchemaVersion != storeworkunit.SchemaVersion || record.NodeID != "exec-wi-1" ||
 		record.SessionID != "role-1" || record.MainSessionID != "main-1" ||
 		record.Goal != "目标" || record.Status != UnitStatusRunning {
 		t.Fatalf("记录身份/作用域不对：%+v", record)

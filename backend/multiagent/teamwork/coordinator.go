@@ -9,31 +9,31 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // Plan 读回当前计划。
-func (c *Coordinator) Plan(ctx context.Context) (store.TeamworkPlan, error) {
+func (c *Coordinator) Plan(ctx context.Context) (storeteamwork.Plan, error) {
 	return c.st.ReadPlan(ctx, c.key)
 }
 
 // errNoPlan 是"本会话还没有团队计划"的**唯一文案**。
 //
-// 它替的是此前从存储层直接冒上来的文件系统错误（现场：模型收到
-// `open …\metadata\teamwork.json: The system cannot find the path specified.`）。
+// 它替的是此前从存储层直接冒上来的文件系统错误。
 // 读面（Items / 上下文投影）对空计划给空结果；需要计划的写面用 requireTeam 翻成本文案。
 var errNoPlan = errors.New("teamwork: 本会话还没有团队计划——先用 team_plan 声明在编成员与里程碑")
 
 // requireTeam 是"这次调用需要一个已声明的团队"的**唯一判据**（空计划 → errNoPlan）。
-func requireTeam(plan store.TeamworkPlan) error {
-	if store.TeamworkPlanIsEmpty(plan) {
+func requireTeam(plan storeteamwork.Plan) error {
+	if storeteamwork.PlanIsEmpty(plan) {
 		return errNoPlan
 	}
 	return nil
 }
 
 // Audit 读回审计流水（派发 / 里程碑 / 收口的事实顺序）。
-func (c *Coordinator) Audit(ctx context.Context) ([]store.TeamworkEvent, error) {
+func (c *Coordinator) Audit(ctx context.Context) ([]storeteamwork.Event, error) {
 	return c.st.ReadEvents(ctx, c.key)
 }
 
@@ -46,7 +46,7 @@ func (c *Coordinator) Audit(ctx context.Context) ([]store.TeamworkEvent, error) 
 // 工作项与它们的运行态**原样保留**——`team_plan` 改的是"谁、几个里程碑"，不是
 // "已经把活排到哪一步了"。不保留的话，leader 为了加一个成员再调一次 team_plan，
 // 看板上已完成的工作项连同句柄会被整份抹掉，而那是**事实**，不是配置。
-func (c *Coordinator) SetPlan(ctx context.Context, plan store.TeamworkPlan) error {
+func (c *Coordinator) SetPlan(ctx context.Context, plan storeteamwork.Plan) error {
 	// 整份替换也是读-改-写（读回旧计划以保留同名里程碑里已排好的工作项），必须与
 	// 并发的 item 级变更共用同一把计划锁——否则"改成员"会与"排活/派发"互相覆盖。
 	c.lockPlan()
@@ -57,7 +57,7 @@ func (c *Coordinator) SetPlan(ctx context.Context, plan store.TeamworkPlan) erro
 		}
 	}
 	if previous, err := c.st.ReadPlan(ctx, c.key); err == nil {
-		itemsByMilestone := make(map[string][]store.TeamworkWorkItem, len(previous.Milestones))
+		itemsByMilestone := make(map[string][]storeteamwork.WorkItem, len(previous.Milestones))
 		for _, milestone := range previous.Milestones {
 			if len(milestone.Items) > 0 {
 				itemsByMilestone[milestone.ID] = milestone.Items
@@ -97,8 +97,8 @@ func (c *Coordinator) SetPlan(ctx context.Context, plan store.TeamworkPlan) erro
 	if err := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return err
 	}
-	return c.audit(ctx, store.TeamworkEvent{
-		Kind:   store.TeamworkEventPlan,
+	return c.audit(ctx, storeteamwork.Event{
+		Kind:   storeteamwork.EventPlan,
 		TeamID: plan.TeamID,
 		Detail: fmt.Sprintf("members=%d milestones=%d items=%d plugins=%s",
 			len(plan.Members), len(plan.Milestones), countItems(plan), pluginAssemblySummary(plan.Members)),
@@ -111,7 +111,7 @@ func (c *Coordinator) SetPlan(ctx context.Context, plan store.TeamworkPlan) erro
 // 全员没声明时给 "none"：那时每个成员的语义都是"继承宿主当前装配"，逐人写一遍
 // inherit-host 只会把不装插件的团队的审计行拉长到没人看——一条 none 比四行噪音更
 // 接近事实。
-func pluginAssemblySummary(members []store.TeamworkMember) string {
+func pluginAssemblySummary(members []storeteamwork.Member) string {
 	if len(members) == 0 {
 		return "none"
 	}
@@ -138,7 +138,7 @@ func pluginAssemblySummary(members []store.TeamworkMember) string {
 }
 
 // countItems 数一份计划里的工作项总数（审计行用）。
-func countItems(plan store.TeamworkPlan) int {
+func countItems(plan storeteamwork.Plan) int {
 	total := 0
 	for _, milestone := range plan.Milestones {
 		total += len(milestone.Items)
@@ -270,14 +270,14 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 	// 账本：teammate 级绑定一行（KV 语义，读侧取最后一行）。WorkItem 列记的是它的
 	// **现场 nodeID**（= 角色名）——账本的这一列是非空主键，而 teammate 级没有 Work
 	// Item 可记；用 nodeID 填这一格，与 Worktree 的去前缀换算互为同一个键。
-	if err := c.st.AppendBinding(ctx, c.key, store.TeamworkBinding{
+	if err := c.st.AppendBinding(ctx, c.key, storeteamwork.Binding{
 		WorkItem: nodeID, Role: role, SessionID: member.RoleSessionID,
 		Worktree: binding.Worktree, At: c.clock().UTC().Unix(),
 	}); err != nil {
 		return handle, err
 	}
-	if err := c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventDispatch, TeamID: plan.TeamID,
+	if err := c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventDispatch, TeamID: plan.TeamID,
 		Role: role, Handle: describeHandle(handle), Detail: goal,
 	}); err != nil {
 		return handle, err
@@ -299,8 +299,8 @@ func (c *Coordinator) Join(ctx context.Context, handles []jobs.Handle, budget ti
 	for {
 		records, pending := c.observe(handles)
 		if pending == 0 || budget <= 0 {
-			if err := c.audit(ctx, store.TeamworkEvent{
-				Kind: store.TeamworkEventJoin, Handle: describeHandle(handles[0]),
+			if err := c.audit(ctx, storeteamwork.Event{
+				Kind: storeteamwork.EventJoin, Handle: describeHandle(handles[0]),
 				Detail: fmt.Sprintf("%d 条作业：%s", len(records), summarize(records)),
 			}); err != nil {
 				return records, err
@@ -309,8 +309,8 @@ func (c *Coordinator) Join(ctx context.Context, handles []jobs.Handle, budget ti
 		}
 		remaining := deadline.Sub(c.clock())
 		if remaining <= 0 {
-			if err := c.audit(ctx, store.TeamworkEvent{
-				Kind: store.TeamworkEventJoin, Handle: describeHandle(handles[0]),
+			if err := c.audit(ctx, storeteamwork.Event{
+				Kind: storeteamwork.EventJoin, Handle: describeHandle(handles[0]),
 				Detail: fmt.Sprintf("汇合窗口用尽，仍在跑 %d 条：%s", pending, summarize(records)),
 			}); err != nil {
 				return records, err
@@ -359,7 +359,7 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 			return fmt.Errorf("teamwork: 里程碑 %q 依赖的里程碑 %q 还没完成（里程碑只能声明在依赖边之后）", id, dependency)
 		}
 	}
-	plan.Milestones[index].Status = store.TeamworkMilestoneDone
+	plan.Milestones[index].Status = storeteamwork.MilestoneDone
 	plan.Milestones[index].Content = content
 	if plan.State.Milestones == nil {
 		plan.State.Milestones = map[string]string{}
@@ -368,8 +368,8 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 	if err := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return err
 	}
-	return c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventMilestone, TeamID: plan.TeamID, Milestone: id, Detail: content,
+	return c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventMilestone, TeamID: plan.TeamID, Milestone: id, Detail: content,
 	})
 }
 
@@ -400,7 +400,7 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 //
 //	步 1 回收这个主体名下的作业 → 步 2 拆它的全部现场（角色级 + 名下每个 Work Item）
 //	→ 步 3 清会话内容 → 步 4 名册动作（指派名与句柄投影清掉，成员留在编）
-func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (store.TeamworkPlan, error) {
+func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (storeteamwork.Plan, error) {
 	plan, err := c.st.ReadPlan(ctx, c.key)
 	if err != nil {
 		return plan, err
@@ -441,7 +441,7 @@ func (c *Coordinator) Reclaim(ctx context.Context, role string) error {
 // reclaimStepsLocked 是收口四步的**前三步**（步 1–3）的唯一实现。
 //
 // **调用约定**：假定调用方已持有计划锁（同 closeStepsLocked 的理由：锁不可重入）。
-func (c *Coordinator) reclaimStepsLocked(ctx context.Context, plan store.TeamworkPlan, role string) error {
+func (c *Coordinator) reclaimStepsLocked(ctx context.Context, plan storeteamwork.Plan, role string) error {
 	member, ok := memberFor(plan, role)
 	if !ok {
 		return fmt.Errorf("teamwork: 角色 %q 不在计划里", role)
@@ -482,7 +482,7 @@ func (c *Coordinator) AliveSceneNodes(ctx context.Context) (map[string]bool, err
 	alive := map[string]bool{}
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
-			if store.TeamworkWorkItemStatusOrPending(item) == store.TeamworkItemRunning && c.handleAlive(item.Handle) {
+			if storeteamwork.WorkItemStatusOrPending(item) == storeteamwork.ItemRunning && c.handleAlive(item.Handle) {
 				alive[SceneNodeID(item.Role, item.ID)] = true
 			}
 		}
@@ -515,7 +515,7 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if plan.State.State == store.TeamworkStateClosed {
+	if plan.State.State == storeteamwork.StateClosed {
 		return true, nil
 	}
 	// 空计划 = 还没声明过团队：没有可收的现场、没有可标的账——按领域文案回答，
@@ -565,16 +565,16 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	plan.State.State = store.TeamworkStateClosed
+	plan.State.State = storeteamwork.StateClosed
 	plan.State.ClosedAt = c.clock().UTC().Unix()
-	plan.State.ClosedReason = store.BoardCloseTeamClose
+	plan.State.ClosedReason = dto.BoardCloseTeamClose
 	plan.State.Jobs = nil
 	if err := c.st.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return false, err
 	}
-	if err := c.audit(ctx, store.TeamworkEvent{
-		Kind: store.TeamworkEventClose, TeamID: plan.TeamID,
-		Detail: fmt.Sprintf("收口：回收 %d 名在编成员的作业 → 封板 %s", len(plan.Members), store.BoardCloseTeamClose),
+	if err := c.audit(ctx, storeteamwork.Event{
+		Kind: storeteamwork.EventClose, TeamID: plan.TeamID,
+		Detail: fmt.Sprintf("收口：回收 %d 名在编成员的作业 → 封板 %s", len(plan.Members), dto.BoardCloseTeamClose),
 	}); err != nil {
 		return false, err
 	}
@@ -643,10 +643,10 @@ func (c *Coordinator) ensureCapacity(role string) error {
 }
 
 // milestoneDone 报告某个里程碑是否已 done（不在计划里 = 未完成，不静默放过）。
-func milestoneDone(plan store.TeamworkPlan, id string) bool {
+func milestoneDone(plan storeteamwork.Plan, id string) bool {
 	for _, milestone := range plan.Milestones {
 		if milestone.ID == id {
-			return milestone.Status == store.TeamworkMilestoneDone
+			return milestone.Status == storeteamwork.MilestoneDone
 		}
 	}
 	return false

@@ -23,6 +23,9 @@ func TestStoreDDDMArtifactOwnershipGate(t *testing.T) {
 	for _, name := range []string{"big_tool_result.go", "media.go", "search_index.go"} {
 		data, err := os.ReadFile(filepath.Join(root, "store", name))
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
 			t.Fatalf("读取根适配器 %s：%v", name, err)
 		}
 		text := string(data)

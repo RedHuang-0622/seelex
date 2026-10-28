@@ -5,7 +5,6 @@ import (
 	"github.com/RedHuang-0622/seelex/application/assembly"
 	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/store"
 
 	// project_board_write_test.go — 项目看板的**写侧端到端**用例：模型真的调 todo_add，
 	// 项目根的 `.seelex/board/` 里就真的多出东西。
@@ -18,6 +17,10 @@ import (
 	// 运行时当前 task 会话），`WorkTableRowsFor` 取得到该会话的行**；换一条不经过该口径的
 	// 会话（视图会话 ≠ 运行时当前 task 会话）就会取到空集 ⇒ I6 退场、什么都不落——这条
 	// 差别正是"文档说实现了、实机没东西"的根源，写在用例里防误读。
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeboardrouter "github.com/RedHuang-0622/seelex/internal/host/boardrouter"
+	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +43,7 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	// 按**生产装配**挂写侧：同步器 + 会话→项目根解析器（main.run 里是同一对调用）。
 	sink, closeSink, err := boot.ProjectBoardSinkFor(
-		limits.ProjectBoard, harness.st,
+		limits.ProjectBoard, storeboardrouter.New(),
 		harness.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
 		assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, harness.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
@@ -50,7 +53,13 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	}
 	defer closeSink()
 	harness.components.Execution.ProjectBoardSink.Store(sink)
-	harness.st.SetProjectBoardRootFor(harness.components.Execution.ProjectBoard.ProjectRootFor)
+	store.ConfigureProjectBoardReclaimer(harness.st, func(sessionID string) error {
+		root := harness.components.Execution.ProjectBoard.ProjectRootFor(sessionID)
+		if root == "" {
+			return nil
+		}
+		return storeboard.Reclaim(root, sessionID)
+	})
 
 	// 生产口径的新会话：建工作区 → 新建草稿（早分配 SID）→ 绑定工作区 → 首次提交物化。
 	// 草稿 SID 就是物化后的会话 ID（openSessionEngine 复用早分配 SID），所以"视图会话 =
@@ -101,11 +110,11 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	}
 
 	// 工具完成 → 去抖 → 落盘（去抖窗是时间驱动的，不能假设立即到）。
-	artifacts := waitForProjectBoardArtifacts(t, projectRoot, store.ProjectBoardWorkFile)
+	artifacts := waitForProjectBoardArtifacts(t, projectRoot, dto.ProjectBoardWorkFile)
 	// 全项目扫描：投影**只**该有 `.seelex/board/<会话 ID>/worktable.jsonl` 这一份——
 	//   - 不含 teamwork.jsonl：本会话没有团队计划，空则退场（I6）；
 	//   - 不含数据根下的副本：落点已经与数据根解耦，只认项目目录。
-	want := filepath.ToSlash(filepath.Join(store.ProjectBoardDir(projectRoot), sessionID, store.ProjectBoardWorkFile))
+	want := filepath.ToSlash(filepath.Join(storeboard.Dir(projectRoot), sessionID, dto.ProjectBoardWorkFile))
 	want, _ = filepath.Rel(projectRoot, filepath.FromSlash(want))
 	want = filepath.ToSlash(want)
 	if len(artifacts) != 1 || artifacts[0] != want {
@@ -113,11 +122,11 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	}
 
 	// 行内容：模型加的那条待办，按会话归属落在行里。
-	raw, err := harness.st.ReadProjectBoardRows(projectRoot, sessionID, store.ProjectBoardWorkFile)
+	raw, err := storeboardrouter.New().ReadProjectBoardRows(projectRoot, sessionID, dto.ProjectBoardWorkFile)
 	if err != nil {
 		t.Fatalf("读回投影: %v", err)
 	}
-	folded := store.FoldProjectBoardRows(raw, nil)
+	folded := storeboard.Fold(raw, nil)
 	if len(folded) != 1 {
 		t.Fatalf("折叠读 = %d 行，期望 1：%#v", len(folded), folded)
 	}
@@ -152,7 +161,7 @@ func waitForProjectBoardMarkdown(t *testing.T, projectRoot, needle string) strin
 // projectBoardDirEntries 列出看板落点目录的文件名（诊断用）。
 func projectBoardDirEntries(t *testing.T, projectRoot string) []string {
 	t.Helper()
-	entries, err := os.ReadDir(store.ProjectBoardDir(projectRoot))
+	entries, err := os.ReadDir(storeboard.Dir(projectRoot))
 	if err != nil {
 		return []string{"<读目录失败: " + err.Error() + ">"}
 	}

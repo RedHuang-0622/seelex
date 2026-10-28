@@ -1,21 +1,36 @@
 package store
 
-// search_index.go adapts session projection reads to the artifact-owned search
-// index. Message/compact semantics stay here; index construction/query lives in
-// store/artifact.
-
 import (
+	"strings"
+
 	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 )
 
-type searchHit = storeartifact.SearchHit
-type searchIndex = storeartifact.SearchIndex
+func writeBlobForTest(store *storeEngine, key Key, toolName, content string) (storeartifact.Blob, error) {
+	return store.artifacts.WriteBlob(layoutScope(key), toolName, content)
+}
 
-func (store *storeEngine) searchIndexPath(key Key) string {
+func readBlobForTest(store *storeEngine, key Key, hash string) (string, error) {
+	return store.artifacts.ReadBlob(layoutScope(key), hash)
+}
+
+func listBlobHashesForTest(store *storeEngine, key Key) ([]string, error) {
+	return store.artifacts.ListBlobHashes(layoutScope(key))
+}
+
+func collectBlobsForTest(store *storeEngine, key Key, referenced map[string]bool, dryRun bool) ([]string, error) {
+	return store.artifacts.CollectBlobs(layoutScope(key), referenced, dryRun)
+}
+
+func blobRefOfForTest(ref string) string {
+	return strings.TrimPrefix(ref, storeartifact.BlobRefPrefix)
+}
+
+func searchIndexPathForTest(store *storeEngine, key Key) string {
 	return store.artifacts.SearchPath(layoutScope(key))
 }
 
-func (store *storeEngine) rebuildSearchIndex(key Key) error {
+func rebuildSearchIndexForTest(store *storeEngine, key Key) error {
 	head, err := store.readMessageHead(key)
 	if err != nil {
 		return err
@@ -45,10 +60,10 @@ func (store *storeEngine) rebuildSearchIndex(key Key) error {
 	return store.artifacts.PutSearch(layoutScope(key), searchRows, head.LastSeq, head.WatermarkSeq, summary)
 }
 
-func (store *storeEngine) searchQuery(key Key, query string) ([]searchHit, error) {
+func searchQueryForTest(store *storeEngine, key Key, query string) ([]storeartifact.SearchHit, error) {
 	hits, err := store.artifacts.Search(layoutScope(key), query)
 	if storeartifact.IsSearchMissing(err) {
-		if rebuildErr := store.rebuildSearchIndex(key); rebuildErr != nil {
+		if rebuildErr := rebuildSearchIndexForTest(store, key); rebuildErr != nil {
 			return nil, rebuildErr
 		}
 		return store.artifacts.Search(layoutScope(key), query)

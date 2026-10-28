@@ -174,13 +174,13 @@ go build ./...
 
 ### conclusion.go
 
-- `func ConclusionEvent(mainSessionID string, record store.NodeSessionRecord, at time.Time) frameworkevent.Event` — ConclusionEvent 把一条节点会话记录投影为**结论事实事件**：
-- `func ConclusionsFromEvents(entries []store.EventLogEntry) []store.NodeSessionRecord` — ConclusionsFromEvents 从主会话事件库的条目里读出结论记录（**结论事件的反向投影**，
-- `func TakeoverPredicate(stillLive func(nodeID string) bool) func(store.NodeSessionRecord) bool` — TakeoverPredicate 返回恢复链上的**接管判据**：只有"记录的主人已经不在本进程里"的记录
+- `func ConclusionEvent(mainSessionID string, record storeworkunit.Record, at time.Time) frameworkevent.Event` — ConclusionEvent 把一条节点会话记录投影为**结论事实事件**：
+- `func ConclusionsFromEvents(entries []dto.EventLogEntry) []storeworkunit.Record` — ConclusionsFromEvents 从主会话事件库的条目里读出结论记录（**结论事件的反向投影**，
+- `func TakeoverPredicate(stillLive func(nodeID string) bool) func(storeworkunit.Record) bool` — TakeoverPredicate 返回恢复链上的**接管判据**：只有"记录的主人已经不在本进程里"的记录
 
 ### conclusion_test.go
 
-- `func conclusionRecord() store.NodeSessionRecord`
+- `func conclusionRecord() storeworkunit.Record`
 - `func TestConclusionEventShape(t *testing.T)` — TestConclusionEventShape 钉住事件形状：**结论跟随 mainagent**（定位挂主会话）、
 - `func TestConclusionsRoundTripIsLossless(t *testing.T)` — TestConclusionsRoundTripIsLossless 是**正反两向互为逆**的钉子：投影成事件、序列化、
 - `func TestConclusionsFromEventsSkipsForeignAndBrokenEntries(t *testing.T)` — TestConclusionsFromEventsSkipsForeignAndBrokenEntries：事件库是 A/B 类事实共用的追加日志，
@@ -218,19 +218,19 @@ go build ./...
 
 ### resume_units.go
 
-- `func LocateResumeUnits(parentSessionID string, records []store.NodeSessionRecord, conclusions map[string]struct{}) []resume.Unit` — LocateResumeUnits 把残留记录折算成恢复单元。
+- `func LocateResumeUnits(parentSessionID string, records []storeworkunit.Record, conclusions map[string]struct{}) []resume.Unit` — LocateResumeUnits 把残留记录折算成恢复单元。
 - `func ResumeUnitKey(progress workunit.Progress) string` — ResumeUnitKey 是恢复单元的幂等键：节点 id 优先，缺了退到它自己的会话号（键为空 = 这条记录
-- `func RecordIsFailed(record store.NodeSessionRecord) bool` — RecordIsFailed 报告落盘记录是不是**判失败**的终态。
-- `func RecordIsTerminal(record store.NodeSessionRecord) bool` — RecordIsTerminal 报告落盘记录本身是否已是**终结态**（done/failed）。
-- `func SceneOf(record store.NodeSessionRecord) (resume.Scene, error)` — SceneOf 重建被执行单元自己的现场：目标/已知进展/工作树。
-- `func LastStagePreview(record store.NodeSessionRecord) string` — LastStagePreview 读取阶段日志里最后一条预览（恢复说明的"之前做到哪"）。
-- `func ResumeExtraFacts(record store.NodeSessionRecord, progress string) string` — ResumeExtraFacts 追加契约 builder 之外的记录事实（可以为空）：
-- `func ResumeNote(record store.NodeSessionRecord, progress string) string` — ResumeNote 组装一条子代理恢复说明：契约正文 + 追加事实（**唯一一份**组合口径）。
+- `func RecordIsFailed(record storeworkunit.Record) bool` — RecordIsFailed 报告落盘记录是不是**判失败**的终态。
+- `func RecordIsTerminal(record storeworkunit.Record) bool` — RecordIsTerminal 报告落盘记录本身是否已是**终结态**（done/failed）。
+- `func SceneOf(record storeworkunit.Record) (resume.Scene, error)` — SceneOf 重建被执行单元自己的现场：目标/已知进展/工作树。
+- `func LastStagePreview(record storeworkunit.Record) string` — LastStagePreview 读取阶段日志里最后一条预览（恢复说明的"之前做到哪"）。
+- `func ResumeExtraFacts(record storeworkunit.Record, progress string) string` — ResumeExtraFacts 追加契约 builder 之外的记录事实（可以为空）：
+- `func ResumeNote(record storeworkunit.Record, progress string) string` — ResumeNote 组装一条子代理恢复说明：契约正文 + 追加事实（**唯一一份**组合口径）。
 
 ### resume_units_test.go
 
 - `func stringPointer(value string) *string`
-- `func resumeRecord(nodeID, sessionID, status string) store.NodeSessionRecord`
+- `func resumeRecord(nodeID, sessionID, status string) storeworkunit.Record`
 - `func TestLocateResumeUnitsStatusDerivation(t *testing.T)` — TestLocateResumeUnitsStatusDerivation 钉住"残留记录 → 恢复单元"的判定口径：
 - `func TestResumeUnitKeyFallsBackToSession(t *testing.T)` — TestResumeUnitKeyFallsBackToSession 钉住幂等键口径：节点 id 优先，缺了退到会话号；
 - `func TestRecordTerminalPredicates(t *testing.T)` — TestRecordTerminalPredicates 钉住两个谓词的分工：`RecordIsFailed` 只认 failed；
@@ -275,26 +275,26 @@ go build ./...
 
 ### subagent_persist_test.go
 
-- `func newTestNodeSessionStore(t *testing.T) *store.NodeSessionStore` — newTestNodeSessionStore 构造 JSON 后端节点会话记录存储。
-- `func waitForRecords(t *testing.T, st *store.NodeSessionStore, mainID string, want int) []store.NodeSessionRecord` — waitForRecords 轮询等待主会话索引下出现 want 条子会话记录
-- `func waitForRecordState(t *testing.T, st *store.NodeSessionStore, mainID string, predicate func(store.NodeSessionRecord) bool) store.NodeSessionRecord` — waitForRecordState 轮询等待首条记录满足 predicate（阶段/结果/终态落盘）。
+- `func newTestNodeSessionStore(t *testing.T) *storeworkunit.SessionStore` — newTestNodeSessionStore 构造 JSON 后端节点会话记录存储。
+- `func waitForRecords(t *testing.T, st *storeworkunit.SessionStore, mainID string, want int) []storeworkunit.Record` — waitForRecords 轮询等待主会话索引下出现 want 条子会话记录
+- `func waitForRecordState(t *testing.T, st *storeworkunit.SessionStore, mainID string, predicate func(storeworkunit.Record) bool) storeworkunit.Record` — waitForRecordState 轮询等待首条记录满足 predicate（阶段/结果/终态落盘）。
 - `func TestSubagentSessionsLifecyclePersistConclusionDelete(t *testing.T)` — TestSubagentSessionsLifecyclePersistConclusionDelete 验证生命周期策略：
 - `func TestSubagentSessionsRestoreRebuildsDetail(t *testing.T)` — TestSubagentSessionsRestoreRebuildsDetail 验证重启后可从残留记录重建
 - `func TestSubagentSessionsPersistFailedOutcome(t *testing.T)` — TestSubagentSessionsPersistFailedOutcome 验证失败节点同样收敛：
 
 ### subagent_sessions.go
 
-- `func SubagentUnitRecordLink(record store.NodeSessionRecord) store.NodeSessionRecord` — SubagentUnitRecordLink 是记录写入链上**子代理那一层**的一环：给还没有身份的记录写上
-- `func WithNodeSessionStore(st *store.NodeSessionStore) SubagentSessionsOption` — WithNodeSessionStore 装配节点会话记录持久化（nil = 纯内存态）：装配的是一个"以该存储为
+- `func SubagentUnitRecordLink(record storeworkunit.Record) storeworkunit.Record` — SubagentUnitRecordLink 是记录写入链上**子代理那一层**的一环：给还没有身份的记录写上
+- `func WithNodeSessionStore(st storeworkunit.Recorder) SubagentSessionsOption` — WithNodeSessionStore 装配节点会话记录持久化（nil = 纯内存态）：装配的是一个"以该存储为
 - `func WithMainSessionID(fn func() string) SubagentSessionsOption` — WithMainSessionID 提供当前主会话 ID（记录落盘时作为索引键；nil = 不落盘）。
-- `func WithConclusionSink(fn func(string, store.NodeSessionRecord)) SubagentSessionsOption` — WithConclusionSink 装配节点结束时的结论回传（mainagent 侧持久化；nil = 只删不传）。
+- `func WithConclusionSink(fn func(string, storeworkunit.Record)) SubagentSessionsOption` — WithConclusionSink 装配节点结束时的结论回传（mainagent 侧持久化；nil = 只删不传）。
 - `func NewSubagentSessions(trace provider.TraceSource, opts ...SubagentSessionsOption) *SubagentSessions`
 - `func (s *SubagentSessions) handle(cmd subagentSessionCmd)`
 - `func (s *SubagentSessions) finalizeLocked(nodeID string)` — finalizeLocked 节点结束时收敛持久化（actor goroutine 内调用）：
-- `func (s *SubagentSessions) restoreLocked(record store.NodeSessionRecord)` — restoreLocked 从持久化记录重建节点的详情数据面（actor goroutine 内调用）：
-- `func (s *SubagentSessions) persistLocked(nodeID string)` — persistLocked 把节点的当前内存态投影为 NodeSessionRecord 并落盘
+- `func (s *SubagentSessions) restoreLocked(record storeworkunit.Record)` — restoreLocked 从持久化记录重建节点的详情数据面（actor goroutine 内调用）：
+- `func (s *SubagentSessions) persistLocked(nodeID string)` — persistLocked 把节点的当前内存态投影为 Record 并落盘
 - `func (s *SubagentSessions) refreshLiveHistoryLocked(nodeID string, sess *frameworkSession.Session) []types.Message` — refreshLiveHistoryLocked 刷新并返回运行中节点的当前历史（actor goroutine 内
-- `func (s *SubagentSessions) buildRecordLocked(nodeID string) store.NodeSessionRecord` — buildRecordLocked 把节点当前内存态投影为 NodeSessionRecord（actor goroutine 内调用）。
+- `func (s *SubagentSessions) buildRecordLocked(nodeID string) storeworkunit.Record` — buildRecordLocked 把节点当前内存态投影为 Record（actor goroutine 内调用）。
 - `func (s *SubagentSessions) reply(cmd subagentSessionCmd, reply subagentSessionReply)`
 - `func (s *SubagentSessions) send(cmd subagentSessionCmd) bool` — send 投递命令并等待 actor 处理（带超时；actor 关闭后快速返回 false）。
 - `func (s *SubagentSessions) Register(nodeID string, sess *frameworkSession.Session, goal string)` — Register 注册运行中的子代理会话与节点目标（goal 供 ContextSnapshot 导出复用）。
@@ -314,10 +314,10 @@ go build ./...
 - `func (s *SubagentSessions) RecordResult(nodeID string, result *model.NodeSemanticResult)` — RecordResult 登记 node 的预定义语义结果并投入语义结果队列（消息队列路径）；
 - `func (s *SubagentSessions) Result(nodeID string) *model.NodeSemanticResult` — Result 返回 node 最近一次语义结果（只读）。
 - `func (s *SubagentSessions) DrainResults() []*model.NodeSemanticResult` — DrainResults 取空语义结果队列（消息队列消费面：mainagent / 下游 node 读取）。
-- `func (s *SubagentSessions) NoteWorktree(nodeID string, wt store.NodeWorktreeRecord)` — NoteWorktree 记录节点 worktree 现场（持久化恢复数据面：重启后可重建
+- `func (s *SubagentSessions) NoteWorktree(nodeID string, wt storeworkunit.WorktreeRecord)` — NoteWorktree 记录节点 worktree 现场（持久化恢复数据面：重启后可重建
 - `func (s *SubagentSessions) NoteOutcome(nodeID, status, summary, errMsg string)` — NoteOutcome 记录节点终态（done/failed + 摘要/错误），落盘后恢复时
-- `func (s *SubagentSessions) Restore(records []store.NodeSessionRecord)` — Restore 从持久化记录重建节点会话的详情数据面（重启/恢复锚点；
-- `func (s *SubagentSessions) Configure(writer *store.NodeSessionRecordWriter, mainID, projectID func() string, sink func(string, store.NodeSessionRecord))` — Configure 装配/替换节点会话记录的**写入链**（Router 就绪后注入；幂等）。
+- `func (s *SubagentSessions) Restore(records []storeworkunit.Record)` — Restore 从持久化记录重建节点会话的详情数据面（重启/恢复锚点；
+- `func (s *SubagentSessions) Configure(writer *storeworkunit.Writer, mainID, projectID func() string, sink func(string, storeworkunit.Record))` — Configure 装配/替换节点会话记录的**写入链**（Router 就绪后注入；幂等）。
 - `func (s *SubagentSessions) Close()` — Close 关闭命令通道并等待 actor 退出（幂等）。
 
 ### subagent_sessions_stream_test.go
@@ -363,7 +363,7 @@ go build ./...
 - `func (s *SubagentTree) pruneDoneBeyondCapLocked()` — pruneDoneBeyondCapLocked 保留最近 subagentTreeRetainDone 个 done 节点
 - `func (s *SubagentTree) removeNodeLocked(nodeID string)` — removeNodeLocked 从注册表移除节点（调用方持锁）：删除节点记录与其子
 - `func (s *SubagentTree) Clear() error` — Clear 清空整棵树（GUI"清空"入口：一次移除全部节点，含失败节点与
-- `func (s *SubagentTree) Restore(records []store.NodeSessionRecord, mainSessionID string, belongsToCurrent func(store.NodeSessionRecord) bool)` — Restore 从持久化记录重建 fork 树节点（重启/恢复锚点）：
+- `func (s *SubagentTree) Restore(records []storeworkunit.Record, mainSessionID string, belongsToCurrent func(storeworkunit.Record) bool)` — Restore 从持久化记录重建 fork 树节点（重启/恢复锚点）：
 - `func restoredSubAgentStatus(status string) SubAgentNodeStatus` — restoredSubAgentStatus 把持久化状态映射为树投影状态：崩溃遗留的
 - `func (r *subagentNodeRecord) isLive() bool` — isLive 报告节点是否仍由**本进程**承载（记录只是过期快照、真实状态在本进程
 - `func containsString(values []string, value string) bool`

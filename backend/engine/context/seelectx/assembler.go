@@ -20,8 +20,8 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
 // AssemblerOptions 装配器依赖（全部可省略；nil 的提供者被跳过）。
@@ -253,7 +253,7 @@ func renderStackBlock(name, title string, payload map[string]any) seelectx.Promp
 // RenderProjectBlock 渲染项目级模块语义块（ProjectKnowledge，plan.md
 // §3.7.1 / 架构文档 4.8.4：会话开始预读，内容 hash 版本化）。无模块时
 // 返回 nil（不渲染空块）。
-func RenderProjectBlock(record store.ProjectRecord) *seelectx.PromptBlock {
+func RenderProjectBlock(record storeproject.ProjectRecord) *seelectx.PromptBlock {
 	if record.Version == "" && len(record.Modules) == 0 {
 		return nil
 	}

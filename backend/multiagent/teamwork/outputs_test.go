@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // outputs_test.go — S5「作业正文活到 close」的两条路：
@@ -75,7 +75,7 @@ func newOutputFixture(t *testing.T, withOutputs bool) (*Coordinator, jobs.Manage
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:          store.Key{ProjectID: "p", SessionID: "s"},
+		Key:          dto.SessionKey{ProjectID: "p", SessionID: "s"},
 		Store:        st,
 		Jobs:         manager,
 		Workers:      runner,

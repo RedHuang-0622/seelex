@@ -9,7 +9,7 @@
 
 * 单 README 包（`## 生态位` + 索引）：`SETTLED_TREES` 下按目录自动发现；
 * 分卷包（根/大包，文件数 > 15，按文件前缀分卷）：`application/assembly`、`test/`、`store/`；
-* 树外已登记包：当前已收口的零散包由 `EXTRA_PACKAGES` 显式登记。
+* 树外已登记包：`kernel/state`、`middle/protocol/{model,event}`、`middle/view{,/board,/boardtest}`。
 
 脚本名保持不变：仓库既有 README 的「刷新方式」行都指向
 `python scripts/gen_core_readme_index.py`（该格式已冻结，改名会让全仓 README 漂移）。
@@ -49,29 +49,27 @@ SECTION_NOTE = (
 
 # 单 README 包：按树自动发现（搬迁中/收口中的树刻意不在列）。
 SETTLED_TREES = (
-    "application",
-    "backend/engine",
-    "backend/tool",
-    "boot",
     "contract",
     "console",
     "e2e",
-    "gui",
     "headless",
-    "kernel",
-    "middle",
+    "wiring",
     "store",
     "internal",
-    "test",
-    "tui",
     "backend/workunit",
     "backend/limit",
     "backend/multiagent",
 )
 
-# 当前所有 Go 包目录都已包含在 SETTLED_TREES 或分卷包中；保留显式例外口，
-# 但不得再登记不存在的历史路径。
-EXTRA_PACKAGES = ()
+# 树外已登记包（历史遗留的基座包；索引一直由本脚本负责）。
+EXTRA_PACKAGES = (
+    "kernel/state",
+    "middle/protocol/model",
+    "middle/protocol/event",
+    "middle/view",
+    "middle/view/board",
+    "middle/view/board/boardtest",
+)
 
 # 「搬迁中/收口中」的延后树在 2026-10-17 已全部清空：M5 的搬迁与收口片入库后工作树静默，
 # 原先登记的 52 个延后包（`application/assembly`、`backend/{engine,tool}`、`middle`）由本脚本
@@ -175,16 +173,15 @@ TEST_VOLUMES = (
 # （原先的第二份生成器 scripts/gen_store_readme_volumes.py 已并入本脚本，见 P13 删除清单）。
 STORE_VOLUMES = (
     VolumeSpec("session", "会话句柄与上下文状态：Router/SessionGranularStore、历史读面与运行期 API", ("sessionstore", "session_granular", "session_context", "session_meta", "session_ssh", "durable_history", "runtime_api", "conversation", "history_resume_readers")),
-    VolumeSpec("message", "message/event 事件行、段落投影、wire 装配与大工具结果归档", ("message_rows", "structural_events", "event_store", "event_range", "paragraphs", "wire_assembler", "big_tool_result", "provider_wire")),
+    VolumeSpec("message", "message/event 事件行、段落投影与 wire 装配", ("message_rows", "structural_events", "event_store", "event_range", "paragraphs", "wire_assembler", "provider_wire")),
     VolumeSpec("compact", "压缩帧与压缩记录、检查点、运行期材料/尝试缓存", ("compact_frames", "compaction_records", "checkpoint_store", "context_state", "material_cache", "attempt_cache")),
     VolumeSpec("stack", "上下文四栈的通道与日志（Plan/Task/Skill/Compact）", ("stack_channel", "stack_journal")),
     VolumeSpec("retention", "草稿尾与未提交批次、队列消费与 LRU 回收", ("retention", "pending_tail", "lifecycle", "queue_consume")),
-    VolumeSpec("board", "项目看板投影：行文件、会话分目录、项目知识记录与渲染件", ("board", "project_board", "project_known", "project_record")),
-    VolumeSpec("team", "团队计划/工作项、角色会话与节点会话记账", ("teamwork", "team_registry", "role_session", "node_session_store", "unit_record_writer"), ("role_permission.go", "role_permission_test.go")),
-    VolumeSpec("media", "媒体分区、检索索引与派生通道（工具记录、定时任务事件）", ("media", "search_index", "tool_record", "schedule_events")),
+    VolumeSpec("team", "角色会话与持久记录作用域适配", ("role_session",)),
+    VolumeSpec("media", "定时任务事件等派生通道", ("schedule_events",)),
     # P8 §5.2/§5.3（2026-10-17）：`root_aliases`（保形别名）与 `legacy_storage`（僵尸 shard 存储）
     # 两个前缀已随兼容面/僵尸面清理删除，本卷覆盖随之收缩。
-    VolumeSpec("storage", "存储引擎底座：数据根、存储装配、提交写序、JSON v8 布局、模块 head 发布与 fork 子树", ("json_layout", "module_heads", "fork_store", "router_storage", "commit_writer", "stores")),
+    VolumeSpec("storage", "存储引擎底座：JSON v8 布局、模块 head 发布、提交/组合根与领域作用域适配", ("json_layout", "module_heads", "fork_store", "router_storage", "commit_writer", "stores", "workunit_roots")),
     VolumeSpec("misc", "跨卷用例与基础回归（会话状态/锁、head 发布与自愈、并发与读放大探针）", (), (), fallback=True),
 )
 

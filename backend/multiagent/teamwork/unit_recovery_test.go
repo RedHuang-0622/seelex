@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
-func recoveryRecord(status string) store.NodeSessionRecord {
-	return store.NodeSessionRecord{NodeID: "exec-wi-1", SessionID: "role-exec", Status: status, Goal: "实现渲染件"}
+func recoveryRecord(status string) storeworkunit.Record {
+	return storeworkunit.Record{NodeID: "exec-wi-1", SessionID: "role-exec", Status: status, Goal: "实现渲染件"}
 }
 
 // TestInterruptedUnitsJudgesInFlightWithoutSurface：记录说在跑 + 执行面不在 ⇒ 中断并生成恢复说明；
@@ -23,7 +23,7 @@ func TestInterruptedUnitsJudgesInFlightWithoutSurface(t *testing.T) {
 	running := map[string]workunit.Progress{
 		"exec-wi-1": workunit.ProgressOf(workunit.KindTeammate, recoveryRecord(workunit.StatusRunning.String())),
 	}
-	stored := map[string]store.NodeSessionRecord{"exec-wi-1": recoveryRecord(workunit.StatusRunning.String())}
+	stored := map[string]storeworkunit.Record{"exec-wi-1": recoveryRecord(workunit.StatusRunning.String())}
 
 	got := InterruptedUnits(index, running, stored, nil, func(SceneEntry, string) bool { return false })
 	if len(got.Interrupted) != 1 || got.Interrupted[0] != "exec-wi-1" {

@@ -19,9 +19,36 @@
 
 - `func TestArchiveStatusRewriteKeepsFivePieces(t *testing.T)` — TestArchiveStatusRewriteKeepsFivePieces 钉住 C2 的存储契约：归档只重写
 
+### blob_test_helpers_test.go
+
+- `func writeBlobForTest(store *storeEngine, key Key, toolName, content string) (storeartifact.Blob, error)`
+- `func readBlobForTest(store *storeEngine, key Key, hash string) (string, error)`
+- `func listBlobHashesForTest(store *storeEngine, key Key) ([]string, error)`
+- `func collectBlobsForTest(store *storeEngine, key Key, referenced map[string]bool, dryRun bool) ([]string, error)`
+- `func blobRefOfForTest(ref string) string`
+- `func searchIndexPathForTest(store *storeEngine, key Key) string`
+- `func rebuildSearchIndexForTest(store *storeEngine, key Key) error`
+- `func searchQueryForTest(store *storeEngine, key Key, query string) ([]storeartifact.SearchHit, error)`
+
 ### blob_unify_test.go
 
 - `func TestToolResultLivesInBigToolResultChannel(t *testing.T)` — TestToolResultLivesInBigToolResultChannel 对应 S13（§2.0 规则 6、§2.6、D9）：
+
+### board_test.go
+
+- `func boardFixture(t *testing.T) (*jsonRepository, Key)`
+- `func sampleGoalBoard() dto.GoalBoardMeta`
+- `func sampleTeamBoard(t *testing.T) dto.TeamBoardMeta`
+- `func TestGoalBoardRoundTrip(t *testing.T)` — TestGoalBoardRoundTrip：active seq 的 goal 与 history goals 各自完整往返。
+- `func TestTeamBoardRoundTrip(t *testing.T)` — TestTeamBoardRoundTrip：团队看板的载荷是不透明视图快照，原样往返（存储层不解析它）。
+- `func TestBoardReadMissingIsEmptyNotError(t *testing.T)` — TestBoardReadMissingIsEmptyNotError：没写过 = "还没有存档"这个**状态**，读面返回零值 + nil
+- `func TestBoardArchiveSurvivesReopen(t *testing.T)` — TestBoardArchiveSurvivesReopen：**重启恢复**的存储面证据——换一个 repository 实例
+- `func TestBoardModulesAreSeparateFiles(t *testing.T)` — TestBoardModulesAreSeparateFiles：两块看板是**两个模块文件**（各自 head、各自锁），
+- `func TestGoalBoardRejectsSameGoalInActiveAndHistory(t *testing.T)` — TestGoalBoardRejectsSameGoalInActiveAndHistory：§3.1 的硬不变式。
+- `func TestGoalBoardRejectsMalformedLifecycle(t *testing.T)` — TestGoalBoardRejectsMalformedLifecycle：生命周期头是硬约束（close 必须说明原因与时间）。
+- `func TestTeamBoardRejectsActiveWithoutSnapshot(t *testing.T)` — TestTeamBoardRejectsActiveWithoutSnapshot：在册的团队看板没有快照 = 重启后什么都没有。
+- `func TestBoardClosedKeepsClosedFacts(t *testing.T)` — TestBoardClosedKeepsClosedFacts：close 之后存档保留（§9 第 3 条），
+- `func TestBoardsNotInRepositoryMainInterface(t *testing.T)` — TestBoardsNotInRepositoryMainInterface：看板存档是**可选能力面**（与 teamwork 同一形态），
 
 ### c1_publish_probe_test.go
 
@@ -232,21 +259,26 @@
 
 - `func Boards(repository Repository) (BoardRepository, bool)`
 - `func Teamwork(repository Repository) (TeamworkRepository, bool)`
-- `func MediaStoreOf(repository Repository) (MediaStore, bool)`
 - `func (router *Router) BoardsFor() (BoardRepository, bool)`
-- `func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error)`
-- `func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key) ([]TeamworkEvent, error)`
-- `func (repository *jsonRepository) ReadGoalBoard(ctx context.Context, key Key) (GoalBoardMeta, error)`
-- `func (repository *jsonRepository) ReadTeamBoard(ctx context.Context, key Key) (TeamBoardMeta, error)`
+- `func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (storeteamwork.Plan, error)`
+- `func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key) ([]storeteamwork.Event, error)`
+- `func (repository *jsonRepository) ReadGoalBoard(ctx context.Context, key Key) (dto.GoalBoardMeta, error)`
+- `func (repository *jsonRepository) ReadTeamBoard(ctx context.Context, key Key) (dto.TeamBoardMeta, error)`
 - `func (repository *jsonRepository) ReadToolRecordSnapshot(ctx context.Context, key Key) (json.RawMessage, bool, error)`
-- `func (repository *jsonRepository) WriteGoalBoard(ctx context.Context, key Key, meta GoalBoardMeta) error`
-- `func (repository *jsonRepository) WriteTeamBoard(ctx context.Context, key Key, meta TeamBoardMeta) error`
-- `func (repository *jsonRepository) WriteTeamworkPlan(ctx context.Context, key Key, plan TeamworkPlan, maxTeammates int) error`
-- `func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key, event TeamworkEvent) error`
-- `func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key Key, binding TeamworkBinding) error`
-- `func (repository *jsonRepository) ReadTeamworkBindings(_ context.Context, key Key) ([]TeamworkBinding, error)`
+- `func (repository *jsonRepository) WriteGoalBoard(ctx context.Context, key Key, meta dto.GoalBoardMeta) error`
+- `func (repository *jsonRepository) WriteTeamBoard(ctx context.Context, key Key, meta dto.TeamBoardMeta) error`
+- `func (repository *jsonRepository) WriteTeamworkPlan(ctx context.Context, key Key, plan storeteamwork.Plan, maxTeammates int) error`
+- `func (repository *jsonRepository) AppendTeamworkEvent(_ context.Context, key Key, event storeteamwork.Event) error`
+- `func (repository *jsonRepository) AppendTeamworkBinding(_ context.Context, key Key, binding storeteamwork.Binding) error`
+- `func (repository *jsonRepository) ReadTeamworkBindings(_ context.Context, key Key) ([]storeteamwork.Binding, error)`
 - `func (repository *jsonRepository) TeamworkJobOutputDir(_ context.Context, key Key) (string, error)`
 - `func (repository *jsonRepository) AppendToolRecordSnapshot(ctx context.Context, key Key, payload any) error`
+
+### media_session_test.go
+
+- `func openMediaSessionStore(t *testing.T, settings storeroot.Settings) *Stores`
+- `func TestSessionMediaUsesExplicitScope(t *testing.T)`
+- `func TestMediaRefsRoundTripThroughToolResult(t *testing.T)`
 
 ### message_read_lock_test.go
 
@@ -256,6 +288,10 @@
 - `func TestMessageReadStaleSnapshotConvergesAfterEviction(t *testing.T)` — TestMessageReadStaleSnapshotConvergesAfterEviction 钉住无锁快照的**可见性契约**：
 - `func TestWithPublishedHeadRetriesOnceAfterDrift(t *testing.T)` — TestWithPublishedHeadRetriesOnceAfterDrift 钉住重试契约：解码撞上并发清理
 - `func TestWithPublishedHeadReportsErrorWithoutDrift(t *testing.T)` — TestWithPublishedHeadReportsErrorWithoutDrift 反向护栏：坐标没漂移时错误
+
+### message_test_helpers_test.go
+
+- `func sequentialTestRows(rows []Event) []Event` — sequentialTestRows gives legacy test fixtures explicit runtime-issued seqs.
 
 ### module_head_guide_test.go
 
@@ -267,6 +303,40 @@
 - `func TestModuleLocksAreDistinct(t *testing.T)` — TestModuleLocksAreDistinct 钉住「模块 ↔ 锁」一对一。
 - `func TestUnmappedModuleLockPanicsInsteadOfAliasing(t *testing.T)` — TestUnmappedModuleLockPanicsInsteadOfAliasing 是上一条的护栏：未映射的模块必须
 - `func TestMediaReadNotBlockedByHeldMessageLock(t *testing.T)` — TestMediaReadNotBlockedByHeldMessageLock 钉住行为面：他人持 messageMu（= 正在
+
+### node_session_store_test.go
+
+- `func TestNodeSessionStoreRoundTrip(t *testing.T)` — TestNodeSessionStoreRoundTrip 验证子代理会话记录按
+- `func TestNodeSessionStoreListFromMainIndex(t *testing.T)` — TestNodeSessionStoreListFromMainIndex 验证从主会话索引直接列举全部子会话。
+- `func TestNodeSessionStoreMissingAndDelete(t *testing.T)` — TestNodeSessionStoreMissingAndDelete 验证缺失语义与删除。
+- `func TestNodeSessionStoreProjectIsolation(t *testing.T)` — TestNodeSessionStoreProjectIsolation 验证跨项目隔离。
+- `func routerConfigPath(t *testing.T, router *Router) string` — routerConfigPath 返回测试 Router 的 JSON 存储根目录（sessions-json）。
+
+### project_board_compat_test.go
+
+- `func TestProjectBoardReclaimUsesInjectedProjectRootButLeavesModuleLocksAlone(t *testing.T)`
+
+### project_known_test.go
+
+- `func projectKnownAbsPath(t *testing.T) string` — projectKnownAbsPath 造一个"带用户名 + 盘符"的绝对路径（本机 tempdir 之外也可复现）。
+- `func projectKnownRecord(t *testing.T, builtAt time.Time) (storeproject.ProjectRecord, string)` — projectKnownRecord 造一条"含所有脏字段"的记录：未排序模块 + 绝对 Path/Docs +
+- `func TestProjectKnownRenderDeterministic(t *testing.T)` — TestProjectKnownRenderDeterministic 对应 T5.3：同一 record 两次渲染字节相同；
+- `func TestProjectKnownPassiveOnly(t *testing.T)` — TestProjectKnownPassiveOnly 对应 T5.4（R6）：**无显式调用 → 不产文件**。
+- `func TestProjectKnownReusesExistingChain(t *testing.T)` — TestProjectKnownReusesExistingChain 对应 T5.5：**命中即处理、未命中传递** ——
+- `func TestProjectKnownRebuildFailureKeepsLast(t *testing.T)` — TestProjectKnownRebuildFailureKeepsLast 对应 T5.6：重建失败保留上一版本；
+- `func TestProjectKnownPathFollowsProjectRoot(t *testing.T)` — TestProjectKnownPathFollowsProjectRoot 覆盖"落点跟**项目根**走"：换一个项目根，
+
+### project_record_test.go
+
+- `func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T)`
+- `func TestProjectRecordEmptyProjectIDRejected(t *testing.T)`
+- `func newKnowledgeProject(t *testing.T) string` — newKnowledgeProject 构造含三路来源的临时项目：
+- `func TestProjectKnowledgeBuilderBuildsModules(t *testing.T)`
+- `func TestProjectKnowledgeBuilderSameSourcesDetectsChanges(t *testing.T)`
+- `func TestProjectKnowledgeBuilderFailsWithoutSources(t *testing.T)`
+- `func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T)`
+- `func TestRefreshProjectKnowledgeFallsBackOnRebuildFailure(t *testing.T)`
+- `func TestIsProjectRecordNotFound(t *testing.T)`
 
 ### project_refresh_key_test.go
 
@@ -297,9 +367,27 @@
 - `func TestPermissionVectorUpdatePreservesRoleRecordFields(t *testing.T)`
 - `func TestSessionSSHPathsOverrideDefaultAndSurviveVectorUpdate(t *testing.T)`
 
+### role_permission_test.go
+
+- `func newRolePermissionStore(router *Router) *storerole.PermissionStore`
+- `func openRolePermissionRouter(t *testing.T) *Router`
+- `func rolePermissionFileOnDisk(t *testing.T, router *Router) string` — rolePermissionFileOnDisk 找项目级角色权限文件（项目目录名带 hash 前缀）。
+- `func TestRolePermissionStoreRoundTrip(t *testing.T)`
+- `func TestRolePermissionExplicitEmptyVectorIsNotMissing(t *testing.T)`
+- `func TestRolePermissionDropScopes(t *testing.T)`
+- `func TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates(t *testing.T)` — TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates 是本文件的核心并发用例：
+- `func TestRolePermissionRejectsEmptyCoordinates(t *testing.T)`
+- `func TestRolePermissionStoreWithoutRouter(t *testing.T)` — TestRolePermissionStoreWithoutRouter 钉住"没装配存储就别假装成功"。
+
 ### role_snapshot_teammate_repro_test.go
 
 - `func TestRoleSnapshotForTeammateCarriesMainRowsWithNoOwnRows(t *testing.T)`
+
+### role_test_compat_test.go
+
+- `func roleAdapter(router *Router) *RoleSessionAdapter`
+- `func stackAdapter(router *Router) *StackStore`
+- `func wireAdapter(router *Router) *WireStore`
 
 ### session_cold_load_bench_test.go
 
@@ -340,6 +428,63 @@
 
 - `func TestTailReadAmplificationMeasurement(t *testing.T)` — TestTailReadAmplificationMeasurement 量化“尾窗读取”相对“全量读文件”的
 - `func maxDuration(left, right time.Duration) time.Duration`
+
+### team_registry_test.go
+
+- `func TestTeamRegistryOwnerRoundTripAndIsolation(t *testing.T)` — TestTeamRegistryOwnerRoundTripAndIsolation：角色注册表整份替换落到
+- `func TestTeamRegistryRejectsUnknownSchema(t *testing.T)` — TestTeamRegistryRejectsUnknownSchema：schema 版本不认识时显式报错，不静默降级。
+- `func TestReadLifecycleOrderToleratesMissingHead(t *testing.T)` — TestReadLifecycleOrderToleratesMissingHead 是 Agent Team 面板报错的回归：
+- `func TestReadMessageFloorWorkspaceToleratesUnstartedSession(t *testing.T)` — TestReadMessageFloorWorkspaceToleratesUnstartedSession：没有 message head 的会话
+- `func TestReadMessageFloorWorkspaceFollowsSequencerSync(t *testing.T)` — TestReadMessageFloorWorkspaceFollowsSequencerSync：floor 唯一写者是 sequencer
+- `func TestEnsureRoleSessionWorkspaceIsIdempotent(t *testing.T)` — TestEnsureRoleSessionWorkspaceIsIdempotent：重复装配同一条 TeamSpec 不产生第二个
+
+### teamwork_accessor_test.go
+
+- `func TestTeamworkAccessorNarrowsRepository(t *testing.T)`
+
+### teamwork_items_test.go
+
+- `func itemPlan() storeteamwork.Plan` — itemPlan 是一份**里程碑 + Work Item** 口径的计划：里程碑之间靠屏障串行，
+- `func TestValidateTeamworkPlanAcceptsMilestoneWorkItems(t *testing.T)`
+- `func TestValidateTeamworkPlanRejectsCrossMilestoneItemDependency(t *testing.T)`
+- `func TestValidateTeamworkPlanRejectsItemCycles(t *testing.T)`
+- `func TestValidateTeamworkPlanRejectsMilestoneCycles(t *testing.T)`
+- `func TestValidateTeamworkPlanRejectsItemWithUnenrolledRole(t *testing.T)`
+- `func TestValidateTeamworkPlanRejectsDuplicateItemIDAcrossMilestones(t *testing.T)`
+- `func TestTeamworkBindingLedgerIsAppendOnlyKV(t *testing.T)` — TestTeamworkBindingLedgerIsAppendOnlyKV 钉住绑定账本的 KV 语义：
+- `func TestAppendTeamworkBindingRequiresWorkItem(t *testing.T)`
+
+### teamwork_plugins_test.go
+
+- `func pluginPlan(members ...storeteamwork.Member) storeteamwork.Plan` — pluginPlan 造一份最小合法计划（存储层的校验要求至少一份里程碑），成员带插件清单。
+- `func TestValidateTeamworkPlanPluginStructure(t *testing.T)` — TestValidateTeamworkPlanPluginStructure 钉住存储层的**结构**关口：插件清单可被
+
+### teamwork_test.go
+
+- `func teamworkFixture(t *testing.T) (*jsonRepository, Key)`
+- `func samplePlan() storeteamwork.Plan`
+- `func TestTeamworkJobOutputDirIsSessionScopedAndIdempotent(t *testing.T)`
+- `func TestTeamworkPlanRoundTrip(t *testing.T)`
+- `func TestReadTeamworkPlanMissingIsEmptyPlan(t *testing.T)` — 计划**缺失** = "还没有 team_plan 过"，是一个状态，不是错误（2026-10-15 契约变更）。
+- `func TestTeamworkPlanRejectsDynamicViolations(t *testing.T)`
+- `func TestTeamworkMaxTeammatesDefaultsToSix(t *testing.T)`
+- `func TestTeamworkAuditIsAppendOnly(t *testing.T)`
+- `func TestTeamworkAuditSkipsCrashTail(t *testing.T)`
+- `func TestTeamworkStorageKeepsPlanAndAuditSeparate(t *testing.T)`
+- `func TestTeamworkPlanClosedRoundTrip(t *testing.T)` — TestTeamworkPlanClosedRoundTrip：闭板三字段（state / closed_at / closed_reason）
+- `func TestTeamworkPlanColdReadsLegacyStagesPayload(t *testing.T)` — TestTeamworkPlanColdReadsLegacyStagesPayload：阶段制时代留在计划里的 `stages`
+- `func TestTeamworkAuditColdReadsLegacyRetireRow(t *testing.T)` — TestTeamworkAuditColdReadsLegacyRetireRow：旧口径 `team_retire` 留在审计流里的
+
+### tool_record_test.go
+
+- `func TestToolRecordSnapshotIsSessionScopedAndLastLineWins(t *testing.T)` — 工具记录读数的会话级落盘：一行一批（整份快照）、读侧取最后一行、按会话隔离、
+- `func TestToolRecordSnapshotSkipsCrashTail(t *testing.T)` — 崩溃语义：最后一行没写完（残尾）= 没提交，读侧回退到**上一行完整快照**。
+
+### unit_record_writer_test.go
+
+- `func newUnitRecordWriterFixture(t *testing.T) (*storeworkunit.SessionStore, *storeworkunit.Writer)`
+- `func TestUnitRecordWriterChainFillsWithoutClobbering(t *testing.T)`
+- `func TestUnitRecordWriterWithoutStoreFailsLoud(t *testing.T)` — TestUnitRecordWriterWithoutStoreFailsLoud —— 链没装末端（未装配存储）时**显式报错**：
 
 ### wire_soft_budget_test.go
 

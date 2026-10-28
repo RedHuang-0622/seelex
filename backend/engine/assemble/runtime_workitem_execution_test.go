@@ -6,7 +6,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 type conversationEngine struct {
@@ -51,23 +51,23 @@ func TestWorkItemExecutionIsTheSingleProgressAndTranscriptRead(t *testing.T) {
 		}}
 	})
 	viewSessionID := "sess-workitem-view-team-exec-wi-wi-1"
-	plan := store.TeamworkPlan{
+	plan := storeteamwork.Plan{
 		TeamID: "team-view", Version: 1,
-		Members: []store.TeamworkMember{{
+		Members: []storeteamwork.Member{{
 			Role: "exec", RoleSessionID: "sess-workitem-view-team-exec",
 			ToolsPolicy: "readwrite", Permission: map[string]int{"repo": 7},
 			Plugins: []string{"safe-plugin"},
 		}},
-		Milestones: []store.TeamworkMilestone{{
-			ID: "m-impl", Name: "实现", Status: store.TeamworkMilestoneActive,
-			Items: []store.TeamworkWorkItem{{
+		Milestones: []storeteamwork.Milestone{{
+			ID: "m-impl", Name: "实现", Status: storeteamwork.MilestoneActive,
+			Items: []storeteamwork.WorkItem{{
 				ID: "wi-1", Milestone: "m-impl", Role: "exec", Name: "实现",
 				Description: "写代码", Goal: "测试通过", SessionID: viewSessionID,
-				Status: store.TeamworkItemRunning,
+				Status: storeteamwork.ItemRunning,
 			}},
 		}},
 	}
-	key := store.Key{ProjectID: "p-team", SessionID: mainSessionID}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: mainSessionID}
 	if err := backend.Store.WritePlan(context.Background(), key, plan, 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}

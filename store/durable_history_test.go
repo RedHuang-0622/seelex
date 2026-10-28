@@ -24,7 +24,7 @@ func TestDurableHistoryRoundTrip(t *testing.T) {
 
 	stored := messages(3, "round")
 	// v8 JSON 布局（S11）：provider 整段写已退役，正文以事件行落库。
-	if err := router.SaveCommit("session-roundtrip", Commit{Events: messagesToEventRows(stored)}); err != nil {
+	if err := router.SaveCommit("session-roundtrip", Commit{Events: sequentialTestRows(messagesToEventRows(stored))}); err != nil {
 		t.Fatalf("save events: %v", err)
 	}
 	loaded, err := history.Load(context.Background())
@@ -39,7 +39,7 @@ func TestDurableHistoryRoundTrip(t *testing.T) {
 func TestDurableHistoryClearIsResetSemantics(t *testing.T) {
 	router := newTestRouter(t)
 	history := NewDurableHistory(router, "session-clear")
-	if err := router.SaveCommit("session-clear", Commit{Events: messagesToEventRows(messages(2, "keep"))}); err != nil {
+	if err := router.SaveCommit("session-clear", Commit{Events: sequentialTestRows(messagesToEventRows(messages(2, "keep")))}); err != nil {
 		t.Fatalf("save events: %v", err)
 	}
 	if err := history.Clear(context.Background()); err != nil {
@@ -53,7 +53,7 @@ func TestDurableHistoryClearIsResetSemantics(t *testing.T) {
 		t.Fatalf("cleared history = %d messages, want empty", len(loaded))
 	}
 	// 显式 Clear 后可重新开始会话（对应旧 ClearHistory + store 清理）。
-	if err := router.SaveCommit("session-clear", Commit{Events: messagesToEventRows(messages(1, "fresh"))}); err != nil {
+	if err := router.SaveCommit("session-clear", Commit{Events: sequentialTestRows(messagesToEventRows(messages(1, "fresh")))}); err != nil {
 		t.Fatalf("save fresh events: %v", err)
 	}
 	if loaded, err := history.Load(context.Background()); err != nil || len(loaded) != 1 {
@@ -280,7 +280,7 @@ func TestDurableHistoryPreparedLoadWinsOnce(t *testing.T) {
 	router := newTestRouter(t)
 	history := NewDurableHistory(router, "session-prepared")
 	stored := messages(1, "durable")
-	if err := router.SaveCommit("session-prepared", Commit{Events: messagesToEventRows(stored)}); err != nil {
+	if err := router.SaveCommit("session-prepared", Commit{Events: sequentialTestRows(messagesToEventRows(stored))}); err != nil {
 		t.Fatalf("save events: %v", err)
 	}
 	prepared := messages(2, "assembled")

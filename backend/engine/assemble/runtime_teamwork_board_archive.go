@@ -24,7 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // archiveTeamBoard 在 team_* 动作成功后刷新团队看板存档（best-effort）。
@@ -45,7 +45,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	if err != nil || !teamworkPlanHasOrchestration(plan) {
 		return // 没有可看的编排：存档没有意义（与读侧的空壳口径一致）。
 	}
-	if plan.State.State == store.TeamworkStateClosed {
+	if plan.State.State == storeteamwork.StateClosed {
 		// 整队已收口：连同**收口时的最终投影**一起封板（幂等）。**绝不能让下面的
 		// "新开一版"逻辑把它复活**——复活一块已关闭的看板，就是把"已关闭"当成
 		// "在册"卖给读侧（存档读侧只认 state=active）。收口之后 leader 仍可能再调
@@ -93,7 +93,7 @@ var (
 )
 
 // readTeamBoardArchive 读存档并还原成看板投影（判据在域包）。
-func (r *Runtime) readTeamBoardArchive(backend *TeamworkBackend, key store.Key) *dto.TeamworkBoardView {
+func (r *Runtime) readTeamBoardArchive(backend *TeamworkBackend, key dto.SessionKey) *dto.TeamworkBoardView {
 	if backend == nil || backend.Boards == nil {
 		return nil
 	}

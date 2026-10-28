@@ -10,7 +10,7 @@ package assemble
 // `teamSceneIndex` / `teamUnitScope` / `teamworkReadScope` / `archiveTeamBoard` /
 // `TeamworkBoardSnapshot` / `CloseTeamBoard` / 看板域的 `KeyFor` 接线里各写了一遍，而且已经
 // 漂移：两处只看 `KeyFor` 的 ok、不看键的两个分量，半截键因此可以走到存储层；`teamworkKeyFor`
-// 又漏了 trim。现在所有读法都问这一格，判据只剩 `TeamworkBackend.KeyFor` + `store.Key.Complete`。
+// 又漏了 trim。现在所有读法都问这一格，判据只剩 `TeamworkBackend.KeyFor` + `dto.SessionKey.Complete`。
 
 import (
 	"errors"
@@ -18,8 +18,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 var (
@@ -33,25 +32,25 @@ var (
 // resolveTeamworkScope 解析当前团队面的三格读数：后端、作业表、作用域键。
 //
 // 判据（唯一一份）：会话号 trim 后非空 → 后端与 KeyFor 已装配 → KeyFor 认得这个会话 →
-// 键的两个分量齐全（`store.Key.Complete`）。任何一条不成立都返回零值 + 理由；
+// 键的两个分量齐全（`dto.SessionKey.Complete`）。任何一条不成立都返回零值 + 理由；
 // 调用方按自己的语义决定"退场 / 报错 / 回落"，不再各自重判。
-func (r *Runtime) resolveTeamworkScope(sessionID string) (*TeamworkBackend, jobs.Manager, store.Key, error) {
+func (r *Runtime) resolveTeamworkScope(sessionID string) (*TeamworkBackend, jobs.Manager, dto.SessionKey, error) {
 	if r == nil {
-		return nil, nil, store.Key{}, errTeamworkNotAssembled
+		return nil, nil, dto.SessionKey{}, errTeamworkNotAssembled
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return nil, nil, store.Key{}, errTeamworkNoSession
+		return nil, nil, dto.SessionKey{}, errTeamworkNoSession
 	}
 	r.teamworkMu.Lock()
 	backend, manager := r.teamworkBackend, r.teamworkJobs
 	r.teamworkMu.Unlock()
 	if backend == nil || backend.KeyFor == nil {
-		return nil, nil, store.Key{}, errTeamworkNotAssembled
+		return nil, nil, dto.SessionKey{}, errTeamworkNotAssembled
 	}
 	key, ok := backend.KeyFor(sessionID)
 	if !ok || !key.Complete() {
-		return nil, nil, store.Key{}, fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键（项目/会话）", sessionID)
+		return nil, nil, dto.SessionKey{}, fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键（项目/会话）", sessionID)
 	}
 	return backend, manager, key, nil
 }
@@ -60,10 +59,10 @@ func (r *Runtime) resolveTeamworkScope(sessionID string) (*TeamworkBackend, jobs
 //
 // 它供只关心"能不能定位会话"的读面使用（看板域的两格读数之一）。判据仍只在上面那一处：
 // 这里只把理由折成 ok，不另判一次。
-func (r *Runtime) teamworkKeyFor(sessionID string) (store.Key, bool) {
+func (r *Runtime) teamworkKeyFor(sessionID string) (dto.SessionKey, bool) {
 	_, _, key, err := r.resolveTeamworkScope(sessionID)
 	if err != nil {
-		return store.Key{}, false
+		return dto.SessionKey{}, false
 	}
 	return key, true
 }

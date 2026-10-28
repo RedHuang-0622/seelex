@@ -45,13 +45,14 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/docker"
-	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	context_runtime "github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/kernel/task"
 	"github.com/RedHuang-0622/seelex/store"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 type RuntimeConfig struct {
@@ -100,14 +101,13 @@ type Runtime struct {
 	bundles         map[string]*sessionBundle
 	bundlesMu       sync.RWMutex
 	activeSessionID string
-	// 跨会话共享装配（决策契约 §5：保留共享，按会话路由）：存储路由、
-	// 轮次归档器与项目知识提供者。
+	// 跨会话共享装配：存储路由、轮次归档器与项目知识提供者。
 	historyRouterMu sync.RWMutex
 	historyRouter   *store.Router
 	turnArchiverMu  sync.RWMutex
 	turnArchiver    seelexctx.TurnArchiver
 	projectMu       sync.RWMutex
-	project         func() *store.ProjectRecord
+	project         func() *storeproject.ProjectRecord
 
 	// 遥测（slice 8）：内存追踪器 + 生命周期钩子。会话级 llm/tool
 	// intent-effect 事件经 hook 写入 tracer；GUI/TUI 的 trace 视图经
@@ -265,7 +265,7 @@ type Runtime struct {
 	// teamworkBoardCache 是「计划 + 审计」的按会话缓存（见 runtime_teamwork_board.go）：
 	// 会话快照是高频采集路径，不允许每次都做 O(events) 的文件读；team_* 工具成功
 	// 返回后失效（作业行不进缓存——jobs.Manager.Snapshot 是内存读，随取随新）。
-	teamworkBoardCache map[store.Key]teamworkBoardSnapshotCache
+	teamworkBoardCache map[dto.SessionKey]teamworkBoardSnapshotCache
 
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
@@ -273,12 +273,12 @@ type Runtime struct {
 	windowMu sync.RWMutex
 	window   seelexctx.WindowPolicy
 	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
-	// 见 store.NodeSessionRecord）；Router 就绪后 AttachSubSessionStore 注入。
+	// 见 storeworkunit.Record）；Router 就绪后 AttachSubSessionStore 注入。
 	// 写走 `unitRecordWriter`（责任链：子代理那一环写身份 → 末端落盘），teammate 那一层
 	// 在同一条链上再加一环；读与删除仍走 `nodeSessionStore`。
-	nodeSessionStore *store.NodeSessionStore
+	nodeSessionStore *storeworkunit.SessionStore
 	// unitRecordWriter 是本进程会话记录的**写入链**（子代理那一环已装好）；未装配 = nil。
-	unitRecordWriter *store.NodeSessionRecordWriter
+	unitRecordWriter *storeworkunit.Writer
 	// subagentResume 保存中断子代理恢复期的状态：节点 → system 恢复说明
 	// （仅该节点的下一次装配读取）与父侧历史补齐钩子。见
 	// runtime_subagent_resume.go。
@@ -290,9 +290,9 @@ type Runtime struct {
 	teamResume       workunit.ResumeNotes
 	eventPersisterMu sync.Mutex
 	eventPersister   func(context.Context, frameworkevent.Event) error
+	mediaStore       atomic.Pointer[mediaStoreState]
 	lazyMCPServerMu  sync.RWMutex
 	lazyMCPServers   map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
-
 	// taskLedger 是 task **台账域**（跨会话工作表格读面 + 会话 scope 分区 +
 	// 会话级批次）：状态与判据都在 kernel/task.Ledger，宿主是下面的
 	// tasks 注册表——注册表结构上满足 LedgerHost，构造时注入（R11-task）。
@@ -372,8 +372,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	first := loaded.Specs[0]
 
 	// 遥测装配：内存追踪器 + 生命周期钩子（llm/tool intent-effect 事件）。
-	tracer := seeletelemetry.NewTracer()
-	hook, err := seeletelemetry.NewLifecycleHook(tracer)
+	tracer := seetelemetry.NewTracer()
+	hook, err := seetelemetry.NewLifecycleHook(tracer)
 	if err != nil {
 		return nil, fmt.Errorf("seelex: create lifecycle hook: %w", err)
 	}
@@ -415,7 +415,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		plugins:             visibility.NewManager(),
 		permission: &toolreg.PermissionGate{
 			// 波 4 approval 会话级归属：权限审批随调度 ctx 归属发起会话。
-			SessionFromContext: seeletelemetry.SessionIDFromContext,
+			SessionFromContext: seetelemetry.SessionIDFromContext,
 		},
 		subagentSessions: subagentsession.NewSubagentSessions(tracer),
 		forkActive:       map[string]int{},
@@ -437,7 +437,13 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// 压缩推帧接收侧（域包 `backend/engine/context`）：四个读取面都是本包私有访问器，
 	// 故按函数值端口注入（域包不能反向依赖装配层）。
 	r.compactionStack = context_runtime.NewCompactionStack(context_runtime.CompactionStackDeps{
-		Store:      r.sessionContextStore,
+		Store: func() context_runtime.SessionContextPort {
+			store := r.sessionContextStore()
+			if store == nil {
+				return nil
+			}
+			return store
+		},
 		DAG:        r.MainCompactionDAG,
 		Summarizer: r.compactionSummarizer,
 		Archiver:   r.getTurnArchiver,
@@ -445,7 +451,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// 路由事实注册表（域包 `backend/engine/account`）：只差一个摘要落点，
 	// 装配期把"写 B 类摘要"接上（`summaryLog` 可能为 nil ⇒ 域内判空后不记）。
 	r.servedRoute = account.NewServedRouteRegistry(account.ServedRouteDeps{
-		RecordSummary: func(event seeletelemetry.SummaryEvent) {
+		RecordSummary: func(event seetelemetry.SummaryEvent) {
 			if r.summaryLog != nil {
 				r.summaryLog.RecordSummary(event)
 			}
@@ -462,7 +468,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			}
 		},
 		ModelName:         func() string { return r.model },
-		HistoryRouter:     r.HistoryRouter,
+		NewHistory:        r.newPreparedHistory,
 		WorkspaceResolver: r.sessionWorkspaceFor,
 		Registry:          r.subagentSessions,
 	})
@@ -625,11 +631,11 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	//    events_unified.go；best-effort）。
 	// 4) SessionTagHook：把 ctx 中的会话 ID 打到 telemetry attributes
 	//    上，trace 按会话隔离（INV-T1；查询经 SessionTracer 过滤）。
-	r.hook = seeletelemetry.Chain(r.hook,
-		seeletelemetry.SessionTagHook,
-		seeletelemetry.NewDiagnosticHook(r.observeBash),
-		seeletelemetry.NewStageHook(r.node),
-		seeletelemetry.NewSummaryHook(r.summaryLog),
+	r.hook = seetelemetry.Chain(r.hook,
+		seetelemetry.SessionTagHook,
+		seetelemetry.NewDiagnosticHook(r.observeBash),
+		seetelemetry.NewStageHook(r.node),
+		seetelemetry.NewSummaryHook(r.summaryLog),
 	)
 
 	// 9. MCP 管理器：MCPStack 承接熔断事件 trace，注册表此时已装配。
@@ -709,24 +715,6 @@ func (r *Runtime) NewMainSession(hooks *session.LoopHooks) (*session.Session, er
 // application session key used by resume and durable storage.
 func (r *Runtime) NewMainSessionWithID(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
 	return r.newMainSession(sessionID, hooks)
-}
-
-// AttachHistoryRouter installs the provider-history plane independently from
-// SessionContextStore, whose state blob has a different owner.
-func (r *Runtime) AttachHistoryRouter(router *store.Router) {
-	r.historyRouterMu.Lock()
-	r.historyRouter = router
-	r.historyRouterMu.Unlock()
-}
-
-// HistoryRouter 返回会话存储路由（装配后只读；未装配 nil）。
-//
-// 它是 `media.Host` 的一格：媒体域（backend/tool/io/media）按会话写/读媒体分区，
-// 需要一个拿路由的窄口。本包内部的其它消费点同样走它——一份实现，两个调用面。
-func (r *Runtime) HistoryRouter() *store.Router {
-	r.historyRouterMu.RLock()
-	defer r.historyRouterMu.RUnlock()
-	return r.historyRouter
 }
 
 // SessionProjectID 解析会话绑定的项目 id（未绑定 = ""）。
@@ -870,11 +858,11 @@ func (r *Runtime) Tracer() *telemetry.MemoryTracer { return r.tracer }
 
 // SessionTracer 返回会话过滤的 trace 查询面（M1 INV-T2：查询只含该会话
 // span；数据源仍为同一 MemoryTracer，共享面不变）。
-func (r *Runtime) SessionTracer() *seeletelemetry.SessionTracer {
+func (r *Runtime) SessionTracer() *seetelemetry.SessionTracer {
 	if r == nil {
 		return nil
 	}
-	return seeletelemetry.NewSessionTracer(r.tracer)
+	return seetelemetry.NewSessionTracer(r.tracer)
 }
 
 // CurrentSession 返回当前主会话（会话切换重建后依然是最新实例）。

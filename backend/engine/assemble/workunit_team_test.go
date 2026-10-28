@@ -23,12 +23,15 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // teamTestKey 是本文件统一用的会话作用域（与 teamworkTestBackend 的 KeyFor 同键）。
-var teamTestKey = store.Key{ProjectID: "p-team", SessionID: "sess-1"}
+var teamTestKey = dto.SessionKey{ProjectID: "p-team", SessionID: "sess-1"}
 
 // ── ③ 收尾分类换源：与 node 同一份（workunit.ClassifyFinish），映射逐条钉 ──
 
@@ -79,18 +82,18 @@ func newSettleFixture(t *testing.T, mergeErr error) (*teamwork.Coordinator, *mem
 	t.Helper()
 	ctx := context.Background()
 	st := &memPlanStore{}
-	if err := st.WritePlan(ctx, teamTestKey, store.TeamworkPlan{
+	if err := st.WritePlan(ctx, teamTestKey, storeteamwork.Plan{
 		TeamID: "t-settle", Version: 1,
-		Members: []store.TeamworkMember{{Role: "exec", RoleSessionID: "sess-1-t-exec"}},
-		Milestones: []store.TeamworkMilestone{{ID: "m1", Items: []store.TeamworkWorkItem{{
+		Members: []storeteamwork.Member{{Role: "exec", RoleSessionID: "sess-1-t-exec"}},
+		Milestones: []storeteamwork.Milestone{{ID: "m1", Items: []storeteamwork.WorkItem{{
 			ID: "wi-1", Milestone: "m1", Role: "exec", Name: "实现",
-			Status:    store.TeamworkItemRunning,
+			Status:    storeteamwork.ItemRunning,
 			SessionID: "sess-1-t-exec-wi-1", Worktree: "seelex/exec-wi-1", Handle: "h-1",
 		}}}},
 	}, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AppendBinding(ctx, teamTestKey, store.TeamworkBinding{
+	if err := st.AppendBinding(ctx, teamTestKey, storeteamwork.Binding{
 		WorkItem: "wi-1", Milestone: "m1", Role: "exec",
 		SessionID: "sess-1-t-exec-wi-1", Worktree: "seelex/exec-wi-1",
 	}); err != nil {
@@ -129,11 +132,11 @@ func TestTeamSettleClassifiesWithTheSharedClassifier(t *testing.T) {
 		wantStatus   string
 		wantUnmerged bool
 	}{
-		{"跑完且改动已合进去 → 落定待验收", nil, nil, workunit.OutcomeSettled, store.TeamworkItemReview, false},
-		{"有未提交改动 → 不判死（review + 警告）", uncommitted, nil, workunit.OutcomeUncommitted, store.TeamworkItemReview, true},
-		{"主工作区挡路 → 不判死（review + 警告）", blocked, nil, workunit.OutcomeMergeBlocked, store.TeamworkItemReview, true},
-		{"合并撞别的错 → 判死", other, nil, workunit.OutcomeFailed, store.TeamworkItemFailed, false},
-		{"这一轮本身失败 → 判死", nil, fmt.Errorf("provider 402"), workunit.OutcomeFailed, store.TeamworkItemFailed, false},
+		{"跑完且改动已合进去 → 落定待验收", nil, nil, workunit.OutcomeSettled, storeteamwork.ItemReview, false},
+		{"有未提交改动 → 不判死（review + 警告）", uncommitted, nil, workunit.OutcomeUncommitted, storeteamwork.ItemReview, true},
+		{"主工作区挡路 → 不判死（review + 警告）", blocked, nil, workunit.OutcomeMergeBlocked, storeteamwork.ItemReview, true},
+		{"合并撞别的错 → 判死", other, nil, workunit.OutcomeFailed, storeteamwork.ItemFailed, false},
+		{"这一轮本身失败 → 判死", nil, fmt.Errorf("provider 402"), workunit.OutcomeFailed, storeteamwork.ItemFailed, false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -154,7 +157,7 @@ func TestTeamSettleClassifiesWithTheSharedClassifier(t *testing.T) {
 				t.Fatal(err)
 			}
 			item := plan.Milestones[0].Items[0]
-			if got := store.TeamworkWorkItemStatusOrPending(item); got != testCase.wantStatus {
+			if got := storeteamwork.WorkItemStatusOrPending(item); got != testCase.wantStatus {
 				t.Fatalf("工作项状态 = %s，want %s（未提交 / 挡路都进 review：现场与产出都留，不许判死）",
 					got, testCase.wantStatus)
 			}
@@ -213,33 +216,33 @@ func TestTeamCloseGateKeepsUnmergedScenes(t *testing.T) {
 // （两个角色各一件，用来钉"只拆自己这一份"）。
 type teamHostFixture struct {
 	runtime   *Runtime
-	nodeStore *store.NodeSessionStore
+	nodeStore *storeworkunit.SessionStore
 	st        *memPlanStore
 	router    *store.Router
 }
 
 // teamHostPlan 是本文件宿主用例的团队计划：exec 的 wi-1 在跑、test_case 的 wi-2 待验收。
-func teamHostPlan() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func teamHostPlan() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID: "t-host", Version: 1,
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "exec", RoleSessionID: "sess-1-t-exec", Worktree: "seelex/exec"},
 			{Role: "test_case", RoleSessionID: "sess-1-t-test_case"},
 		},
-		Milestones: []store.TeamworkMilestone{{ID: "m1", Items: []store.TeamworkWorkItem{
+		Milestones: []storeteamwork.Milestone{{ID: "m1", Items: []storeteamwork.WorkItem{
 			{
-				ID: "wi-1", Milestone: "m1", Role: "exec", Name: "实现", Status: store.TeamworkItemRunning,
+				ID: "wi-1", Milestone: "m1", Role: "exec", Name: "实现", Status: storeteamwork.ItemRunning,
 				SessionID: "sess-1-t-exec-wi-1", Worktree: "seelex/exec-wi-1", Handle: "h-1",
 			},
 			{
-				ID: "wi-2", Milestone: "m1", Role: "test_case", Name: "复核", Status: store.TeamworkItemReview,
+				ID: "wi-2", Milestone: "m1", Role: "test_case", Name: "复核", Status: storeteamwork.ItemReview,
 				SessionID: "sess-1-t-test_case-wi-2", Worktree: "seelex/test_case-wi-2",
 			},
 		}}},
 	}
 }
 
-func newTeamHostFixture(t *testing.T, plan store.TeamworkPlan, bindings []store.TeamworkBinding) *teamHostFixture {
+func newTeamHostFixture(t *testing.T, plan storeteamwork.Plan, bindings []storeteamwork.Binding) *teamHostFixture {
 	t.Helper()
 	ctx := context.Background()
 	st := &memPlanStore{}
@@ -259,7 +262,7 @@ func newTeamHostFixture(t *testing.T, plan store.TeamworkPlan, bindings []store.
 	runtime := newTestRuntime(t)
 	t.Cleanup(func() { runtime.Shutdown() })
 	runtime.AttachHistoryRouter(router)
-	nodeStore := store.NewNodeSessionStore(router)
+	nodeStore := store.NewWorkUnitSessionStore(router)
 	runtime.AttachSubSessionStore(nodeStore)
 	if err := runtime.BindProjectRoot(setupGitRepo(t)); err != nil {
 		t.Fatalf("BindProjectRoot: %v", err)
@@ -270,15 +273,15 @@ func newTeamHostFixture(t *testing.T, plan store.TeamworkPlan, bindings []store.
 	return &teamHostFixture{runtime: runtime, nodeStore: nodeStore, st: st, router: router}
 }
 
-func teamHostBindings() []store.TeamworkBinding {
-	return []store.TeamworkBinding{
+func teamHostBindings() []storeteamwork.Binding {
+	return []storeteamwork.Binding{
 		{WorkItem: "wi-1", Milestone: "m1", Role: "exec", SessionID: "sess-1-t-exec-wi-1", Worktree: "seelex/exec-wi-1"},
 		{WorkItem: "wi-2", Milestone: "m1", Role: "test_case", SessionID: "sess-1-t-test_case-wi-2", Worktree: "seelex/test_case-wi-2"},
 	}
 }
 
-// saveTeamRecord 落一条 teammate 单元的会话记录（形状 = store.NodeSessionRecord）。
-func saveTeamRecord(t *testing.T, st *store.NodeSessionStore, record store.NodeSessionRecord) {
+// saveTeamRecord 落一条 teammate 单元的会话记录（形状 = storeworkunit.Record）。
+func saveTeamRecord(t *testing.T, st *storeworkunit.SessionStore, record storeworkunit.Record) {
 	t.Helper()
 	if err := st.Save("p-team", "sess-1", record); err != nil {
 		t.Fatalf("Save(%s): %v", record.NodeID, err)
@@ -286,7 +289,7 @@ func saveTeamRecord(t *testing.T, st *store.NodeSessionStore, record store.NodeS
 }
 
 // teamRecords 读回本会话的全部节点记录（含子代理的，调用方自己筛 NodeID）。
-func teamRecords(t *testing.T, st *store.NodeSessionStore) []store.NodeSessionRecord {
+func teamRecords(t *testing.T, st *storeworkunit.SessionStore) []storeworkunit.Record {
 	t.Helper()
 	records, err := st.List("p-team", "sess-1")
 	if err != nil {
@@ -302,29 +305,29 @@ func TestTeamUnitRecoverMarksInterruptedAndInjectsTheNoteOnce(t *testing.T) {
 	ctx := context.Background()
 	fixture := newTeamHostFixture(t, teamHostPlan(), teamHostBindings())
 	// 旧进程的落盘（"跑到哪、现场在哪"）：三件在跑、一件已落定。
-	saveTeamRecord(t, fixture.nodeStore, store.NodeSessionRecord{
+	saveTeamRecord(t, fixture.nodeStore, storeworkunit.Record{
 		NodeID: "exec", SessionID: "sess-1-t-exec", Goal: "角色级派发的一轮",
 		Status: teamUnitStatusRunning,
 	})
-	saveTeamRecord(t, fixture.nodeStore, store.NodeSessionRecord{
+	saveTeamRecord(t, fixture.nodeStore, storeworkunit.Record{
 		NodeID: "exec-wi-1", SessionID: "sess-1-t-exec-wi-1", Goal: "把现场生命周期接进契约",
 		Status: teamUnitStatusRunning, Summary: "已改完 worktree 认领",
 		StagesJSON: []byte(`[{"stage":"running","preview":"改 worktree_manager"}]`),
-		Worktree:   store.NodeWorktreeRecord{Path: filepath.Join(t.TempDir(), "wt"), Branch: "seelex/exec-wi-1"},
+		Worktree:   storeworkunit.WorktreeRecord{Path: filepath.Join(t.TempDir(), "wt"), Branch: "seelex/exec-wi-1"},
 	})
-	saveTeamRecord(t, fixture.nodeStore, store.NodeSessionRecord{
+	saveTeamRecord(t, fixture.nodeStore, storeworkunit.Record{
 		NodeID: "exec-wi-2", SessionID: "sess-1-t-exec-wi-2", Goal: "还在本进程里跑着的一轮",
 		Status: teamUnitStatusRunning,
 	})
-	saveTeamRecord(t, fixture.nodeStore, store.NodeSessionRecord{
+	saveTeamRecord(t, fixture.nodeStore, storeworkunit.Record{
 		NodeID: "test_case-wi-2", SessionID: "sess-1-t-test_case-wi-2", Goal: "复核",
 		Status: teamUnitStatusDone,
 	})
 	// 计划里补上 wi-2 的现场（记录/现场名单都从计划 + 账本读）。
 	plan := teamHostPlan()
-	plan.Milestones[0].Items = append(plan.Milestones[0].Items, store.TeamworkWorkItem{
+	plan.Milestones[0].Items = append(plan.Milestones[0].Items, storeteamwork.WorkItem{
 		ID: "wi-2b", Milestone: "m1", Role: "exec", Name: "还在跑的另一件事",
-		Status: store.TeamworkItemRunning, SessionID: "sess-1-t-exec-wi-2",
+		Status: storeteamwork.ItemRunning, SessionID: "sess-1-t-exec-wi-2",
 		Worktree: "seelex/exec-wi-2", Handle: "h-2",
 	})
 	if err := fixture.st.WritePlan(ctx, teamTestKey, plan, 0); err != nil {
@@ -391,7 +394,7 @@ func TestTeamUnitRecoverMarksInterruptedAndInjectsTheNoteOnce(t *testing.T) {
 }
 
 // TestTeamUnitRecordsCarryTheSceneAndProgress 钉住**记录里存了什么**：契约的形状
-// （store.NodeSessionRecord：Goal / Status / Summary / StagesJSON / Worktree）
+// （storeworkunit.Record：Goal / Status / Summary / StagesJSON / Worktree）
 // 与 NodeID 的契约命名（`<role>-<itemID>` / `<role>`）——重启回灌读的就是它。
 func TestTeamUnitRecordsCarryTheSceneAndProgress(t *testing.T) {
 	fixture := newTeamHostFixture(t, teamHostPlan(), teamHostBindings())
@@ -503,7 +506,7 @@ func TestWorkerRoundPersistsTheUnitRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := store.TeamworkWorkItemStatusOrPending(view.Milestones[0].Items[0]); got != store.TeamworkItemReview {
+	if got := storeteamwork.WorkItemStatusOrPending(view.Milestones[0].Items[0]); got != storeteamwork.ItemReview {
 		t.Fatalf("尾插之后这件事应当待验收，得到 %s", got)
 	}
 }
@@ -512,7 +515,7 @@ func TestWorkerRoundPersistsTheUnitRecord(t *testing.T) {
 func waitTeamUnitRecordStatus(t *testing.T, fixture *teamHostFixture, nodeID, want string) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
-	var last store.NodeSessionRecord
+	var last storeworkunit.Record
 	for time.Now().Before(deadline) {
 		for _, record := range teamRecords(t, fixture.nodeStore) {
 			if record.NodeID == nodeID {
@@ -528,7 +531,7 @@ func waitTeamUnitRecordStatus(t *testing.T, fixture *teamHostFixture, nodeID, wa
 }
 
 // singleTeamRecord 取某 nodeID 的单元记录（不存在即失败）。
-func singleTeamRecord(t *testing.T, st *store.NodeSessionStore, nodeID string) store.NodeSessionRecord {
+func singleTeamRecord(t *testing.T, st *storeworkunit.SessionStore, nodeID string) storeworkunit.Record {
 	t.Helper()
 	for _, record := range teamRecords(t, st) {
 		if record.NodeID == nodeID {
@@ -536,7 +539,7 @@ func singleTeamRecord(t *testing.T, st *store.NodeSessionStore, nodeID string) s
 		}
 	}
 	t.Fatalf("盘上没有 %q 的单元记录", nodeID)
-	return store.NodeSessionRecord{}
+	return storeworkunit.Record{}
 }
 
 // TestTeamCloseClearsTheUnitRecords ②：整队收口之后，单元的会话记录被清——再回灌时
@@ -546,14 +549,14 @@ func TestTeamCloseClearsTheUnitRecords(t *testing.T) {
 	fixture := newTeamHostFixture(t, teamHostPlan(), teamHostBindings())
 	// 两件事都跑到待验收（收口闸门放行的那一档），各留一条记录。
 	plan := teamHostPlan()
-	plan.Milestones[0].Items[0].Status = store.TeamworkItemReview
+	plan.Milestones[0].Items[0].Status = storeteamwork.ItemReview
 	if err := fixture.st.WritePlan(ctx, teamTestKey, plan, 0); err != nil {
 		t.Fatal(err)
 	}
-	saveTeamRecord(t, fixture.nodeStore, store.NodeSessionRecord{
+	saveTeamRecord(t, fixture.nodeStore, storeworkunit.Record{
 		NodeID: "exec-wi-1", SessionID: "sess-1-t-exec-wi-1", Goal: "实现", Status: teamUnitStatusDone,
 	})
-	saveTeamRecord(t, fixture.nodeStore, store.NodeSessionRecord{
+	saveTeamRecord(t, fixture.nodeStore, storeworkunit.Record{
 		NodeID: "test_case-wi-2", SessionID: "sess-1-t-test_case-wi-2", Goal: "复核", Status: teamUnitStatusDone,
 	})
 	if len(teamRecords(t, fixture.nodeStore)) != 2 {
@@ -599,7 +602,7 @@ func TestTeamUnitFinishPolicyKeepsTheScene(t *testing.T) {
 		return unit
 	}
 	unit := sceneFor("exec-wi-1", "exec", "sess-1-t-exec-wi-1", "seelex/exec-wi-1")
-	saveTeamRecord(t, fixture.nodeStore, store.NodeSessionRecord{
+	saveTeamRecord(t, fixture.nodeStore, storeworkunit.Record{
 		NodeID: "exec-wi-1", SessionID: "sess-1-t-exec-wi-1", Goal: "实现", Status: teamUnitStatusDone,
 	})
 

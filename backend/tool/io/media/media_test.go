@@ -14,15 +14,22 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 )
 
 // stubHost 是 media.Host 的测试替身：两格读面直接读夹具。
 type stubHost struct {
-	router   *store.Router
+	media    *storeartifact.SessionStore
 	projects map[string]string
 }
 
-func (h *stubHost) HistoryRouter() *store.Router { return h.router }
+func (h *stubHost) WriteMediaWorkspace(ctx context.Context, projectID, sessionID string, item storeartifact.MediaItem) (storeartifact.MediaRef, error) {
+	return h.media.WriteMedia(ctx, projectID, sessionID, item)
+}
+
+func (h *stubHost) ReadMediaWorkspace(ctx context.Context, projectID, sessionID, ref string) (storeartifact.MediaRef, []byte, error) {
+	return h.media.ReadMedia(ctx, projectID, sessionID, ref)
+}
 
 func (h *stubHost) SessionProjectID(sessionID string) string {
 	if h == nil {
@@ -39,12 +46,12 @@ func (h *stubHost) SessionProjectID(sessionID string) string {
 // 断言逐条不变；宿主的会话绑定改用 stubHost 提供）。
 func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T) {
 	dir := t.TempDir()
-	router, err := store.NewRouter(dir)
+	stores, err := store.OpenStores(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer router.Close()
-	media := New(&stubHost{router: router, projects: map[string]string{"sess-a": "proj-a"}})
+	defer stores.Close()
+	media := New(&stubHost{media: stores.Media, projects: map[string]string{"sess-a": "proj-a"}})
 	ctx := seeletelemetry.WithSessionID(context.Background(), "sess-a")
 
 	payload := []byte("png-bytes")
@@ -58,7 +65,7 @@ func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T) {
 	if stored.Ref == "" || stored.Hash == "" {
 		t.Fatalf("媒体引用为空: %+v", stored)
 	}
-	item, data, err := router.ReadMediaWorkspace(context.Background(), "proj-a", "sess-a", stored.Ref)
+	item, data, err := stores.Media.ReadMedia(context.Background(), "proj-a", "sess-a", stored.Ref)
 	if err != nil {
 		t.Fatalf("按 ref 读回: %v", err)
 	}
@@ -66,7 +73,7 @@ func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T) {
 		t.Fatalf("读回媒体 = %+v data=%q", item, data)
 	}
 	// 会话隔离：换一个会话号，同一个 ref 读不到（各写自己的分片）。
-	if _, _, err := router.ReadMediaWorkspace(context.Background(), "proj-a", "sess-b", stored.Ref); err == nil {
+	if _, _, err := stores.Media.ReadMedia(context.Background(), "proj-a", "sess-b", stored.Ref); err == nil {
 		t.Fatal("ref 不应跨会话可见")
 	}
 	// ref 兜底读回：随图队列的 Loader 路径（只给引用时用）。
@@ -95,10 +102,10 @@ func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("子代理截图落盘: %v", err)
 	}
-	if _, _, err := router.ReadMediaWorkspace(context.Background(), "proj-b", "node-1", nodeStored.Ref); err != nil {
+	if _, _, err := stores.Media.ReadMedia(context.Background(), "proj-b", "node-1", nodeStored.Ref); err != nil {
 		t.Fatalf("子代理媒体应在节点工作区项目下: %v", err)
 	}
-	if _, _, err := router.ReadMediaWorkspace(context.Background(), "", "node-1", nodeStored.Ref); err == nil {
+	if _, _, err := stores.Media.ReadMedia(context.Background(), "", "node-1", nodeStored.Ref); err == nil {
 		t.Fatal("子代理媒体不应落进空项目")
 	}
 }

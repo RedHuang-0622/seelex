@@ -4,9 +4,8 @@ package teamwork
 // `backend/engine/assemble/runtime_teamwork_scene.go` 搬进本域）。
 
 import (
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestNodeIDFromWorktreeNameMatchesForwardNaming：反向换算（去前缀）与正向拼装**同一条**命名——
@@ -29,14 +28,14 @@ func TestNodeIDFromWorktreeNameMatchesForwardNaming(t *testing.T) {
 	}
 }
 
-func scenePlanFixture() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func scenePlanFixture() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID: "team-1",
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "pm", Worktree: TeammateWorktreeName("pm")},
 			{Role: "exec", Worktree: ""}, // 没派过现场：没有键，跳过
 		},
-		Milestones: []store.TeamworkMilestone{{ID: "m1", Items: []store.TeamworkWorkItem{
+		Milestones: []storeteamwork.Milestone{{ID: "m1", Items: []storeteamwork.WorkItem{
 			{ID: "wi-1", Role: "exec", Worktree: WorkItemWorktreeName("exec", "wi-1")},
 			{ID: "wi-2", Role: "exec", Worktree: WorkItemWorktreeName("exec", "wi-2")},
 		}}},
@@ -46,7 +45,7 @@ func scenePlanFixture() store.TeamworkPlan {
 // TestSceneIndexReadsPlanThenLedgerAndDedupes：名单 = 计划（成员 → 工作项）后账本（未释放的
 // 原始行），按 nodeID 去重保序；空白指派名跳过；已释放的行不认领。
 func TestSceneIndexReadsPlanThenLedgerAndDedupes(t *testing.T) {
-	bindings := []store.TeamworkBinding{
+	bindings := []storeteamwork.Binding{
 		{Worktree: WorkItemWorktreeName("exec", "wi-1"), Role: "exec", WorkItem: "wi-1"}, // 与计划重复
 		{Worktree: TeammateWorktreeName("qa"), Role: "qa"},                               // teammate 级：WorkItem 留空
 		{Worktree: WorkItemWorktreeName("exec", "wi-9"), Role: "exec", WorkItem: "wi-9", Released: true},
@@ -80,7 +79,7 @@ func TestSceneIndexReadsPlanThenLedgerAndDedupes(t *testing.T) {
 
 // TestSceneIndexEmptyInputs：没有计划也没有账本 ⇒ 空名单（不猜、不扫目录）。
 func TestSceneIndexEmptyInputs(t *testing.T) {
-	if got := SceneIndex(store.TeamworkPlan{}, nil); len(got) != 0 {
+	if got := SceneIndex(storeteamwork.Plan{}, nil); len(got) != 0 {
 		t.Fatalf("空输入应当给空名单：%+v", got)
 	}
 	if got := SceneNodeIDs(nil); got != nil {

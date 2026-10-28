@@ -15,10 +15,9 @@ package teamwork
 
 import (
 	"context"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestAdjustItemRewritesPendingWorkAndReadsBack 覆盖正向路径的前半：未开始的工作项
@@ -69,8 +68,8 @@ func TestAdjustItemRewritesPendingWorkAndReadsBack(t *testing.T) {
 	if after.ID != "wi-test" || after.Milestone != "m-build" {
 		t.Fatalf("调整动了不该动的格（id/里程碑）：%+v", after)
 	}
-	if store.TeamworkWorkItemStatusOrPending(after) != store.TeamworkItemPending {
-		t.Fatalf("调整不是派发：状态仍是 pending，得到 %q", store.TeamworkWorkItemStatusOrPending(after))
+	if storeteamwork.WorkItemStatusOrPending(after) != storeteamwork.ItemPending {
+		t.Fatalf("调整不是派发：状态仍是 pending，得到 %q", storeteamwork.WorkItemStatusOrPending(after))
 	}
 	// 未派发的工作项没有自己的会话/现场（那是派发才发生的）。
 	if after.SessionID != "" || after.Worktree != "" || after.Handle != "" {
@@ -119,7 +118,7 @@ func TestAdjustItemDependencyIsAHardGate(t *testing.T) {
 	}
 	// 被拒之后不得留下任何派发痕迹（没有会话/现场/绑定）。
 	blocked := itemState(t, fixture, "wi-test")
-	if store.TeamworkWorkItemStatusOrPending(blocked) != store.TeamworkItemPending || blocked.SessionID != "" ||
+	if storeteamwork.WorkItemStatusOrPending(blocked) != storeteamwork.ItemPending || blocked.SessionID != "" ||
 		blocked.Worktree != "" || blocked.StartedAt != 0 {
 		t.Fatalf("派发被拒不得改动工作项：%+v", blocked)
 	}
@@ -128,7 +127,7 @@ func TestAdjustItemDependencyIsAHardGate(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem(wi-req): %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-req", "通过"); err != nil {
 		t.Fatalf("AcceptItem: %v", err)
 	}
@@ -136,8 +135,8 @@ func TestAdjustItemDependencyIsAHardGate(t *testing.T) {
 		t.Fatalf("依赖完成后必须放行：%v", err)
 	}
 	dispatched := itemState(t, fixture, "wi-test")
-	if store.TeamworkWorkItemStatusOrPending(dispatched) != store.TeamworkItemRunning {
-		t.Fatalf("放行后工作项应在跑，得到 %q", store.TeamworkWorkItemStatusOrPending(dispatched))
+	if storeteamwork.WorkItemStatusOrPending(dispatched) != storeteamwork.ItemRunning {
+		t.Fatalf("放行后工作项应在跑，得到 %q", storeteamwork.WorkItemStatusOrPending(dispatched))
 	}
 	if dispatched.SessionID == "" || dispatched.Worktree == "" {
 		t.Fatalf("派发必须落上「这件事自己的会话 + 现场」：%+v", dispatched)
@@ -164,7 +163,7 @@ func TestAdjustItemStillRefusesRunningReviewAndDone(t *testing.T) {
 	}
 
 	// 待验收（review）：teammate 跑完了，但结论还没落 —— 同样是既定事实。
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	if err := fixture.coordinator.AdjustItem(ctx, "wi-req", WorkItemSpec{Goal: "改目标"}); err == nil ||
 		!strings.Contains(err.Error(), "既定的") {
 		t.Fatalf("待验收的工作项必须拒绝调整，得到 %v", err)

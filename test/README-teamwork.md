@@ -26,7 +26,7 @@ teamwork / 子代理装配：headless 冒烟、插件装配与 worktree 生命�
 - `func (p *teamworkSmokeProvider) leaderIndex() int`
 - `func truncateBodyForLog(body string) string` — truncateBodyForLog 只截请求体前一段进日志（诊断用；正文可能很长）。
 - `func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSmoke` — newTeamworkSmoke 装配真实链路：真实 store / 工作区 / 引擎端口 / application，
-- `func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (store.TeamworkWorkItem, bool)` — persistedItem 读**落盘**的计划里这一项（取证用：与看板投影分开读）。
+- `func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (storeteamwork.WorkItem, bool)` — persistedItem 读**落盘**的计划里这一项（取证用：与看板投影分开读）。
 - `func (s *teamworkSmoke) startProjectSession(t *testing.T, ctx context.Context) string` — startProjectSession 建一个绑定到项目工作区的会话（KeyFor 才有解）。
 - `func (s *teamworkSmoke) waitBoard(t *testing.T, sessionID string, ready func(*dto.TeamworkBoardView) bool) *dto.TeamworkBoardView` — waitBoard 轮询看板直到条件满足（真实链路里投影是异步刷新的事件驱动）。
 - `func (s *teamworkSmoke) waitJobTerminal(t *testing.T, handle string) dto.TeamworkJobCompletionRecord` — waitJobTerminal 轮询 teammate 作业表直到该句柄终态（或超时）。
@@ -57,7 +57,7 @@ teamwork / 子代理装配：headless 冒烟、插件装配与 worktree 生命�
 - `func (p *sceneProbe) record()`
 - `func (p *sceneProbe) snapshot() (dirSeen, fileInScene, fileInMain, together bool, samples int)`
 - `func TestTeamworkWorktreeLifecycleChain(t *testing.T)` — TestTeamworkWorktreeLifecycleChain 端到端验 teammate 那条链：
-- `func hasNodeRecord(records []store.NodeSessionRecord, nodeID string) bool`
+- `func hasNodeRecord(records []storeworkunit.Record, nodeID string) bool`
 - `func dirExists(path string) bool`
 - `func runGitOutput(root string, args ...string) (string, error)` — runGitOutput 取 git 的 stdout（`runGit` 只回错误码，诊断面要看原文）。
 - `func gitBranch(root, branch string) string` — gitBranch 返回某个本地分支的原文（空串 = 分支不在）。

@@ -113,7 +113,9 @@ func TestFactorySeedsColdSessionWithInterruptedSnapshot(t *testing.T) {
 		Components: func() frameworksession.SessionComponents {
 			return frameworksession.SessionComponents{Agent: captureAgent{completer: completer}}
 		},
-		HistoryRouter: func() *store.Router { return router },
+		NewHistory: func(sessionID string) PreparedHistory {
+			return store.NewDurableHistory(router, sessionID)
+		},
 		InitialHistory: func(string) []types.Message {
 			return []types.Message{{Role: "user", Content: &old}}
 		},

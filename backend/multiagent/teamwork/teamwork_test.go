@@ -9,21 +9,22 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // ── 端口替身（本包因此可在没有引擎、没有 git 的测试里跑完编排语义）──
 
 type memoryPlanStore struct {
 	mu       sync.Mutex
-	plan     store.TeamworkPlan
-	events   []store.TeamworkEvent
-	bindings []store.TeamworkBinding
+	plan     storeteamwork.Plan
+	events   []storeteamwork.Event
+	bindings []storeteamwork.Binding
 	limit    int
 }
 
-func (s *memoryPlanStore) WritePlan(_ context.Context, _ store.Key, plan store.TeamworkPlan, maxTeammates int) error {
-	if err := store.ValidateTeamworkPlan(plan, maxTeammates); err != nil {
+func (s *memoryPlanStore) WritePlan(_ context.Context, _ dto.SessionKey, plan storeteamwork.Plan, maxTeammates int) error {
+	if err := storeteamwork.ValidatePlan(plan, maxTeammates); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -32,7 +33,7 @@ func (s *memoryPlanStore) WritePlan(_ context.Context, _ store.Key, plan store.T
 	return nil
 }
 
-func (s *memoryPlanStore) ReadPlan(context.Context, store.Key) (store.TeamworkPlan, error) {
+func (s *memoryPlanStore) ReadPlan(context.Context, dto.SessionKey) (storeteamwork.Plan, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// 替身必须跟着**端口契约**走（PlanStore.ReadPlan 的注释）：还没声明团队时返回
@@ -41,30 +42,30 @@ func (s *memoryPlanStore) ReadPlan(context.Context, store.Key) (store.TeamworkPl
 	return clonePlan(s.plan), nil
 }
 
-func (s *memoryPlanStore) AppendEvent(_ context.Context, _ store.Key, event store.TeamworkEvent) error {
+func (s *memoryPlanStore) AppendEvent(_ context.Context, _ dto.SessionKey, event storeteamwork.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)
 	return nil
 }
 
-func (s *memoryPlanStore) ReadEvents(context.Context, store.Key) ([]store.TeamworkEvent, error) {
+func (s *memoryPlanStore) ReadEvents(context.Context, dto.SessionKey) ([]storeteamwork.Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]store.TeamworkEvent(nil), s.events...), nil
+	return append([]storeteamwork.Event(nil), s.events...), nil
 }
 
-func (s *memoryPlanStore) AppendBinding(_ context.Context, _ store.Key, binding store.TeamworkBinding) error {
+func (s *memoryPlanStore) AppendBinding(_ context.Context, _ dto.SessionKey, binding storeteamwork.Binding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.bindings = append(s.bindings, binding)
 	return nil
 }
 
-func (s *memoryPlanStore) ReadBindings(context.Context, store.Key) ([]store.TeamworkBinding, error) {
+func (s *memoryPlanStore) ReadBindings(context.Context, dto.SessionKey) ([]storeteamwork.Binding, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]store.TeamworkBinding(nil), s.bindings...), nil
+	return append([]storeteamwork.Binding(nil), s.bindings...), nil
 }
 
 func (s *memoryPlanStore) kinds() []string {
@@ -170,7 +171,7 @@ func newFixture(t *testing.T, maxTeammates int) *fixture {
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:          store.Key{ProjectID: "p", SessionID: "s"},
+		Key:          dto.SessionKey{ProjectID: "p", SessionID: "s"},
 		Store:        st,
 		Jobs:         manager,
 		Workers:      runner,
@@ -188,23 +189,23 @@ func newFixture(t *testing.T, maxTeammates int) *fixture {
 // vmodelPlan 是 V 模型口径的计划：**里程碑屏障**（m-req → m-impl）+ 里程碑内的工作项。
 // **没有阶段**（2026-10-04 阶段口径整条退场）：顺序的唯一事实是 milestones[].depends_on
 // 与 items[].depends_on。
-func vmodelPlan() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func vmodelPlan() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID:  "v-model",
 		Version: 1,
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "pm"},
 			{Role: "exec", Worktree: "seelex/exec"},
 			{Role: "test_case"},
 		},
-		Milestones: []store.TeamworkMilestone{
+		Milestones: []storeteamwork.Milestone{
 			{
 				ID: "m-req", Name: "需求", Required: []string{"pm"},
-				Items: []store.TeamworkWorkItem{{ID: "wi-req", Milestone: "m-req", Role: "pm", Name: "需求"}},
+				Items: []storeteamwork.WorkItem{{ID: "wi-req", Milestone: "m-req", Role: "pm", Name: "需求"}},
 			},
 			{
 				ID: "m-impl", Name: "实现", Required: []string{"exec"}, DependsOn: []string{"m-req"},
-				Items: []store.TeamworkWorkItem{{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现"}},
+				Items: []storeteamwork.WorkItem{{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现"}},
 			},
 		},
 	}
@@ -239,7 +240,7 @@ func TestSetPlanDerivesRoleSessionIDsAndAudits(t *testing.T) {
 	if plan.Members[0].RoleSessionID != "s-v-model-pm" {
 		t.Fatalf("role_session_id 未按 (主会话, team_id, role) 派生: %q", plan.Members[0].RoleSessionID)
 	}
-	if kinds := fixture.st.kinds(); len(kinds) != 1 || kinds[0] != store.TeamworkEventPlan {
+	if kinds := fixture.st.kinds(); len(kinds) != 1 || kinds[0] != storeteamwork.EventPlan {
 		t.Fatalf("计划改写必须留下审计行: %v", kinds)
 	}
 }
@@ -270,7 +271,7 @@ func TestDispatchJoinMilestoneLifecycle(t *testing.T) {
 		t.Fatalf("Milestone: %v", err)
 	}
 	plan, _ := fixture.coordinator.Plan(ctx)
-	if plan.State.Milestones["m-impl"] == "" || plan.Milestones[0].Status != store.TeamworkMilestoneDone {
+	if plan.State.Milestones["m-impl"] == "" || plan.Milestones[0].Status != storeteamwork.MilestoneDone {
 		t.Fatalf("里程碑没有落到计划: %+v", plan.Milestones[0])
 	}
 
@@ -435,7 +436,7 @@ func TestCloseRequiresWorkspaceAndSessionPorts(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:   store.Key{ProjectID: "p", SessionID: "s"},
+		Key:   dto.SessionKey{ProjectID: "p", SessionID: "s"},
 		Store: st,
 		Jobs:  manager,
 	})
@@ -465,7 +466,7 @@ func TestNewRefusesIncompleteWiring(t *testing.T) {
 	if _, err := New(Options{}); err == nil {
 		t.Fatal("缺会话作用域必须被拒")
 	}
-	if _, err := New(Options{Key: store.Key{ProjectID: "p", SessionID: "s"}}); err == nil {
+	if _, err := New(Options{Key: dto.SessionKey{ProjectID: "p", SessionID: "s"}}); err == nil {
 		t.Fatal("缺 PlanStore 必须被拒")
 	}
 	manager, err := jobs.New(jobs.WithNamer(testNamer{}))
@@ -473,7 +474,7 @@ func TestNewRefusesIncompleteWiring(t *testing.T) {
 		t.Fatalf("jobs.New: %v", err)
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
-	if _, err := New(Options{Key: store.Key{ProjectID: "p", SessionID: "s"}, Store: &memoryPlanStore{}}); err == nil {
+	if _, err := New(Options{Key: dto.SessionKey{ProjectID: "p", SessionID: "s"}, Store: &memoryPlanStore{}}); err == nil {
 		t.Fatal("缺 jobs.Manager 必须被拒")
 	}
 }
@@ -547,10 +548,10 @@ func TestCoordinatorCloseSealsBoard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if plan.State.State != store.TeamworkStateClosed {
+	if plan.State.State != storeteamwork.StateClosed {
 		t.Fatalf("收口后计划必须标 closed: %+v", plan.State)
 	}
-	if plan.State.ClosedAt == 0 || plan.State.ClosedReason != store.BoardCloseTeamClose {
+	if plan.State.ClosedAt == 0 || plan.State.ClosedReason != dto.BoardCloseTeamClose {
 		t.Fatalf("收口事实必须带 closed_at / closed_reason(team.close): %+v", plan.State)
 	}
 	if len(plan.State.Jobs) != 0 {
@@ -565,9 +566,9 @@ func TestCoordinatorCloseSealsBoard(t *testing.T) {
 	closes, retires := 0, 0
 	for _, kind := range fixture.st.kinds() {
 		switch kind {
-		case store.TeamworkEventClose:
+		case storeteamwork.EventClose:
 			closes++
-		case store.TeamworkEventRetire:
+		case storeteamwork.EventRetire:
 			retires++
 		}
 	}
@@ -605,7 +606,7 @@ func TestCloseIdempotentAlreadyClosed(t *testing.T) {
 	}
 	closes := 0
 	for _, kind := range fixture.st.kinds() {
-		if kind == store.TeamworkEventClose {
+		if kind == storeteamwork.EventClose {
 			closes++
 		}
 	}

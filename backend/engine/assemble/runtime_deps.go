@@ -10,7 +10,7 @@ import (
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
 // SubagentToolObservation 是一条子代理工具事件**加上它的归属主会话**。
@@ -39,7 +39,7 @@ type RuntimeDeps struct {
 	// TurnArchiver 压缩轮次原文归档实现（application 层持久化通道）。
 	TurnArchiver seelexctx.TurnArchiver
 	// ProjectKnowledge 项目级模块语义提供者（nil 关闭 project 块）。
-	ProjectKnowledge func() *store.ProjectRecord
+	ProjectKnowledge func() *storeproject.ProjectRecord
 	// EventPersister 执行事实持久化钩子（双轨事件的事实轨：
 	// event.Sink → store 事件库）。
 	EventPersister func(context.Context, frameworkevent.Event) error

@@ -5,13 +5,13 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storageworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // 会话恢复（重启回灌）：三层共用**同一形状**——这是契约里与"现场认领"并列的另一半，
 // 也是三层真正一致的那部分动作：
 //
-//	1. 形状一致：一个工作单元 = 一条会话记录（`store.NodeSessionRecord`）。NodeID
+//	1. 形状一致：一个工作单元 = 一条会话记录（`storeworkunit.Record`）。NodeID
 //	   是定位键（subagent 是节点 id，teammate 是 `<role>-<itemID>`，角色级是 `<role>`）；
 //	   记录里的 History / StagesJSON / ContextJSON / Worktree 就是"这一轮跑到哪、现场在哪"。
 //	2. 运行期落盘：跑着就写（进程中断或崩溃能从最近一次记录恢复），落定再写终态。
@@ -27,18 +27,18 @@ import (
 
 // SessionLedger 是"一个工作单元的会话记录"的持久化端口。
 //
-// `*store.NodeSessionStore` **结构上**就满足它（同名、同签名）——这是本契约里
+// `*storeworkunit.SessionStore` **结构上**就满足它（同名、同签名）——这是本契约里
 // "复用同一份实现"的落点：不写适配器，也不另立第二份记录类型（第二份就是第二份真相）。
 type SessionLedger interface {
-	Save(projectID, mainSessionID string, record store.NodeSessionRecord) error
-	List(projectID, mainSessionID string) ([]store.NodeSessionRecord, error)
+	Save(projectID, mainSessionID string, record storageworkunit.Record) error
+	List(projectID, mainSessionID string) ([]storageworkunit.Record, error)
 	// Delete 清掉一条记录：清会话是生命周期（Reclaim）的**动作**，不是另一件事——
 	// 端口只开一半，回收就只能绕回具体类型，那是第二份接线。
 	Delete(projectID, mainSessionID, subSessionID string) error
 }
 
 // 编译期钉住"复用"这件事：接口一旦与既有存储漂移，这里先红。
-var _ SessionLedger = (*store.NodeSessionStore)(nil)
+var _ SessionLedger = (*storageworkunit.SessionStore)(nil)
 
 // Resume 是一次重启回灌的读数（`Lifecycle.Recover` 的返回）。
 type Resume struct {
@@ -98,7 +98,7 @@ const resumeNoticeLimit = 1200
 // 错误/现场），动作在后**；注入时用 RecoveryNoteRole。
 //
 // 不编造：记录里没有的事实（例如"还差什么"）不写，只把记录里的东西摆出来。
-func RecoveryNote(kind Kind, record store.NodeSessionRecord) string {
+func RecoveryNote(kind Kind, record storageworkunit.Record) string {
 	goal := strings.TrimSpace(record.Goal)
 	if goal == "" {
 		goal = "（记录里没有目标正文）"

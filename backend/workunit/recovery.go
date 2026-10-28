@@ -22,7 +22,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/store"
+	storageworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // KindOf 读出这条记录属于哪一层（**唯一转换点**：快照里的 wire 串 → 契约枚举）。
@@ -35,7 +35,7 @@ import (
 //
 // 第二返回值是**认不得的身份词**（非空 = 记录写了身份但本版本不认识）：调用方负责留痕，
 // 归类仍按既有链（子代理）。之所以把留痕交给调用方：域包不做日志输出。
-func KindOf(record store.NodeSessionRecord, teamScenes map[string]bool) (Kind, string) {
+func KindOf(record storageworkunit.Record, teamScenes map[string]bool) (Kind, string) {
 	switch kind := Kind(strings.TrimSpace(record.Unit.Kind)); kind {
 	case KindSubagent, KindTeammate:
 		return kind, ""
@@ -54,7 +54,7 @@ type RecoveryStrategy interface {
 	// Kind 报告本策略管哪一层（诊断读数与用例的判据）。
 	Kind() Kind
 	// Restore 恢复本策略**认得的那一批**记录（空批 = 幂等的无事路径）。
-	Restore(records []store.NodeSessionRecord)
+	Restore(records []storageworkunit.Record)
 }
 
 // RestoreDeps 是分派点的宿主读数与动作。
@@ -70,7 +70,7 @@ type RestoreDeps struct {
 }
 
 // RestoreUnits 是恢复链的**分派点**：先按身份把记录切开，再交给各自的策略。
-func RestoreUnits(sessionID string, records []store.NodeSessionRecord, deps RestoreDeps) {
+func RestoreUnits(sessionID string, records []storageworkunit.Record, deps RestoreDeps) {
 	if len(records) == 0 || len(deps.Strategies) == 0 {
 		return
 	}
@@ -80,7 +80,7 @@ func RestoreUnits(sessionID string, records []store.NodeSessionRecord, deps Rest
 			scenes[nodeID] = true
 		}
 	}
-	owned := make(map[Kind][]store.NodeSessionRecord, 2)
+	owned := make(map[Kind][]storageworkunit.Record, 2)
 	for _, record := range records {
 		kind, unknown := KindOf(record, scenes)
 		if unknown != "" && deps.Log != nil {

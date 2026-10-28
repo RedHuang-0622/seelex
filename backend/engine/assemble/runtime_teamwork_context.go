@@ -20,8 +20,8 @@ import (
 	"github.com/RedHuang-0622/Seele/jobs"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 同值常量别名（事实源在域包，既有调用点与用例零改动）。
@@ -79,14 +79,14 @@ func (r *Runtime) teamworkContextHandler(ctx context.Context, argsJSON string) (
 // teamworkReadScope 解析"读面"需要的三件：后端、作业表、作用域键。
 //
 // 与 coordinatorFor 分开：读面**不建 Coordinator**——建它就要装配执行体，而读面只是读。
-func (r *Runtime) teamworkReadScope(ctx context.Context) (*TeamworkBackend, jobs.Manager, store.Key, error) {
+func (r *Runtime) teamworkReadScope(ctx context.Context) (*TeamworkBackend, jobs.Manager, dto.SessionKey, error) {
 	// 作用域解析只有一份判据（runtime_teamwork_scope.go）；读面额外要求作业表在册。
 	backend, manager, key, err := r.resolveTeamworkScope(seeletelemetry.SessionIDFromContext(ctx))
 	if err != nil {
-		return nil, nil, store.Key{}, err
+		return nil, nil, dto.SessionKey{}, err
 	}
 	if manager == nil {
-		return nil, nil, store.Key{}, errTeamworkNotAssembled
+		return nil, nil, dto.SessionKey{}, errTeamworkNotAssembled
 	}
 	return backend, manager, key, nil
 }

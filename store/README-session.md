@@ -11,22 +11,11 @@
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### conversation.go
+### conversation_identity_test.go
 
-- `func decodeConversationRange(payload []byte, sessionID string, offset, limit int) ([]ConversationMessage, int, error)` — decodeConversationRange 从 state blob 只解析 conversation 模块（不解析
-- `func (repository *jsonRepository) ReadConversationRange(_ context.Context, key Key, offset, limit int) ([]ConversationMessage, int, error)`
-
-### conversation_derivation_test.go
-
-- `func derivedRowsFixture() []Event` — derivedRowsFixture 复刻真实长会话的 message 行形状：一条 assistant 行里
-- `func TestDerivedConversationKeepsMessageOrder(t *testing.T)` — TestDerivedConversationKeepsMessageOrder 是长会话恢复顺序的契约测试：派生
-
-### conversation_test.go
-
-- `func TestConversationRangeFromMessageRows(t *testing.T)` — TestConversationRangeFromMessageRows 契约测试：conversation 模块范围读取
-- `func TestConversationRangeDerivedFromMessageRows(t *testing.T)` — TestConversationRangeDerivedFromMessageRows 验证 S20 后 conversation 由
-- `func TestStateChannelRetiredOnJSON(t *testing.T)` — TestStateChannelRetiredOnJSON 验证 S20：JSON v8 的 state/record 通道停写
-- `func TestDecodeConversationRangeSkipsNonConversationModules(t *testing.T)` — TestDecodeConversationRangeSkipsNonConversationModules 验证部分解码结果
+- `func TestConversationUsesProtocolIdentity(t *testing.T)`
+- `func TestStateChannelRetiredOnJSON(t *testing.T)`
+- `func storerootSettingsForTest() storeroot.Settings`
 
 ### durable_history.go
 
@@ -72,7 +61,8 @@
 
 - `func (router *Router) jsonRepositoryLocked() (*jsonRepository, bool)` — jsonRepositoryLocked 返回当前 repository（若为 JSON 会话存储布局）。
 - `func (router *Router) jsonRepository() (*jsonRepository, bool)` — jsonRepository 在 RLock 下返回当前 repository 快照（若为 JSON 会话存储
-- `func (router *Router) AssembleWireWorkspace(projectID, sessionID string, budget, k int) ([]types.Message, bool, error)` — AssembleWireWorkspace 对会话执行 wire 装配（frame 摘要 + tail + 最近 K
+- `func NewWireStore(router *Router) *WireStore` — NewWireStore constructs a wire store adapter.
+- `func (adapter *WireStore) AssembleWireWorkspace(projectID, sessionID string, budget, k int) ([]types.Message, bool, error)` — AssembleWireWorkspace 对会话执行 wire 装配（frame 摘要 + tail + 最近 K
 - `func (router *Router) CommitCompactFrameWorkspace(projectID, sessionID string, frame CompactFrame) (bool, error)` — CommitCompactFrameWorkspace 把运行期压缩帧写入 compact 通道（帧摘要
 - `func (router *Router) RetentionAdvisoryWorkspace(projectID, sessionID string) (RetentionAdvisory, error)` — RetentionAdvisoryWorkspace 返回会话 retention 水位建议（v8；非 v8 返回
 - `func (router *Router) LRUDeleteWorkspace(projectID, sessionID string, upToSeq uint64, confirmed bool) (bool, error)` — LRUDeleteWorkspace 用户确认后删除 watermark 前连续前缀（v8；manual 模式
@@ -86,16 +76,17 @@
 - `func (router *Router) QueueFailConsumedWorkspace(projectID, sessionID, turnID string) error` — QueueFailConsumedWorkspace 该轮未发布（失败）→ 消费项内容回草稿并出队。
 - `func (router *Router) QueueItemsWorkspace(projectID, sessionID string) ([]QueueItem, bool, error)` — QueueItemsWorkspace 读 lifecycle 队列投影（UI/诊断）。
 - `func (router *Router) QueueRecoverItemsWorkspace(projectID, sessionID string) (QueueRecoveryReport, bool, error)` — QueueRecoverItemsWorkspace 重启恢复队列并返回条目级结果（重发项/出队项/
-- `func (router *Router) StackPush(projectID, sessionID string, kind StackKind, batchID string, items []StackItemInput) (StackMutation, error)` — StackPush 把一批条目压入指定栈（batchID 为空 = 本次入栈自成一批）。
-- `func (router *Router) StackSetStatus(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error)` — StackSetStatus 更新栈条目状态；所属批次全部完成时整批弹栈归档。
-- `func (router *Router) StackPopTop(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error)` — StackPopTop 弹出栈顶条目（goal LIFO）。
-- `func (router *Router) StackReplace(projectID, sessionID string, kind StackKind, items []StackItemInput, closedStatus string) (StackMutation, error)` — StackReplace 用新的条目集合替换 active 栈，并推导出逐条迁移。
-- `func (router *Router) stackMutate(projectID, sessionID string, kind StackKind, mutate func(*stackState) (StackMutation, error)) (StackMutation, error)` — stackMutate 是栈通道的统一写入口：变更以闭包（actor 消息）交给当前后端的
-- `func (router *Router) StackActive(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error)` — StackActive 返回指定栈当前 active 条目（按 seq 升序）。
-- `func (router *Router) StackHistory(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error)` — StackHistory 返回指定栈的归档条目。
-- `func (router *Router) StackVerify(projectID, sessionID string) error` — StackVerify 校验栈通道 head 水位与数据计数一致（M5 巡检的栈通道部分）。
-- `func (router *Router) StackStorageStats() (stackJournalStats, error)` — StackStorageStats 返回栈通道的延迟归因：栈锁等待与 active / history / head /
-- `func (router *Router) ForkStacks(parentProjectID, parentSessionID, childProjectID, childSessionID string, fromSeq uint64) error` — ForkStacks 按 message 锚把父会话三栈重建进子会话（§8.1 + T-FK-02）。
+- `func NewStackStore(router *Router) *StackStore` — NewStackStore constructs a stack store adapter.
+- `func (adapter *StackStore) StackPush(projectID, sessionID string, kind StackKind, batchID string, items []StackItemInput) (StackMutation, error)` — StackPush 把一批条目压入指定栈（batchID 为空 = 本次入栈自成一批）。
+- `func (adapter *StackStore) StackSetStatus(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error)` — StackSetStatus 更新栈条目状态；所属批次全部完成时整批弹栈归档。
+- `func (adapter *StackStore) StackPopTop(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error)` — StackPopTop 弹出栈顶条目（goal LIFO）。
+- `func (adapter *StackStore) StackReplace(projectID, sessionID string, kind StackKind, items []StackItemInput, closedStatus string) (StackMutation, error)` — StackReplace 用新的条目集合替换 active 栈，并推导出逐条迁移。
+- `func (adapter *StackStore) stackMutate(projectID, sessionID string, kind StackKind, mutate func(*stackState) (StackMutation, error)) (StackMutation, error)` — stackMutate 是栈通道的统一写入口：变更以闭包（actor 消息）交给当前后端的
+- `func (adapter *StackStore) StackActive(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error)` — StackActive 返回指定栈当前 active 条目（按 seq 升序）。
+- `func (adapter *StackStore) StackHistory(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error)` — StackHistory 返回指定栈的归档条目。
+- `func (adapter *StackStore) StackVerify(projectID, sessionID string) error` — StackVerify 校验栈通道 head 水位与数据计数一致（M5 巡检的栈通道部分）。
+- `func (adapter *StackStore) StackStorageStats() (stackJournalStats, error)` — StackStorageStats 返回栈通道的延迟归因：栈锁等待与 active / history / head /
+- `func (adapter *StackStore) ForkStacks(parentProjectID, parentSessionID, childProjectID, childSessionID string, fromSeq uint64) error` — ForkStacks 按 message 锚把父会话三栈重建进子会话（§8.1 + T-FK-02）。
 
 ### runtime_api_inflight_test.go
 
@@ -194,7 +185,6 @@
 - `func (store *SessionGranularStore) ResolveProjectForSession(sessionID string) string` — ResolveProjectForSession 返回会话归属项目，定序：
 - `func (store *SessionGranularStore) SaveHistory(projectID, sessionID string, messages []types.Message) error` — SaveHistory 以会话粒度原子写 provider 历史（session:<id>:history；
 - `func (store *SessionGranularStore) HistoryRange(projectID, sessionID string, offset, limit int) ([]types.Message, int, error)` — HistoryRange 按窗口读取会话 provider 历史，返回 [offset, offset+limit)
-- `func (store *SessionGranularStore) Transcript(projectID, sessionID string) ([]TranscriptEvent, error)` — Transcript 读取会话事件日志（session:<id>:transcript；事件通道与
 - `func (store *SessionGranularStore) TranscriptTail(projectID, sessionID string, tokenBudget, maxUnits int) ([]Event, error)` — TranscriptTail 读取会话事件日志尾部窗口（token + 单元上限；会话粒度键）。
 - `func (store *SessionGranularStore) EventRange(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error)` — EventRange 按 EventSeq 范围读取会话事件流（fork 切断点解析用）。
 - `func (store *SessionGranularStore) ToolResults(projectID, sessionID string) ([]ToolResultRef, error)` — ToolResults 读取会话工具结果归档引用（session:<id>:toolresults）。
@@ -215,7 +205,6 @@
 - `func (store *SessionGranularStore) PendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error)` — PendingMessageTail 探测 message 通道草稿尾部（只读；v8 未装配返回
 - `func (store *SessionGranularStore) RecoverPendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error)` — RecoverPendingMessageTail 显式恢复草稿尾部（基座一致才发布）。
 - `func (store *SessionGranularStore) DiscardPendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error)` — DiscardPendingMessageTail 显式丢弃草稿尾部。
-- `func (store *SessionGranularStore) ConversationRange(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error)` — ConversationRange 读取会话 conversation 模块窗口（只解析 conversation
 - `func (store *SessionGranularStore) Delete(projectID, sessionID string) error` — Delete 以会话粒度删除会话（record/history/transcript/toolresults/context
 - `func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, error)` — SessionsOf 按项目索引枚举会话（project = 会话集合；物理实现 = Router
 - `func (store *SessionGranularStore) loadSessionLiteral(projectID, sessionID string) (Record, bool)` — loadSessionLiteral 以字面项目 ID 读取会话记录（不替换 "" 为活跃作用域；
@@ -296,7 +285,6 @@
 - `func (router *Router) LoadRangeWorkspace(projectID, sessionID string, offset, limit int) ([]types.Message, int, error)` — LoadRangeWorkspace reads a history window from an explicit project scope
 - `func (router *Router) LoadEventTail(sessionID string, tokenBudget, maxUnits int) ([]Event, error)` — LoadEventTail reads newest complete protocol units within a token budget.
 - `func (router *Router) LoadEventTailWorkspace(projectID, sessionID string, tokenBudget, maxUnits int) ([]Event, error)`
-- `func (router *Router) LoadConversationRangeWorkspace(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error)` — LoadConversationRangeWorkspace 读取会话 conversation 模块的指定窗口
 - `func (router *Router) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error)` — LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
 - `func (router *Router) AppendMessageDraftWorkspace(projectID, sessionID string, rows []Event) ([]Event, bool, error)` — AppendMessageDraftWorkspace 把尚未快照的 transcript 后缀写入 message
 - `func (router *Router) LoadToolResult(sessionID, resultRef string) (ToolResult, error)`
@@ -326,20 +314,19 @@
 - `func (router *Router) SessionArchivedWorkspace(projectID, sessionID string) (time.Time, bool, error)` — SessionArchivedWorkspace 返回会话归档时间（零值 = 未归档）。
 - `func (router *Router) SaveSessionDisplayMetaWorkspace(projectID string, payload []byte) error` — SaveSessionDisplayMetaWorkspace / LoadSessionDisplayMetaWorkspace：项目级
 - `func (router *Router) LoadSessionDisplayMetaWorkspace(projectID string) ([]byte, error)`
-- `func (router *Router) DerivedRecordWorkspace(projectID, sessionID string) ([]byte, bool, error)` — DerivedRecordWorkspace 返回派生 SessionRecord JSON（S20：record 通道退役后
-- `func (router *Router) DerivedResumeRecordWorkspace(projectID, sessionID string) (payload []byte, total int, handled bool, err error)` — DerivedResumeRecordWorkspace 返回冷加载可见后缀的派生 record，并以最新
 - `func (router *Router) AppendGoalAuditEvent(projectID, sessionID string, entry GoalAuditEntry) (bool, error)` — AppendGoalAuditEvent 把 goal 审计条目写进 EVENT 通道（S19：GoalAudit 的
 - `func (router *Router) GoalAuditEvents(projectID, sessionID string) ([]GoalAuditEntry, bool, error)` — GoalAuditEvents 读取 EVENT 通道里的 goal 审计条目（按事件序，Seq 顺序编号）。
-- `func (router *Router) SaveProjectRecord(projectID string, record ProjectRecord) error` — SaveProjectRecord 写入项目级模块语义记录（project_refresh 工具的落盘路径）。
+- `func (router *Router) SaveProjectRecord(projectID string, record storeproject.ProjectRecord) error` — SaveProjectRecord 写入项目级模块语义记录（project_refresh 工具的落盘路径）。
 - `func (router *Router) AppendFrameworkEvent(ctx context.Context, sessionID string, entry EventLogEntry) error` — AppendFrameworkEvent 追加执行事实事件到会话级事件库
 - `func (router *Router) AppendFrameworkEventWorkspace(ctx context.Context, projectID, sessionID string, entry EventLogEntry) error` — AppendFrameworkEventWorkspace 在显式项目作用域下追加执行事实事件。
 - `func (router *Router) ReadFrameworkEvents(ctx context.Context, sessionID string) ([]EventLogEntry, error)` — ReadFrameworkEvents 读取会话级执行事实事件库（按 Seq 排序）。
 - `func (router *Router) ReadFrameworkEventsWorkspace(ctx context.Context, projectID, sessionID string) ([]EventLogEntry, error)` — ReadFrameworkEventsWorkspace 在显式项目作用域下读取执行事实事件库。
-- `func (router *Router) LoadProjectRecord(projectID string) (ProjectRecord, error)` — LoadProjectRecord 读取项目级模块语义记录（会话开始前即可读）。
+- `func (router *Router) LoadProjectRecord(projectID string) (storeproject.ProjectRecord, error)` — LoadProjectRecord 读取项目级模块语义记录（会话开始前即可读）。
 - `func (router *Router) List() []frameworkStorage.SessionMeta`
 - `func (router *Router) ListWorkspace(projectID string) []frameworkStorage.SessionMeta` — ListWorkspace lists sessions from an explicit project scope without
 - `func (router *Router) Delete(sessionID string) error`
 - `func (router *Router) DeleteWorkspace(projectID, sessionID string) error` — DeleteWorkspace deletes a session from an explicit project scope without
+- `func ConfigureProjectBoardReclaimer(router *Router, reclaim func(sessionID string) error)` — ConfigureProjectBoardReclaimer 在组合根注入会话删除后的投影回收回调。
 - `func (router *Router) MessageCount(sessionID string) (int, error)`
 - `func (router *Router) Close() error`
 - `func (router *Router) withRepository(fn func(Repository, string) error) error`
@@ -361,7 +348,7 @@
 - `func (repository *jsonRepository) CurrentGeneration(_ context.Context, key Key) (string, error)`
 - `func (repository *jsonRepository) WriteState(_ context.Context, key Key, state []byte) error`
 - `func (repository *jsonRepository) ReadState(_ context.Context, key Key) ([]byte, error)`
-- `func (repository *jsonRepository) WriteProjectRecord(_ context.Context, projectID string, record ProjectRecord) error`
+- `func (repository *jsonRepository) WriteProjectRecord(_ context.Context, projectID string, record storeproject.ProjectRecord) error`
 - `func (repository *jsonRepository) AppendFrameworkEvent(_ context.Context, key Key, entry EventLogEntry) error`
 - `func (repository *jsonRepository) prepareEventLogForAppendLocked(path, directory string) error` — prepareEventLogForAppendLocked 让事件库文件处于「可逐行追加」状态，是追加
 - `func writeEventLogLines(path string, entries []EventLogEntry) error` — writeEventLogLines 原子发布逐行日志（迁移路径专用：每会话只发生一次）。
@@ -377,7 +364,7 @@
 - `func (repository *jsonRepository) legacyFrameworkEventEntriesLocked(directory string) ([]EventLogEntry, error)` — legacyFrameworkEventEntriesLocked 扫描 v1 布局遗留的 events.json（所有
 - `func mergeEventLogEntries(primary, extra []EventLogEntry) []EventLogEntry` — mergeEventLogEntries 合并两个按 Seq 升序的事件库切片，同 Seq 保留先出现的
 - `func (repository *jsonRepository) readEventLogLocked(path string) ([]EventLogEntry, error)` — readEventLogLocked 读取事件库（不存在 → 空库；损坏 → 显式错误），按 Seq
-- `func (repository *jsonRepository) ReadProjectRecord(_ context.Context, projectID string) (ProjectRecord, error)`
+- `func (repository *jsonRepository) ReadProjectRecord(_ context.Context, projectID string) (storeproject.ProjectRecord, error)`
 - `func (repository *jsonRepository) List(_ context.Context, projectID string) ([]frameworkStorage.SessionMeta, error)`
 - `func (repository *jsonRepository) Delete(_ context.Context, key Key) error`
 - `func (repository *jsonRepository) Ping(context.Context) error`

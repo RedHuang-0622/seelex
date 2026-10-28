@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeboardrouter "github.com/RedHuang-0622/seelex/internal/host/boardrouter"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -25,41 +27,41 @@ func projectBoardReadRouter(t *testing.T) *store.Router {
 	return router
 }
 
-func projectBoardReadRow(kind, key string, seq uint64, payload map[string]any) store.ProjectBoardRow {
-	return store.ProjectBoardRow{
-		Schema: store.ProjectBoardSchema, Kind: kind, Key: key, Seq: seq, At: int64(seq),
-		Scope:   store.ProjectBoardScope{Session: "session-a"},
+func projectBoardReadRow(kind, key string, seq uint64, payload map[string]any) dto.ProjectBoardRow {
+	return dto.ProjectBoardRow{
+		Schema: dto.ProjectBoardSchema, Kind: kind, Key: key, Seq: seq, At: int64(seq),
+		Scope:   dto.ProjectBoardScope{Session: "session-a"},
 		Payload: payload,
 	}
 }
 
 // TestProjectBoardReadSingleSessionFoldsBothFiles：单会话读两份文件、折叠、稳定排序。
 func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
-	router := projectBoardReadRouter(t)
+	projectBoardReadRouter(t)
 	projectRoot := t.TempDir()
-	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", store.ProjectBoardWorkFile,
-		[]store.ProjectBoardRow{
-			projectBoardReadRow(store.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研", "status": "doing"}),
+	if _, err := storeboardrouter.New().AppendProjectBoardRows(projectRoot, "session-a", dto.ProjectBoardWorkFile,
+		[]dto.ProjectBoardRow{
+			projectBoardReadRow(dto.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研", "status": "doing"}),
 			// 同一 key 的第二行：折叠读只保留 Seq 最大的一条。
-			projectBoardReadRow(store.ProjectBoardKindWork, "work:todo:1", 2, map[string]any{"task": "调研", "status": "done"}),
+			projectBoardReadRow(dto.ProjectBoardKindWork, "work:todo:1", 2, map[string]any{"task": "调研", "status": "done"}),
 			// tombstone：该 key 从结果里消失。
-			projectBoardReadRow(store.ProjectBoardKindWork, "work:todo:2", 3, map[string]any{"removed": true}),
+			projectBoardReadRow(dto.ProjectBoardKindWork, "work:todo:2", 3, map[string]any{"removed": true}),
 		}); err != nil {
 		t.Fatalf("写 worktable 投影: %v", err)
 	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", store.ProjectBoardTeamworkFile,
-		[]store.ProjectBoardRow{
-			projectBoardReadRow(store.ProjectBoardKindMilestone, "milestone:m1", 4, map[string]any{"id": "m1", "status": "active"}),
-			projectBoardReadRow(store.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1", 5, map[string]any{"id": "wi-1", "roll": "core"}),
+	if _, err := storeboardrouter.New().AppendProjectBoardRows(projectRoot, "session-a", dto.ProjectBoardTeamworkFile,
+		[]dto.ProjectBoardRow{
+			projectBoardReadRow(dto.ProjectBoardKindMilestone, "milestone:m1", 4, map[string]any{"id": "m1", "status": "active"}),
+			projectBoardReadRow(dto.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1", 5, map[string]any{"id": "wi-1", "roll": "core"}),
 		}); err != nil {
 		t.Fatalf("写 teamwork 投影: %v", err)
 	}
 	// 落点在项目目录下**会话自己的目录**里：`<项目根>/.seelex/board/<会话 ID>/`。
-	if _, err := os.Stat(filepath.Join(projectRoot, ".seelex", "board", "session-a", store.ProjectBoardWorkFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(projectRoot, ".seelex", "board", "session-a", dto.ProjectBoardWorkFile)); err != nil {
 		t.Fatalf("投影没有落在项目目录下：%v", err)
 	}
 
-	result, err := ReadProjectBoard(router, ProjectBoardReadRequest{Session: "session-a"}, projectRoot, "")
+	result, err := ReadProjectBoard(storeboardrouter.New(), ProjectBoardReadRequest{Session: "session-a"}, projectRoot, "")
 	if err != nil {
 		t.Fatalf("ReadProjectBoard: %v", err)
 	}
@@ -70,9 +72,9 @@ func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
 		t.Fatalf("缺省应当两份都读，得到 %v", result.Files)
 	}
 	want := []struct{ kind, key string }{
-		{store.ProjectBoardKindMilestone, "milestone:m1"},
-		{store.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1"},
-		{store.ProjectBoardKindWork, "work:todo:1"},
+		{dto.ProjectBoardKindMilestone, "milestone:m1"},
+		{dto.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1"},
+		{dto.ProjectBoardKindWork, "work:todo:1"},
 	}
 	if len(result.Rows) != len(want) {
 		t.Fatalf("行数 = %d，希望 %d（%+v）", len(result.Rows), len(want), result.Rows)
@@ -91,20 +93,20 @@ func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
 
 // TestProjectBoardReadSingleFile：file 简名只读一份，且接受白名单文件名本身。
 func TestProjectBoardReadSingleFile(t *testing.T) {
-	router := projectBoardReadRouter(t)
+	projectBoardReadRouter(t)
 	projectRoot := t.TempDir()
-	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", store.ProjectBoardWorkFile,
-		[]store.ProjectBoardRow{
-			projectBoardReadRow(store.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研"}),
+	if _, err := storeboardrouter.New().AppendProjectBoardRows(projectRoot, "session-a", dto.ProjectBoardWorkFile,
+		[]dto.ProjectBoardRow{
+			projectBoardReadRow(dto.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研"}),
 		}); err != nil {
 		t.Fatalf("写 worktable 投影: %v", err)
 	}
-	for _, file := range []string{ProjectBoardReadFileWorktable, store.ProjectBoardWorkFile, " Worktable "} {
-		result, err := ReadProjectBoard(router, ProjectBoardReadRequest{Session: "session-a", File: file}, projectRoot, "")
+	for _, file := range []string{ProjectBoardReadFileWorktable, dto.ProjectBoardWorkFile, " Worktable "} {
+		result, err := ReadProjectBoard(storeboardrouter.New(), ProjectBoardReadRequest{Session: "session-a", File: file}, projectRoot, "")
 		if err != nil {
 			t.Fatalf("file=%q: %v", file, err)
 		}
-		if len(result.Files) != 1 || result.Files[0] != store.ProjectBoardWorkFile {
+		if len(result.Files) != 1 || result.Files[0] != dto.ProjectBoardWorkFile {
 			t.Fatalf("file=%q 归一化结果 = %v", file, result.Files)
 		}
 		if len(result.Rows) != 1 {
@@ -112,7 +114,7 @@ func TestProjectBoardReadSingleFile(t *testing.T) {
 		}
 	}
 	// teamwork 那份是空的 ⇒ 空投影（不是错误，I6：空则退场）。
-	result, err := ReadProjectBoard(router, ProjectBoardReadRequest{Session: "session-a", File: ProjectBoardReadFileTeamwork}, projectRoot, "")
+	result, err := ReadProjectBoard(storeboardrouter.New(), ProjectBoardReadRequest{Session: "session-a", File: ProjectBoardReadFileTeamwork}, projectRoot, "")
 	if err != nil {
 		t.Fatalf("空投影不该报错: %v", err)
 	}
@@ -123,45 +125,45 @@ func TestProjectBoardReadSingleFile(t *testing.T) {
 
 // TestProjectBoardReadRejectsOutOfBounds：边界**显式报错**（不静默截断/不静默降级）。
 func TestProjectBoardReadRejectsOutOfBounds(t *testing.T) {
-	router := projectBoardReadRouter(t)
+	projectBoardReadRouter(t)
 	projectRoot := t.TempDir()
 
-	if _, err := ReadProjectBoard(router, ProjectBoardReadRequest{Session: "session-a", File: "not-a-file"}, projectRoot, ""); err == nil {
+	if _, err := ReadProjectBoard(storeboardrouter.New(), ProjectBoardReadRequest{Session: "session-a", File: "not-a-file"}, projectRoot, ""); err == nil {
 		t.Fatal("未知 file 必须显式报错")
 	}
-	if _, err := ReadProjectBoard(router, ProjectBoardReadRequest{Session: "session-a", Limit: ProjectBoardReadMaxLimit + 1}, projectRoot, ""); err == nil {
+	if _, err := ReadProjectBoard(storeboardrouter.New(), ProjectBoardReadRequest{Session: "session-a", Limit: ProjectBoardReadMaxLimit + 1}, projectRoot, ""); err == nil {
 		t.Fatal("超过 limit 硬上限必须显式报错")
 	}
-	if _, err := ReadProjectBoard(router, ProjectBoardReadRequest{Session: "session-a"}, "", ""); err == nil {
+	if _, err := ReadProjectBoard(storeboardrouter.New(), ProjectBoardReadRequest{Session: "session-a"}, "", ""); err == nil {
 		t.Fatal("没有项目根（就没有看板落点）必须显式报错")
 	}
 	if _, err := ReadProjectBoard(nil, ProjectBoardReadRequest{Session: "session-a"}, projectRoot, ""); err == nil {
 		t.Fatal("读取面未装配必须显式报错")
 	}
 	// 缺省会话由调用方补：两边都空 ⇒ 显式报错，而不是读成"全项目"。
-	if _, err := ReadProjectBoard(router, ProjectBoardReadRequest{}, projectRoot, ""); err == nil {
+	if _, err := ReadProjectBoard(storeboardrouter.New(), ProjectBoardReadRequest{}, projectRoot, ""); err == nil {
 		t.Fatal("没有会话（也没缺省）必须显式报错")
 	}
 	// 显式给 project_root 时不必依赖会话绑定。
-	if _, err := ReadProjectBoard(router, ProjectBoardReadRequest{Session: "session-a", ProjectRoot: projectRoot}, "", ""); err != nil {
+	if _, err := ReadProjectBoard(storeboardrouter.New(), ProjectBoardReadRequest{Session: "session-a", ProjectRoot: projectRoot}, "", ""); err != nil {
 		t.Fatalf("显式 project_root 应当可用：%v", err)
 	}
 }
 
 // countingReadReader 是只读面替身：记下聚合读收到的选项，返回可控的截断信号。
 type countingReadReader struct {
-	rows       []store.ProjectBoardRow
+	rows       []dto.ProjectBoardRow
 	truncated  bool
-	options    []store.ProjectBoardReadOptions
+	options    []dto.ProjectBoardReadOptions
 	singleRead int
 }
 
-func (reader *countingReadReader) ReadProjectBoard(_ string, options store.ProjectBoardReadOptions) ([]store.ProjectBoardRow, bool, error) {
+func (reader *countingReadReader) ReadProjectBoard(_ string, options dto.ProjectBoardReadOptions) ([]dto.ProjectBoardRow, bool, error) {
 	reader.options = append(reader.options, options)
 	return reader.rows, reader.truncated, nil
 }
 
-func (reader *countingReadReader) ReadProjectBoardRows(_, _, _ string) ([]store.ProjectBoardRow, error) {
+func (reader *countingReadReader) ReadProjectBoardRows(_, _, _ string) ([]dto.ProjectBoardRow, error) {
 	reader.singleRead++
 	return nil, nil
 }
@@ -169,9 +171,9 @@ func (reader *countingReadReader) ReadProjectBoardRows(_, _, _ string) ([]store.
 // TestProjectBoardReadAggregateIsBounded：`session: all` 走聚合读，行数有界，
 // 截断信号**原样上抛**（"读到的比在册的少"必须让人看见）。
 func TestProjectBoardReadAggregateIsBounded(t *testing.T) {
-	rows := []store.ProjectBoardRow{
-		projectBoardReadRow(store.ProjectBoardKindWork, "work:a", 1, map[string]any{"task": "a"}),
-		projectBoardReadRow(store.ProjectBoardKindWork, "work:b", 2, map[string]any{"task": "b"}),
+	rows := []dto.ProjectBoardRow{
+		projectBoardReadRow(dto.ProjectBoardKindWork, "work:a", 1, map[string]any{"task": "a"}),
+		projectBoardReadRow(dto.ProjectBoardKindWork, "work:b", 2, map[string]any{"task": "b"}),
 	}
 	reader := &countingReadReader{rows: rows, truncated: true}
 	result, err := ReadProjectBoard(reader, ProjectBoardReadRequest{

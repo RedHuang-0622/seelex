@@ -24,7 +24,7 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // ConclusionEventSource 是子代理最终结论在统一事件库中的稳定 Source
@@ -50,7 +50,7 @@ type Conclusion struct {
 //     `Scope.NodeID` 记节点自身（读侧据此重建树节点）。
 //
 // 调用方负责"没落点就别造事件"的守卫（主会话号或节点号为空时不该调用它）。
-func ConclusionEvent(mainSessionID string, record store.NodeSessionRecord, at time.Time) frameworkevent.Event {
+func ConclusionEvent(mainSessionID string, record storeworkunit.Record, at time.Time) frameworkevent.Event {
 	content, _ := json.Marshal(Conclusion{
 		NodeID: record.NodeID, SessionID: record.SessionID, Status: record.Status,
 		Goal: record.Goal, Summary: record.Summary, Error: record.Error,
@@ -81,8 +81,8 @@ func ConclusionEvent(mainSessionID string, record store.NodeSessionRecord, at ti
 // 跳过读不懂的条目（不是事件 / 不是本 Source / 载荷解析不出 / 没带节点号）：事件库是
 // A/B 类事实共用的追加日志，恢复链只认自己那一族；跳过而不报错，是"库里有别家事实"的
 // 正常情形，不是损坏。
-func ConclusionsFromEvents(entries []store.EventLogEntry) []store.NodeSessionRecord {
-	records := make([]store.NodeSessionRecord, 0, len(entries))
+func ConclusionsFromEvents(entries []dto.EventLogEntry) []storeworkunit.Record {
+	records := make([]storeworkunit.Record, 0, len(entries))
 	for _, entry := range entries {
 		var event frameworkevent.Event
 		if err := json.Unmarshal(entry.Payload, &event); err != nil {
@@ -95,8 +95,8 @@ func ConclusionsFromEvents(entries []store.EventLogEntry) []store.NodeSessionRec
 		if err := json.Unmarshal(event.Content, &conclusion); err != nil || conclusion.NodeID == "" {
 			continue
 		}
-		records = append(records, store.NodeSessionRecord{
-			SchemaVersion: store.NodeSessionSchemaVersion,
+		records = append(records, storeworkunit.Record{
+			SchemaVersion: storeworkunit.SchemaVersion,
 			NodeID:        conclusion.NodeID,
 			SessionID:     conclusion.SessionID,
 			Goal:          conclusion.Goal,
@@ -115,8 +115,8 @@ func ConclusionsFromEvents(entries []store.EventLogEntry) []store.NodeSessionRec
 //
 // `stillLive` 是宿主读数（节点号 → 是否还在本进程的在册执行面）；nil = 没有内存判据 ⇒
 // 一律按记录恢复（保持既有语义）。
-func TakeoverPredicate(stillLive func(nodeID string) bool) func(store.NodeSessionRecord) bool {
-	return func(record store.NodeSessionRecord) bool {
+func TakeoverPredicate(stillLive func(nodeID string) bool) func(storeworkunit.Record) bool {
+	return func(record storeworkunit.Record) bool {
 		if stillLive == nil {
 			return true
 		}

@@ -6,11 +6,21 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/RedHuang-0622/Seele/seelectx"
 	frameworksession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
+
+// PreparedHistory is the consumer-owned history port used while assembling a
+// framework session. The concrete store adapter is injected by composition.
+type PreparedHistory interface {
+	seelectx.DurableHistory
+	SetWorkspaceResolver(func() string)
+	PrepareNextLoad([]types.Message)
+}
+
+// HistoryFactory creates one prepared history for a session identity.
+type HistoryFactory func(sessionID string) PreparedHistory
 
 // Deps contains the host-owned parts of a session template. A caller supplies
 // its own Agent/Context/Telemetry template; this package owns the per-session
@@ -18,7 +28,7 @@ import (
 type Deps struct {
 	Components        func() frameworksession.SessionComponents
 	ModelName         func() string
-	HistoryRouter     func() *store.Router
+	NewHistory        HistoryFactory
 	WorkspaceResolver func(sessionID string) func() string
 	// InitialHistory supplies a durable snapshot to seed the next framework
 	// load. It is used when a cold teammate/subagent session resumes after an
@@ -61,9 +71,8 @@ func (factory *Factory) NewWithIDWithHistory(sessionID string, hooks *frameworks
 	if factory.deps.ModelName != nil {
 		components.ModelName = factory.deps.ModelName()
 	}
-	if factory.deps.HistoryRouter != nil {
-		if router := factory.deps.HistoryRouter(); router != nil {
-			history := store.NewDurableHistory(router, sessionID)
+	if factory.deps.NewHistory != nil {
+		if history := factory.deps.NewHistory(sessionID); history != nil {
 			if factory.deps.WorkspaceResolver != nil {
 				history.SetWorkspaceResolver(factory.deps.WorkspaceResolver(sessionID))
 			}

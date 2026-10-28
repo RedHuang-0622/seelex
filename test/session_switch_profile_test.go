@@ -207,7 +207,7 @@ func TestStorageConcurrentSessionLockProfile(t *testing.T) {
 					errs <- err
 					return
 				}
-				if _, _, err := router.AssembleWireWorkspace(projectID, sessionID, 200_000, 3); err != nil {
+				if _, _, err := store.NewWireStore(router).AssembleWireWorkspace(projectID, sessionID, 200_000, 3); err != nil {
 					errs <- err
 					return
 				}

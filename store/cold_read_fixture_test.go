@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
@@ -169,21 +170,6 @@ func TestColdReadFixture(t *testing.T) {
 			t.Errorf("assistant tool_calls 读回不一致：%+v", calls)
 		}
 
-		// 会话面板是派生视图：assistant 的 tool_call 与 tool 行各展开成一条。
-		conversation, conversationTotal, err := repository.ReadConversationRange(ctx, key, 0, 0)
-		if err != nil {
-			t.Fatalf("ReadConversationRange: %v", err)
-		}
-		if conversationTotal != 4 || len(conversation) != 4 {
-			t.Fatalf("派生的会话消息 total=%d len=%d，want 4/4（message 事件行是唯一事实源）",
-				conversationTotal, len(conversation))
-		}
-		wantConversationRoles := []string{"user", "assistant", "tool", "tool_result"}
-		for i, want := range wantConversationRoles {
-			if conversation[i].Role != want {
-				t.Errorf("会话消息 %d role=%q，want %q", i, conversation[i].Role, want)
-			}
-		}
 	})
 
 	t.Run("工具结果", func(t *testing.T) {
@@ -260,7 +246,7 @@ func TestColdReadFixture(t *testing.T) {
 	})
 
 	t.Run("媒体", func(t *testing.T) {
-		items, err := repository.layout.listMediaItems(key)
+		items, err := repository.layout.artifacts.ListMedia(layoutScope(key))
 		if err != nil {
 			t.Fatalf("listMediaItems: %v", err)
 		}
@@ -274,7 +260,7 @@ func TestColdReadFixture(t *testing.T) {
 		if item.Bytes != len(coldReadMediaBody) {
 			t.Errorf("媒体 Bytes=%d，want %d", item.Bytes, len(coldReadMediaBody))
 		}
-		_, data, err := repository.layout.readMediaLocked(key, item.Ref)
+		_, data, err := repository.layout.artifacts.ReadMedia(layoutScope(key), item.Ref)
 		if err != nil {
 			t.Fatalf("readMediaLocked: %v", err)
 		}
@@ -418,7 +404,7 @@ func seedColdReadSession(t *testing.T, root string) {
 	}
 
 	// 5) 媒体（meta/ 内容寻址分区）。
-	if _, err := repository.WriteMedia(ctx, key, MediaItem{
+	if _, err := repository.layout.artifacts.WriteMedia(layoutScope(key), storeartifact.MediaItem{
 		Name:     coldReadMediaName,
 		MimeType: coldReadMediaMimeType,
 		Kind:     coldReadMediaKind,

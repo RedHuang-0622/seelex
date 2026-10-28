@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/RedHuang-0622/Seele/types"
 )
@@ -24,6 +25,7 @@ import (
 type RouterStorage struct {
 	router    *Router
 	sessionID string
+	appendMu  sync.Mutex
 }
 
 // NewRouterStorage 构造 Router 冷存储适配器（绑定会话）。
@@ -42,7 +44,24 @@ func (s *RouterStorage) Append(ctx context.Context, messages []types.Message) er
 	if len(messages) == 0 {
 		return nil
 	}
+	s.appendMu.Lock()
+	defer s.appendMu.Unlock()
 	rows := messagesToEventRows(messages)
+	var baseSeq uint64
+	_, err := s.router.withJSONRepositoryAt(s.router.Workspace(), func(jsonRepository *jsonRepository, projectID string) error {
+		head, err := jsonRepository.layout.readMessageHead(Key{ProjectID: projectID, SessionID: s.sessionID})
+		if err != nil && !IsSessionNotFound(err) {
+			return err
+		}
+		baseSeq = head.LastSeq
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for index := range rows {
+		rows[index].Seq = baseSeq + uint64(index) + 1
+	}
 	return s.router.SaveCommit(s.sessionID, Commit{Events: rows})
 }
 

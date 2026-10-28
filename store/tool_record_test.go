@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	storerecord "github.com/RedHuang-0622/seelex/store/record"
 )
 
 // 工具记录读数的会话级落盘：一行一批（整份快照）、读侧取最后一行、按会话隔离、
@@ -37,7 +39,7 @@ func TestToolRecordSnapshotIsSessionScopedAndLastLineWins(t *testing.T) {
 	}
 
 	// 一行一批：文件行数 == 批次数。
-	payload, err := os.ReadFile(filepath.Join(repository.layout.sessionRoot(key), ToolRecordFile))
+	payload, err := os.ReadFile(filepath.Join(repository.layout.sessionRoot(key), storerecord.File))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -60,7 +62,7 @@ func TestToolRecordSnapshotSkipsCrashTail(t *testing.T) {
 	if err := repository.layout.records.Append(ctx, key, map[string]any{"at": "ok-1"}); err != nil {
 		t.Fatalf("AppendToolRecordSnapshot: %v", err)
 	}
-	path := filepath.Join(repository.layout.sessionRoot(key), ToolRecordFile)
+	path := filepath.Join(repository.layout.sessionRoot(key), storerecord.File)
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)

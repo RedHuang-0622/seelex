@@ -3,21 +3,20 @@ package teamwork
 import (
 	"errors"
 	"fmt"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"strings"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // MilestoneClosed 是「里程碑已收口」的唯一判据。done 是终态：允许只读查看，
 // 不再允许排活、调整其下工作项或重派；追加工作必须新建里程碑或显式 replan。
-func MilestoneClosed(plan store.TeamworkPlan, milestoneID string) bool {
+func MilestoneClosed(plan storeteamwork.Plan, milestoneID string) bool {
 	id := strings.TrimSpace(milestoneID)
 	if id == "" {
 		return false
 	}
 	for _, milestone := range plan.Milestones {
 		if strings.TrimSpace(milestone.ID) == id {
-			return milestone.Status == store.TeamworkMilestoneDone
+			return milestone.Status == storeteamwork.MilestoneDone
 		}
 	}
 	return false

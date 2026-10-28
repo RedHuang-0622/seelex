@@ -83,10 +83,10 @@ flowchart LR
     PROJ --> SNAP["middle/protocol/model.Snapshot"]
     SNAP --> FE["GUI / TUI 渲染"]
     FE -->|写操作经端口回传| DOMAIN
-    STORE["store 落地类型"] -->|internal/host 映射| DTO
+    STORE["store 落地类型"] -->|wiring/adapters 映射| DTO
 ```
 
-存储层类型（`store.Event` / `RoleDraftRow` / `RoleSnapshot`）只在 `internal/host`
+存储层类型（`store.Event` / `RoleDraftRow` / `RoleSnapshot`）只在 `wiring/adapters`
 里出现，由适配器做 DTO ↔ 存储映射；`application/assembly` 与前端只认本包类型。
 
 ## 并发、存储与错误语义
@@ -293,6 +293,10 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 ### session_board.go
 
 - `func (l BoardLifecycle) Closed() bool`
+
+### session_record.go
+
+- `func (s SessionRecordStatus) String() string` — String 返回持久状态词。
 
 ### session_status.go
 

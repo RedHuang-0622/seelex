@@ -11,26 +11,23 @@ into provider history. 会话存储只有**一种形态**（jsonl + json v8）�
 默认落点与可选的参数覆盖层。
 
 **v8 JSON 布局下 state/record 通道已退役（S20/D9）**：`WriteState` 为空操作、
-`ReadState` 恒 `fs.ErrNotExist`；会话 record 与 conversation 由
-`message head.Meta` + message 事件行 + `lifecycle.archived_at` 派生
-（`DerivedRecordWorkspace`），会话展示元数据（置顶/别名/排序）落
+`ReadState` 恒 `fs.ErrNotExist`；Store 只返回 message 原始行、head 与 lifecycle
+事实，可见 conversation 由 `kernel/session.ProjectConversationEvents` 唯一投影。
+会话展示元数据（置顶/别名/排序）落
 `project-*/session-meta.json`。SQLite/PostgreSQL/Redis 后端实现已退役（R1），
 新后端须按 `Repository`/`stackJournal` 接口重写。
 
 **M10 装配边界**：`store.OpenStores` 一次打开数据根并返回 typed `Stores`
-（Router、Artifact、Context、Board、Teamwork、Role、ToolRecord）。组合根只把具体
-owner 或消费方窄端口注入调用方；`BoardsFor*`、`TeamworkFor`、`ToolRecordFor` 与
-`MediaStoreOf` 的运行期能力发现已删除。仍直接 import 根 `store` 的 79 个生产文件
+（Router、Artifact、Context、Board、Teamwork、Role、RolePermissions、
+ToolRecord、WorkUnits、Media）。组合根只把具体 owner 或消费方窄端口注入调用方；
+`BoardsFor*`、`TeamworkFor`、`ToolRecordFor` 与 `MediaStoreOf` 的运行期能力发现已删除。
+仍直接 import 根 `store` 的生产文件按 allowlist ratchet 管理
 是 M10 登记下来的兼容面，由 `e2e/TestStoreDDDM10FacadeGate` 的 allowlist ratchet
 钉住，只许收缩。
 
-派生规则（`derivedConversationMessages`）与运行期可见投影同形，逐行保序：
-有正文或思考的行派生成一条消息（`content` 与 `reasoning_content` 分开携带）、
-行内**每个** `tool_call` 派生成一条 `role=tool` 调用消息（保留 `arguments`）、
-`role=tool` 的输出行派生成一条 `role=tool_result` 结果消息。同一行派生多条
-消息时 ID 加 `#tool-N` 后缀，避免与行 ID 撞键。行内多调用截断或把输出行拆成
-「调用 + 结果」两条，会让恢复后的长会话丢掉调用却留着结果、把同一次调用重复
-计入窗口，表现为「工具挤成一坨、助手正文掉队」。
+可见投影规则只存在于 `kernel/session`：正文/reasoning、多 tool call、tool result、
+群聊归属、路由字段与消息 ID 共用一份实现。Store 不再派生 conversation，避免
+冷恢复、fork 与实时视图出现字段保真度不同的第二套规则。
 
 **冷加载紧凑读面（2026-10-24）**：最新 compact 帧的 `MessageToSeq` 是已折出
 前缀的右端点。`DerivedResumeRecordWorkspace` 只读取该指针之后的 message
@@ -83,14 +80,13 @@ JSON v8 会话路径、guide、module head 信封/checksum 与模块锁身份由
 | 分卷 | 覆盖文件（前缀） | 一句话生态位 |
 |---|---|---|
 | [README-session.md](README-session.md) | `sessionstore`/`session_granular`/`session_context`/`session_meta`/`durable_history`/`runtime_api`/`conversation`/`history_resume_readers` | 会话句柄与上下文状态、历史读面 |
-| [README-message.md](README-message.md) | `message_rows`/`structural_events`/`event_store`/`event_range`/`paragraphs`/`wire_assembler`/`big_tool_result`/`provider_wire` | message/event 事件行与 wire 装配 |
+| [README-message.md](README-message.md) | `message_rows`/`structural_events`/`event_store`/`event_range`/`paragraphs`/`wire_assembler`/`provider_wire` | message/event 事件行与 wire 装配 |
 | [README-compact.md](README-compact.md) | `compact_frames`/`compaction_records`/`checkpoint_store`/`context_state`/`material_cache`/`attempt_cache` | 压缩帧与记录、运行期缓存 |
 | [README-stack.md](README-stack.md) | `stack_channel`/`stack_journal` | 上下文四栈的通道与日志 |
 | [README-retention.md](README-retention.md) | `retention`/`pending_tail`/`lifecycle`/`queue_consume` | 草稿尾、队列与 LRU 回收 |
-| [README-board.md](README-board.md) | `board`/`project_board_compat`/`project_known`/`project_record` | 项目看板兼容面、项目知识与项目记录 |
-| [README-team.md](README-team.md) | `teamwork`/`team_registry`/`role_session`/`role_permission`/`node_session_store`/`unit_record_writer` | 团队、角色与节点会话记账 |
-| [README-media.md](README-media.md) | `media`/`search_index`/`tool_record`/`schedule_events` | 媒体分区、检索索引与派生通道 |
-| [README-storage.md](README-storage.md) | `json_layout`/`module_heads`/`fork_store`/`legacy_storage`/`router_storage` | 存储引擎底座：布局、head 发布与迁移 |
+| [README-team.md](README-team.md) | `role_session` | 角色会话与持久记录作用域适配 |
+| [README-media.md](README-media.md) | `schedule_events` | 定时任务事件等派生通道 |
+| [README-storage.md](README-storage.md) | `json_layout`/`module_heads`/`fork_store`/`router_storage`/`stores`/`workunit_roots` | 存储引擎底座、组合根 owner 与作用域适配 |
 | [README-misc.md](README-misc.md) | 兜底卷：无前缀归属的测试文件 | 跨卷用例与基础回归 |
 
 领域包入口：[`board/README.md`](board/README.md) 是看板追加、折叠、压实、路径锁与
@@ -263,8 +259,8 @@ Router 用 RWMutex 把 active repository 与 project ID 绑定为原子视图。
 
 [`board/`](board/README.md) 是项目看板的**存储面唯一实现**：把已经存在的两份活体投影
 （工作表格 `buildWorkTable` 与 teamwork 计划/运行态）按会话落成项目目录下的追加式
-JSONL **派生件**——它不是事实源，删掉可重建。根包 `project_board_compat.go` 只保留
-同身份 alias 与 Router 单层转发。
+JSONL **派生件**——它不是事实源，删掉可重建。根包已删除 `project_board_compat.go`；
+`internal/host/boardrouter` 只把消费方端口转发到该 owner，不持有 Router 方法。
 
 - **落点（按会话分目录，M9）**：`ProjectBoardDir(projectRoot)` = `<项目根>/.seelex/board`（看板
   根），`ProjectBoardSessionDir(projectRoot, sessionID)` = `<board>/<会话 ID>`（**会话私有目录**），
@@ -320,7 +316,7 @@ Review 风险：新调用方是否绕开 `board.Dir` / `board.SessionDir` 自造
 
 ## 项目级记录（`project-record.json`，`project_refresh` 的落点）
 
-`ProjectRecord`（`project_record.go`）是**项目级**模块语义：`Version`（由来源 hash 派生）、
+`ProjectRecord`（[`project/`](project/README.md)）是**项目级**模块语义：`Version`（由来源 hash 派生）、
 `Modules`、`SourceHashes`、`BuiltAt`。它跨会话共享、会话只读，唯一的写者是 `project_refresh`。
 
 - **键**：`<root>/project-<hash(projectID)>/project-record.json`，`projectID` 是**工作区 ID**
@@ -344,7 +340,7 @@ Review 风险：新调用方是否误把扫描根路径当项目键传进来；�
 
 ## 项目摘要渲染件（`project-known.md`，M5）
 
-`ProjectKnownMarkdown`（`project_known.go`）把 `ProjectRecord` **确定性渲染**成人读
+`ProjectKnownMarkdown`（[`project/`](project/README.md)）把 `ProjectRecord` **确定性渲染**成人读
 markdown，`WriteProjectKnown` / `ReadProjectKnown` 把它原子落到项目级目录下：
 
 - **产物定位**：`ProjectRecord` 的**人读渲染（读侧视图），不是输入源**。渲染不参与任何判定、
@@ -611,7 +607,7 @@ tmp 并显式报错。原因：Windows 上目标文件被任何句柄打开即�
 - 边界：事件库随会话单调增长，**没有轮转/压缩**（消费方按 `seq` 区间读；是否需要
   保留策略属产品项）。
 
-## 子代理会话记录（NodeSessionRecord）
+## 子代理会话记录（workunit.Record）
 
 子代理（fork/plan 的 `kind:agent` 节点）会话记录按主会话索引落盘：
 
@@ -621,7 +617,7 @@ sessions-json/<project>/session-<mainID>/subagents/<mainID>-<subID>.json
 
 文件名为 `<mainSessionID>-<subSessionID>.json`（用户约定：从主会话索引可直接
 列举全部子会话，无需全局扫描）。内容为 opaque JSON 记录
-（`NodeSessionRecord`：NodeID/SessionID/Goal/Status/History/ContextJSON/
+（`store/workunit.Record`：NodeID/SessionID/Goal/Status/History/ContextJSON/
 StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
 
 生命周期（2026-08-24 策略）：运行期由 `backend/multiagent/subagent` 的
@@ -630,8 +626,9 @@ StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
 事件库（"结论跟随 mainagent"），随后删除节点记录文件。删除后详情数据面保留
 在进程内存快照；重启后恢复锚点从主会话事件库重建。
 
-`NodeSessionStore`（同一套 jsonl + json 布局已实现）提供 `Save/Load/List/Delete`，显式
-项目作用域，不改变 Router 的 active write scope。只有这一种实现。
+[`store/workunit.SessionStore`](workunit/README.md) 提供 `Save/Load/List/Delete`，
+显式项目作用域，不改变 Router 的 active write scope。`Stores.WorkUnits` 是生产入口；
+根包只保留 `workunit_roots.go` 的会话根解析适配器。
 
 ## 配置与安全
 
@@ -645,12 +642,12 @@ StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
 ## 群聊角色会话与 role draft（R2/R4 基建）
 
 R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线。入口见
-`role_session.go` / `role_session_router.go` / `material_cache.go` /
+`role_session.go` / `role_session_adapter.go` / `material_cache.go` /
 `schedule_events.go`：
 
 - 非 main 角色会话子树：`session/goal_<hash>/`（TL）与
   `session/role_<hash>/`（未来 agent-team），复用 `storeEngine`，物理隔离，
-  message/event/metadata 同构；`CreateRoleSessionWorkspace` 创建并写
+  message/event/metadata 同构；`Stores.RoleSessions.CreateRoleSessionWorkspace` 创建并写
   `join_seq_id`。
 - goal 栈条目通过 `StackItemInput`/`StackItemRecord` 的
   `role_name`/`role_session_id` 记录角色会话锚；head 仍只装水位。
@@ -684,9 +681,9 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
 
 - `session/team/roles.json`：**某个会话**当前在编的员工表（`RoleSpec` 清单 +
   `team_kind` + 顺序策略），整份原子替换、替换成功即发布。**落盘 owner 是
-  [`store/role`](role/README.md) 的 `registry.go`**（M8 迁入）；根
-  `team_registry.go` 只保留 `Read/Write/RemoveTeamRegistryWorkspace` 单层转发与
-  角色会话 / floor / lifecycle 转发。`order_policy`/`order_roles` 的运行时
+[`store/role`](role/README.md) 的 `registry.go`**（M8 迁入）；根包不再保留
+`team_registry.go` 或注册表 alias/转发，旧数据诊断直接使用 owner。
+`order_policy`/`order_roles` 的运行时
   权威曾是 `metadata/lifecycle.json`（现在是 read-compat 历史字段，见 A05），
   本文件只做角色配置的持久事实。**读能力保留、当前没有生产调用方**。
 
@@ -696,7 +693,7 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
 
 | 项 | 口径 |
 |---|---|
-| 保留 | `Read/Write/RemoveTeamRegistryWorkspace` 与幂等建角色会话原语；旧 `roles.json` 必须能被读回、诊断与迁移（删 reader = 旧数据失去唯一入口，不是清理） |
+| 保留 | `store/role.Store.Read/Write/Remove` 与幂等建角色会话原语；旧 `roles.json` 必须能被读回、诊断与迁移（删 owner reader = 旧数据失去唯一入口，不是清理） |
 | 不做 | 不删旧文件、不迁移、不改格式、不停止写入；任何磁盘清理/迁移必须另行中文预警 + 备份 + 用户确认（根 `MEMORY.md`、`AGENTS.md` §0） |
 | 移除条件 | 确认产品不再读这些形状后，**先停止写入**；DTO/端口按**版本化 API 变更**移除，并配旧 `roles.json` fixture 的冷读用例 |
 | 历史字段 | `lifecycle.order_policy/order_roles`（read-compat，不驱动行为）与 `message head.floor`（活动的历史/归属事实，sequencer 仍是唯一写者）都**不随退场面删除**；字段清除需独立迁移（A05） |
@@ -843,9 +840,8 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 - 引用形如 `media:<sha256>`，与 `blob:<hash>`、`compressed:<segment_id>` 并列。
 - 工具结果通过 `ToolResult.Multimodal []MediaRef`（JSON `multimodal`）挂引用；
   记录本身不复制字节。
-- 读写接缝：兼容面保留 `Router.WriteMediaWorkspace` /
-  `Router.ReadMediaWorkspace`；M10 起消费方定义自己的只读端口，不再调用
-  `MediaStoreOf` 做运行期能力发现。截屏工具（`seelebridge`）是首个调用方。
+- 读写接缝：`Stores.Media` 是 `artifact.SessionStore`，Runtime 在组合根显式注入；
+  根 Router 不再保留媒体方法，也不再做 `MediaStoreOf` 运行期能力发现。
 
 ### 阈值刻意分轴
 
@@ -876,10 +872,10 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 
 ### 核心实现
 
-- `media.go`：`MediaItem`（写入请求）、`MediaRef`（引用与元数据）、`MediaStore`
-  能力接口（`WriteMedia`/`ReadMedia`/`ListMedia`/`CollectMedia`）。
+- `store/artifact`：`MediaItem` / `MediaRef` 与内容寻址、配额、GC 的唯一实现。
+- `artifact.SessionStore`：把显式 `(projectID, sessionID)` 解析成会话作用域。
 - 媒体读面由消费方定义窄端口；`Repository` 主契约不聚合媒体能力。
-- `ReferencedMediaHashes(results []ToolResult)`：从工具结果收集引用集，供 GC 使用。
+- 工具结果通过 `ToolResult.Multimodal []artifact.MediaRef` 保存引用；GC 调用方从该字段收集引用集。
 - 尺寸校验使用调用方提供的 `Width/Height`（存储层不解码图片），因此“先降采样再写”
   是调用方责任，例如截屏原语的 `MaxWidth` + `ScaleNearest`。
 

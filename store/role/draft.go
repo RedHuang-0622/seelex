@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	storesession "github.com/RedHuang-0622/seelex/store/session"
@@ -48,15 +49,9 @@ type DraftRow struct {
 	Event         protocol.TranscriptEvent `json:"event"`
 }
 
-// SyncResult 是一次 sequencer sync 的结果。AlreadySynced 表示该批 draft 之前已由
+// SyncResult 的 wire 唯一归 contract/dto；AlreadySynced 表示该批 draft 之前已由
 // 同一 commit_id 发布，本次只清理残留 draft，未重复 append。
-type SyncResult struct {
-	CommitID      string `json:"commit_id"`
-	SyncedRows    int    `json:"synced_rows"`
-	LastSeq       uint64 `json:"last_seq"`
-	LastMessageID string `json:"last_message_id,omitempty"`
-	AlreadySynced bool   `json:"already_synced"`
-}
+type SyncResult = dto.RoleDraftSyncResult
 
 // SessionPort 是 sequencer 写 main message 所需的窄端口（由 store/role 定义，
 // 根 store 实现）。SyncDraft 是唯一写 main message 的入口。
@@ -279,6 +274,11 @@ func SyncDraft(roleRoot, roleName, roleSessionID string, order []string, port Se
 		}, nil
 	}
 	events := RowsToEvents(rows)
+	nextSeq := head.LastSeq
+	for index := range events {
+		nextSeq++
+		events[index].Seq = nextSeq
+	}
 	floor := storesession.Floor{
 		RoleName: roleName, RoleSessionID: roleSessionID,
 		RoundID: rows[len(rows)-1].RoundID, UpdatedAt: time.Now().UTC(),

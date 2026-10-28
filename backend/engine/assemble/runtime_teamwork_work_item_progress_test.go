@@ -30,24 +30,24 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // workItemProgressFixture 造一份"某件工作正在跑"的计划：工作项自带它自己的会话号与现场。
-func workItemProgressFixture() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func workItemProgressFixture() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID:  "t-progress",
 		Version: 1,
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "exec", RoleSessionID: "s-team-exec", ToolsPolicy: "readwrite"},
 		},
-		Milestones: []store.TeamworkMilestone{
+		Milestones: []storeteamwork.Milestone{
 			{
 				ID: "m-impl", Name: "实现", Content: "把渲染件写完",
-				Items: []store.TeamworkWorkItem{
+				Items: []storeteamwork.WorkItem{
 					{
 						ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现 UI",
-						Status: store.TeamworkItemRunning,
+						Status: storeteamwork.ItemRunning,
 						// 这两格就是「一 Work Item 一个 Session + 一个 worktree」的事实。
 						SessionID: "s-team-exec-wi-wi-impl",
 						Worktree:  "seelex/exec-wi-impl",
@@ -71,12 +71,12 @@ func TestTeamworkBoardReadsWorkItemProgressDetail(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := context.Background()
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 	if err := st.WritePlan(ctx, key, workItemProgressFixture(), backend.MaxTeammates); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
 	// 绑定账本一行：这件事有一份**未释放**的现场（Live = 读出来的事实）。
-	if err := st.AppendBinding(ctx, key, store.TeamworkBinding{
+	if err := st.AppendBinding(ctx, key, storeteamwork.Binding{
 		WorkItem: "wi-impl", Milestone: "m-impl", Role: "exec",
 		SessionID: "s-team-exec-wi-wi-impl", Worktree: "seelex/exec-wi-impl",
 	}); err != nil {
@@ -102,8 +102,8 @@ func TestTeamworkBoardReadsWorkItemProgressDetail(t *testing.T) {
 	if detail.Worktree != "seelex/exec-wi-impl" {
 		t.Fatalf("进度详情必须带现场（worktree）：%q", detail.Worktree)
 	}
-	if detail.Status != store.TeamworkItemRunning {
-		t.Fatalf("进度详情必须带状态词：%q，want %q", detail.Status, store.TeamworkItemRunning)
+	if detail.Status != storeteamwork.ItemRunning {
+		t.Fatalf("进度详情必须带状态词：%q，want %q", detail.Status, storeteamwork.ItemRunning)
 	}
 	if detail.Milestone != "m-impl" {
 		t.Fatalf("进度详情必须带阶段（所属里程碑）：%q", detail.Milestone)

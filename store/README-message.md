@@ -2,25 +2,14 @@
 
 ## 生态位
 
-message/event 事件行、段落投影、wire 装配与大工具结果归档
+message/event 事件行、段落投影与 wire 装配
 
-覆盖：`message_rows*.go`、`structural_events*.go`、`event_store*.go`、`event_range*.go`、`paragraphs*.go`、`wire_assembler*.go`、`big_tool_result*.go`、`provider_wire*.go`；未归属文件由覆盖自检拦下。
+覆盖：`message_rows*.go`、`structural_events*.go`、`event_store*.go`、`event_range*.go`、`paragraphs*.go`、`wire_assembler*.go`、`provider_wire*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
-
-### big_tool_result.go
-
-- `func (store *storeEngine) blobLimits() (softChars int, hardBytes int, quotaBytes int)`
-- `func (store *storeEngine) blobDir(key Key) string`
-- `func (store *storeEngine) blobPath(key Key, hash string) string`
-- `func (store *storeEngine) writeBlob(key Key, toolName, content string) (toolBlob, error)`
-- `func (store *storeEngine) readBlob(key Key, hash string) (string, error)`
-- `func (store *storeEngine) listBlobHashes(key Key) ([]string, error)`
-- `func (store *storeEngine) blobGarbageCollect(key Key, referenced map[string]bool, dryRun bool) ([]string, error)`
-- `func blobRefOf(ref string) string`
 
 ### event_range.go
 
@@ -84,8 +73,8 @@ message/event 事件行、段落投影、wire 装配与大工具结果归档
 - `func truncateMessageRowsAfter(path string, headSeq uint64, info shardInfo) error` — truncateMessageRowsAfter 截断 JSONL 文件，保留 seq <= head 的行（先跳过崩溃
 - `func readMessageRowsFile(file *os.File) ([]Event, error)` — readMessageRowsFile 读取已打开 JSONL 文件中的全部事件行（跳过空行与崩溃残尾）。
 - `func decodeMessageRows(data []byte) []Event` — decodeMessageRows 解析 JSONL 事件行（崩溃残尾跳过；坏行显式失败由调用方
-- `func (store *storeEngine) deltaRowsLocked(head messageHead, rows []Event, commitID string) ([]Event, error)` — deltaRowsLocked 计算应 append 的行（提交路径）：基准 = 发布点。调用方已先
-- `func assignRowSeqs(rows []Event, base uint64, commitID string) ([]Event, error)` — assignRowSeqs 是唯一的 seq 分配器：base = 该写入路径的续号基准（已落盘的
+- `func (store *storeEngine) deltaRowsLocked(head messageHead, rows []Event, commitID string) ([]Event, error)` — deltaRowsLocked 校验应 append 的行（提交路径）：基准 = 发布点。调用方已先
+- `func assignRowSeqs(rows []Event, base uint64, commitID string) ([]Event, error)` — assignRowSeqs 是唯一的持久 seq 校验入口：运行时必须显式提供 seq，Store
 - `func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []Event) error` — appendRowsLocked 把 delta append 进当前分片（满片滚动到新文件），并
 - `func (store *storeEngine) writeShardRowsLocked(key Key, delta []Event, trusted *shardInfo) ([]shardInfo, error)` — writeShardRowsLocked 是唯一的分片写入器：把 delta 顺序写进**物理末分片**
 - `func (store *storeEngine) physicalLastShardLocked(key Key) (string, error)` — physicalLastShardLocked 返回物理末尾分片文件名（from_seq 最大的分片；无分片

@@ -57,12 +57,12 @@ func boardDepsFor(router *store.Router, boardStore *storeboard.SessionStore) Coo
 }
 
 // writeBoardArchiveFor 直接发布一份看板存档（构造"只有存档、没有活体栈"的现场）。
-func writeBoardArchiveFor(t *testing.T, boardStore *storeboard.SessionStore, sessionID string, meta store.GoalBoardMeta) {
+func writeBoardArchiveFor(t *testing.T, boardStore *storeboard.SessionStore, sessionID string, meta dto.GoalBoardMeta) {
 	t.Helper()
 	boards := boardStore.Bind(dto.SessionKey{SessionID: sessionID})
 	// board_kind 是存档的必填头（ValidateGoalBoardMeta）：用例只关心各自那条
 	// 语义，统一在这里补齐，免得每处字面量都抄一遍。
-	meta.Kind = store.BoardKindGoal
+	meta.Kind = dto.BoardKindGoal
 	if err := boards.WriteGoalBoard(boardArchiveReadCtx, meta); err != nil {
 		t.Fatalf("写看板存档: %v", err)
 	}
@@ -75,12 +75,12 @@ func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T) {
 	router, boardStore := boardRouterForArchive(t)
 	sessionID := "session-board-recover"
 	now := time.Now().UTC()
-	writeBoardArchiveFor(t, boardStore, sessionID, store.GoalBoardMeta{
-		BoardLifecycle: store.BoardLifecycle{
-			State: store.BoardStateActive, Seq: 2,
+	writeBoardArchiveFor(t, boardStore, sessionID, dto.GoalBoardMeta{
+		BoardLifecycle: dto.BoardLifecycle{
+			State: dto.BoardStateActive, Seq: 2,
 			OpenedAt: now.Add(-time.Hour).Unix(), UpdatedAt: now.Unix(),
 		},
-		Active: &store.GoalBoardActive{
+		Active: &dto.GoalBoardActive{
 			GoalID: "g-1", Title: "上一轮还在跑的目标", Status: "active",
 			Acceptance: []string{"go test 全绿"},
 			Progress: []dto.BoardGoalProgress{
@@ -118,12 +118,12 @@ func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T) {
 	router, boardStore := boardRouterForArchive(t)
 	sessionID := "session-board-closed"
 	closedAt := time.Now().UTC()
-	writeBoardArchiveFor(t, boardStore, sessionID, store.GoalBoardMeta{
-		BoardLifecycle: store.BoardLifecycle{
-			State: store.BoardStateClosed, Seq: 3,
+	writeBoardArchiveFor(t, boardStore, sessionID, dto.GoalBoardMeta{
+		BoardLifecycle: dto.BoardLifecycle{
+			State: dto.BoardStateClosed, Seq: 3,
 			ClosedAt: closedAt.Unix(), ClosedReason: "goal.finish",
 		},
-		History: []store.GoalBoardHistory{{
+		History: []dto.GoalBoardHistory{{
 			GoalID: "g-1", Title: "已收口目标", Status: "completed",
 			ClosedAt: closedAt.Unix(), ClosedReason: "goal.finish",
 		}},

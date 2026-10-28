@@ -7,7 +7,7 @@ package assemble
 // Recover）会写它，而这些动作的唯一实现在 workunit_parent.go。teammate 的**注册点**
 // （workunit_team.go 的 teamUnit）里因此搜不到任何 store / worktree / jobs 写入。
 //
-// 记录复用既有的形状（store.NodeSessionRecord：NodeID = <role>-<itemID> / <role>，
+// 记录复用既有的形状（storeworkunit.Record：NodeID = <role>-<itemID> / <role>，
 // 带 Goal/Status/Summary/StagesJSON/Worktree），不另立第二份记录类型。
 
 import (
@@ -18,13 +18,14 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // ── 会话记录：词表、落盘与清理 ──────────────────────────────────────────
 
 // teamUnitLedger 取契约要的会话存储端口：**结构上**就是既有的
-// `*store.NodeSessionStore`（契约里那条编译期断言钉着同一件事），未装配 = nil。
+// `*storeworkunit.SessionStore`（契约里那条编译期断言钉着同一件事），未装配 = nil。
 func (r *Runtime) teamUnitLedger() workunit.SessionLedger {
 	if r == nil || r.nodeSessionStore == nil {
 		return nil
@@ -38,7 +39,7 @@ func (r *Runtime) teamUnitLedger() workunit.SessionLedger {
 // 为什么不读 Router 的 active workspace 或 sessionProjectIDFor：那两处是**视图与绑定**的
 // 当前值（切会话会变、测试基座里可能为空），而"这支团队的记录放在哪"是派发那一刻就定下的
 // 事实。两处各算一次作用域，迟早算成两个目录——子代理记录那条路上就是这么漂的。
-func (r *Runtime) teamUnitScope(sessionID string) (store.Key, bool) {
+func (r *Runtime) teamUnitScope(sessionID string) (dto.SessionKey, bool) {
 	// 与团队面其它读法共用同一份解析（runtime_teamwork_scope.go）；这里只保留这个读法的
 	// 名字——"单元记录落在哪个账本"与"团队计划落在哪"必须是同一个键。
 	return r.teamworkKeyFor(sessionID)
@@ -81,7 +82,7 @@ func (r *Runtime) saveTeamUnitRecord(mainSessionID string, key teamUnitRecordKey
 // teamUnitRecordWriter 返回 teammate 那一层的记录写入链：**子代理那条链外面再包一环**
 // （add but not modify——teammate 的记录形状就是 subagent 的记录多一个身份块 + 现场四栏写全）。
 // 未装配存储（fixture / 纯内存态）= nil，调用方按"不落盘"处理。
-func (r *Runtime) teamUnitRecordWriter(key teamUnitRecordKey) *store.NodeSessionRecordWriter {
+func (r *Runtime) teamUnitRecordWriter(key teamUnitRecordKey) *storeworkunit.Writer {
 	if r == nil || r.unitRecordWriter == nil {
 		return nil
 	}
@@ -100,15 +101,15 @@ var teamUnitUnitRecordLink = teamwork.TeammateUnitRecordLink
 // 谁先到都一样）挡回去——收尾要的正是 `MainBranch`（这次合回哪条分支）与 `BaseCommit`
 // （变基与提交判定的基线）。过去这里只填 Path/Branch，于是重启后恢复出来的现场收尾
 // **合不回 main**（缺栏显式发声 + 保留现场；见 worktree_weak_registration_merge_test.go）。
-func (r *Runtime) teamUnitWorktreeRecord(nodeID string) store.NodeWorktreeRecord {
+func (r *Runtime) teamUnitWorktreeRecord(nodeID string) storeworkunit.WorktreeRecord {
 	if r == nil || r.worktreeMgr == nil || strings.TrimSpace(nodeID) == "" {
-		return store.NodeWorktreeRecord{}
+		return storeworkunit.WorktreeRecord{}
 	}
 	info, ok := r.worktreeMgr.Info(nodeID)
 	if !ok {
-		return store.NodeWorktreeRecord{}
+		return storeworkunit.WorktreeRecord{}
 	}
-	return store.NodeWorktreeRecord{
+	return storeworkunit.WorktreeRecord{
 		Path:       info.Path,
 		Branch:     info.Branch,
 		MainBranch: info.MainBranch,
@@ -295,7 +296,7 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 	// 一次读、两份视图：读数（判在跑）与原始记录（恢复说明的正文）。**只读一次账本**——
 	// 读面返回原始清单，折算仍只有 `ProgressOf` 那一处。
 	progress := make(map[string]workunit.Progress, len(records))
-	stored := make(map[string]store.NodeSessionRecord, len(records))
+	stored := make(map[string]storeworkunit.Record, len(records))
 	for _, record := range records {
 		unit := workunit.ProgressOf(workunit.KindTeammate, record)
 		progress[unit.NodeID] = unit
@@ -346,7 +347,7 @@ func (r *Runtime) teamUnitReader(sessionID string, index []teamSceneEntry) *work
 	// 归属过滤的判据在团队域（名单 = `teamwork.SceneIndex` 的产物）：这里只把"这条记录
 	// 的 nodeID 在不在名单里"交给域包，不在装配层另建一份集合与比较口径。
 	return workunit.NewUnitReader(r.teamUnitLedger(), scope.ProjectID, scope.SessionID, workunit.KindTeammate,
-		func(record store.NodeSessionRecord) bool {
+		func(record storeworkunit.Record) bool {
 			return teamwork.SceneOwnsNode(index, record.NodeID)
 		})
 }

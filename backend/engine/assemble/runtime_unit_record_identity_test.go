@@ -24,21 +24,23 @@ import (
 	"testing"
 
 	bridgesession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // teamUnitRecordFixture 搭出"旧进程落一条 teammate 单元记录 + 建出现场"的现场。
 //
 // 现场用 `BeginNamed`（与派发时 `BindWorkspace` 同一条命名）在**真 git 仓库**里建，记录用
 // 产品写点 `markTeamUnitRunning` 落（不手搓 JSON：要钉的正是"写侧写出去什么形状"）。
-func teamUnitRecordFixture(t *testing.T, sessionID, nodeID, roleSessionID string, write func(*Runtime, *store.NodeSessionStore)) (repo, scenePath string, router *store.Router, nodeStore *store.NodeSessionStore) {
+func teamUnitRecordFixture(t *testing.T, sessionID, nodeID, roleSessionID string, write func(*Runtime, *storeworkunit.SessionStore)) (repo, scenePath string, router *store.Router, nodeStore *storeworkunit.SessionStore) {
 	t.Helper()
 	router, err := store.NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = router.Close() })
-	nodeStore = store.NewNodeSessionStore(router)
+	nodeStore = store.NewWorkUnitSessionStore(router)
 	repo = setupGitRepo(t)
 
 	previous := newTestRuntime(t)
@@ -98,7 +100,7 @@ func TestTeamUnitRecordRestoresAsTeamworkSceneNotSubagentNode(t *testing.T) {
 		roleSess  = "sess-1-t-exec"
 	)
 	repo, scenePath, router, nodeStore := teamUnitRecordFixture(t, sessionID, nodeID, roleSess,
-		func(r *Runtime, _ *store.NodeSessionStore) {
+		func(r *Runtime, _ *storeworkunit.SessionStore) {
 			r.markTeamUnitRunning(sessionID, teamUnitRecordKey{
 				NodeID: nodeID, RoleSessionID: roleSess, Goal: "只写文档：把现场四栏写全",
 			})
@@ -171,7 +173,7 @@ func TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene(t *testing.T
 		t.Fatal(err)
 	}
 	defer router.Close()
-	nodeStore := store.NewNodeSessionStore(router)
+	nodeStore := store.NewWorkUnitSessionStore(router)
 
 	// 老进程：建现场；把**加固前形状**的记录直接落盘（没有 Unit 那一格）。
 	previous := newTestRuntime(t)
@@ -184,14 +186,14 @@ func TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene(t *testing.T
 	if created == nil {
 		t.Fatal("前置：真实 git 仓库里应能建出现场")
 	}
-	legacy := store.NodeSessionRecord{
-		SchemaVersion: store.NodeSessionSchemaVersion,
+	legacy := storeworkunit.Record{
+		SchemaVersion: storeworkunit.SchemaVersion,
 		NodeID:        nodeID,
 		SessionID:     roleSess,
 		MainSessionID: sessionID,
 		Goal:          "老记录：快照里没有身份那一格",
 		Status:        "running",
-		Worktree:      store.NodeWorktreeRecord{Path: created.Path, Branch: created.Branch},
+		Worktree:      storeworkunit.WorktreeRecord{Path: created.Path, Branch: created.Branch},
 	}
 	if err := nodeStore.Save("p-team", sessionID, legacy); err != nil {
 		t.Fatal(err)
@@ -200,7 +202,7 @@ func TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene(t *testing.T
 
 	// 重启：团队事实（计划 + 账本）说这个 nodeID 是 teammate 的。
 	st := &memPlanStore{}
-	if err := st.WritePlan(t.Context(), store.Key{ProjectID: "p-team", SessionID: sessionID}, sceneTestTeamPlan(), 0); err != nil {
+	if err := st.WritePlan(t.Context(), dto.SessionKey{ProjectID: "p-team", SessionID: sessionID}, sceneTestTeamPlan(), 0); err != nil {
 		t.Fatal(err)
 	}
 	restarted := restartOverScene(t, repo)

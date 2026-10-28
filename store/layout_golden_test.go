@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
@@ -120,8 +121,8 @@ func TestSessionLayoutGolden(t *testing.T) {
 	}
 	if err := repository.WriteCommit(ctx, key, Commit{
 		Events: []Event{
-			{MessageID: "m0", Role: "user", Kind: EventKindUserInput, Content: "hi", CreatedAt: created},
-			{MessageID: "m1", Role: "assistant", Kind: EventKindLLM, Content: "hello", CreatedAt: created},
+			{Seq: 1, MessageID: "m0", Role: "user", Kind: EventKindUserInput, Content: "hi", CreatedAt: created},
+			{Seq: 2, MessageID: "m1", Role: "assistant", Kind: EventKindLLM, Content: "hello", CreatedAt: created},
 		},
 		ToolResults:       []ToolResult{toolResult},
 		CompactionRecords: []json.RawMessage{json.RawMessage(`{"summary":"first"}`)},
@@ -164,7 +165,7 @@ func TestSessionLayoutGolden(t *testing.T) {
 
 	// 5) 媒体（meta/ 内容寻址分区）。
 	mediaData := []byte("media bytes")
-	if _, err := repository.WriteMedia(ctx, key, MediaItem{
+	if _, err := repository.layout.artifacts.WriteMedia(layoutScope(key), storeartifact.MediaItem{
 		Name:     "note.txt",
 		MimeType: "text/plain",
 		Kind:     "screenshot",

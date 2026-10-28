@@ -2,8 +2,8 @@
 
 ## 生态位
 
-不可变内容寻址资产与派生检索索引的 store 领域 owner。主要调用方是根
-`store.Router/jsonRepository` 的迁移期适配、工具结果读写、媒体工具与 fork 复制。
+不可变内容寻址资产与派生检索索引的 store 领域 owner。主要调用方是
+`Stores.Artifacts`、`Stores.Media`（会话作用域媒体入口）、工具结果读写、媒体工具与 fork 复制。
 
 ## 职责与非职责
 
@@ -15,6 +15,7 @@
 ## 目录结构
 
 - `artifact.go`：共享 layout/settings、分区根路径与锁 ID。
+- `session_store.go`：`ScopeResolver` 与 `SessionStore`，把显式项目/会话键解析成 Artifact scope。
 - `blob.go`：超大工具文本、tool-result 文件和 blob GC。
 - `media.go`：媒体内容寻址、名称清洗、配额、索引和媒体 GC。
 - `search.go`：搜索行投影、token 化、索引发布与查询。
@@ -40,7 +41,8 @@
 ## 扩展方式
 
 新增 artifact 类型必须先在 contract 定义跨层形状，再在本包定义内容寻址和 GC 规则；
-不得在根包复制摘要、限额、媒体名清洗或 token 化判据。
+不得在根包复制摘要、限额、媒体名清洗或 token 化判据。会话作用域实现只能通过
+`ScopeResolver` 注入，不得反向 import 根 `store`。
 
 ## Review 指南
 
@@ -125,3 +127,12 @@ go test ./store/... ./backend/tool/... ./e2e/... -count=1
 - `func isTokenRune(r rune) bool`
 - `func isCJK(r rune) bool`
 - `func sortSearchHits(hits []SearchHit)`
+
+### session_store.go
+
+- `func NewSessionStore(store *Store, resolver ScopeResolver) *SessionStore` — NewSessionStore constructs a session-scoped media entry.
+- `func (s *SessionStore) scope(projectID, sessionID string) (storelayout.Scope, error)`
+- `func (s *SessionStore) WriteMedia(_ context.Context, projectID, sessionID string, item MediaItem) (MediaRef, error)` — WriteMedia stores an idempotent media asset.
+- `func (s *SessionStore) ReadMedia(_ context.Context, projectID, sessionID, ref string) (MediaRef, []byte, error)` — ReadMedia reads media metadata and bytes.
+- `func (s *SessionStore) ListMedia(_ context.Context, projectID, sessionID string) ([]MediaRef, error)` — ListMedia lists media assets.
+- `func (s *SessionStore) CollectMedia(_ context.Context, projectID, sessionID string, referenced map[string]bool, dryRun bool) ([]string, error)` — CollectMedia removes unreferenced media assets.

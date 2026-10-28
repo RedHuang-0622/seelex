@@ -19,6 +19,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // ── 1. 收尾分类：契约 OutcomeKind 与节点效果钉在同一张表上 ────────────────────
@@ -188,11 +189,11 @@ func TestRecoveryNoteIsOneFamilyAcrossLayers(t *testing.T) {
 		t.Fatalf("恢复说明 role = %q，契约 role = %q（两层必须同一个）",
 			SubagentRecoveryNoteRole, workunit.RecoveryNoteRole)
 	}
-	record := store.NodeSessionRecord{
+	record := storeworkunit.Record{
 		NodeID: "sub-1", SessionID: "node-1", Goal: "巡检存储层", Status: "running",
 		Summary: "读到 message_rows.go", Error: "deadline exceeded",
 		StagesJSON: []byte(`[{"stage":"running","preview":"read message_rows.go"}]`),
-		Worktree:   store.NodeWorktreeRecord{Path: "D:/tmp/x-seelex-sub-1", Branch: "seelex/sub-1"},
+		Worktree:   storeworkunit.WorktreeRecord{Path: "D:/tmp/x-seelex-sub-1", Branch: "seelex/sub-1"},
 	}
 	note := workunit.RecoveryNote(workunit.KindSubagent, record)
 	if !strings.HasPrefix(note, subagentRecoveryNotePrefix) {
@@ -223,7 +224,7 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 		t.Fatalf("new router: %v", err)
 	}
 	t.Cleanup(func() { _ = router.Close() })
-	st := store.NewNodeSessionStore(router)
+	st := store.NewWorkUnitSessionStore(router)
 	runtime.AttachHistoryRouter(router)
 	runtime.AttachSubSessionStore(st)
 	if _, err := runtime.NewMainSessionWithID("sess_main", nil); err != nil {
@@ -260,8 +261,8 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	}
 
 	// 跑：这一件事在运行期落盘（一条记录 = 一份会话）。
-	if err := st.Save(projectID, "sess_main", store.NodeSessionRecord{
-		SchemaVersion: store.NodeSessionSchemaVersion,
+	if err := st.Save(projectID, "sess_main", storeworkunit.Record{
+		SchemaVersion: storeworkunit.SchemaVersion,
 		NodeID:        "wu-1", SessionID: "node-wu-1", MainSessionID: "sess_main",
 		Goal: "do the thing", Status: "running", UpdatedAt: time.Now().UTC(),
 	}); err != nil {

@@ -15,12 +15,12 @@ import (
 // `<mainSessionID>-<subSessionID>.json` 落盘并可读回。
 func TestNodeSessionStoreRoundTrip(t *testing.T) {
 	router := newTestRouter(t)
-	store := NewNodeSessionStore(router)
+	store := NewWorkUnitSessionStore(router)
 	mainID := "sess_main_test"
 	subID := "node-deadbeef"
 
-	record := NodeSessionRecord{
-		SchemaVersion: NodeSessionSchemaVersion,
+	record := workunit.Record{
+		SchemaVersion: workunit.SchemaVersion,
 		NodeID:        "fork-a",
 		SessionID:     subID,
 		MainSessionID: mainID,
@@ -64,11 +64,11 @@ func TestNodeSessionStoreRoundTrip(t *testing.T) {
 // TestNodeSessionStoreListFromMainIndex 验证从主会话索引直接列举全部子会话。
 func TestNodeSessionStoreListFromMainIndex(t *testing.T) {
 	router := newTestRouter(t)
-	store := NewNodeSessionStore(router)
+	store := NewWorkUnitSessionStore(router)
 	mainID := "sess_main_list"
 	for _, sub := range []string{"node-aaaa", "node-bbbb", "node-cccc"} {
-		if err := store.Save("project-a", mainID, NodeSessionRecord{
-			SchemaVersion: NodeSessionSchemaVersion, NodeID: sub, SessionID: sub,
+		if err := store.Save("project-a", mainID, workunit.Record{
+			SchemaVersion: workunit.SchemaVersion, NodeID: sub, SessionID: sub,
 			MainSessionID: mainID, Status: "done", UpdatedAt: time.Now().UTC(),
 		}); err != nil {
 			t.Fatalf("save %s: %v", sub, err)
@@ -96,13 +96,13 @@ func TestNodeSessionStoreListFromMainIndex(t *testing.T) {
 // TestNodeSessionStoreMissingAndDelete 验证缺失语义与删除。
 func TestNodeSessionStoreMissingAndDelete(t *testing.T) {
 	router := newTestRouter(t)
-	store := NewNodeSessionStore(router)
+	store := NewWorkUnitSessionStore(router)
 	mainID := "sess_main_del"
-	if _, err := store.Load("project-a", mainID, "node-missing"); !errors.Is(err, ErrNodeSessionNotFound) {
+	if _, err := store.Load("project-a", mainID, "node-missing"); !errors.Is(err, workunit.ErrNotFound) {
 		t.Fatalf("load missing = %v, want ErrNodeSessionNotFound", err)
 	}
-	if err := store.Save("project-a", mainID, NodeSessionRecord{
-		SchemaVersion: NodeSessionSchemaVersion, NodeID: "n", SessionID: "node-1",
+	if err := store.Save("project-a", mainID, workunit.Record{
+		SchemaVersion: workunit.SchemaVersion, NodeID: "n", SessionID: "node-1",
 		MainSessionID: mainID, Status: "failed", UpdatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestNodeSessionStoreMissingAndDelete(t *testing.T) {
 	if err := store.Delete("project-a", mainID, "node-1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := store.Load("project-a", mainID, "node-1"); !errors.Is(err, ErrNodeSessionNotFound) {
+	if _, err := store.Load("project-a", mainID, "node-1"); !errors.Is(err, workunit.ErrNotFound) {
 		t.Fatalf("load after delete = %v, want ErrNodeSessionNotFound", err)
 	}
 }
@@ -118,15 +118,15 @@ func TestNodeSessionStoreMissingAndDelete(t *testing.T) {
 // TestNodeSessionStoreProjectIsolation 验证跨项目隔离。
 func TestNodeSessionStoreProjectIsolation(t *testing.T) {
 	router := newTestRouter(t)
-	store := NewNodeSessionStore(router)
-	record := NodeSessionRecord{
-		SchemaVersion: NodeSessionSchemaVersion, NodeID: "n", SessionID: "node-x",
+	store := NewWorkUnitSessionStore(router)
+	record := workunit.Record{
+		SchemaVersion: workunit.SchemaVersion, NodeID: "n", SessionID: "node-x",
 		MainSessionID: "sess_main", Status: "running", UpdatedAt: time.Now().UTC(),
 	}
 	if err := store.Save("project-a", "sess_main", record); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Load("project-b", "sess_main", "node-x"); !errors.Is(err, ErrNodeSessionNotFound) {
+	if _, err := store.Load("project-b", "sess_main", "node-x"); !errors.Is(err, workunit.ErrNotFound) {
 		t.Fatalf("cross-project load = %v, want ErrNodeSessionNotFound", err)
 	}
 }

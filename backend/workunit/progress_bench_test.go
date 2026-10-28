@@ -7,17 +7,16 @@ package workunit
 // **0–2 次分配**这一档；若哪一天它跳到毫秒或几十次分配，说明有人把 I/O 塞进了读面。
 
 import (
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
-func benchRecords(n int) []store.NodeSessionRecord {
-	records := make([]store.NodeSessionRecord, 0, n)
+func benchRecords(n int) []storeworkunit.Record {
+	records := make([]storeworkunit.Record, 0, n)
 	for i := 0; i < n; i++ {
-		records = append(records, store.NodeSessionRecord{
+		records = append(records, storeworkunit.Record{
 			NodeID:     "exec-wi-" + strings.Repeat("x", i%7) + string(rune('a'+i%26)),
 			SessionID:  "sess-" + string(rune('a'+i%26)),
 			Goal:       "把读面收成一份",

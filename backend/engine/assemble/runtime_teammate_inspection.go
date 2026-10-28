@@ -11,7 +11,7 @@ import (
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 var _ contract.TeammateInspectionPort = (*Runtime)(nil)
@@ -82,7 +82,7 @@ func (r *Runtime) TeammateInspection(ctx context.Context, mainSessionID, role st
 		}
 	}
 	assembly := (*dto.PluginAssemblyView)(nil)
-	assemblies := r.assemblyViews([]store.TeamworkMember{teamMember})
+	assemblies := r.assemblyViews([]storeteamwork.Member{teamMember})
 	if len(assemblies) > 0 {
 		view := assemblies[0]
 		assembly = &view
@@ -122,7 +122,7 @@ func (r *Runtime) roleSessionHandleFor(sessionID string) *roleSessionHandle {
 	return state.sessions[sessionID]
 }
 
-func (r *Runtime) inspectPluginCapabilities(member store.TeamworkMember, role string) []dto.PluginCapabilityView {
+func (r *Runtime) inspectPluginCapabilities(member storeteamwork.Member, role string) []dto.PluginCapabilityView {
 	names := normalizePluginNames(member.Plugins)
 	if len(names) == 0 {
 		return nil
@@ -164,7 +164,7 @@ func (r *Runtime) inspectPluginCapabilities(member store.TeamworkMember, role st
 	return views
 }
 
-func (r *Runtime) inspectPermissionVector(role string, member store.TeamworkMember, groups map[string]uint8, plugins []dto.PluginCapabilityView) dto.PermissionVectorView {
+func (r *Runtime) inspectPermissionVector(role string, member storeteamwork.Member, groups map[string]uint8, plugins []dto.PluginCapabilityView) dto.PermissionVectorView {
 	view := dto.PermissionVectorView{
 		ToolsPolicy: member.ToolsPolicy,
 		Groups:      make(map[string]uint8, len(groups)),

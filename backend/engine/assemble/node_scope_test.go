@@ -12,7 +12,7 @@ import (
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/store"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
 // ── SceneScope 上下文助手 ─────────────────────────────────────────────
@@ -191,10 +191,10 @@ func TestSceneScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
-	runtime.SetProjectKnowledgeProvider(func() *store.ProjectRecord {
-		return &store.ProjectRecord{
+	runtime.SetProjectKnowledgeProvider(func() *storeproject.ProjectRecord {
+		return &storeproject.ProjectRecord{
 			Version: "v1",
-			Modules: []store.ModuleSemantics{
+			Modules: []storeproject.ModuleSemantics{
 				{Name: "billing", Summary: "payment subsystem", Path: "internal/billing"},
 			},
 		}

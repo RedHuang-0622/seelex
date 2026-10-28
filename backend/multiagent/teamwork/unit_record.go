@@ -12,10 +12,10 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
-// 会话记录的 status 词表（`NodeSessionRecord.Status` 的取值面）。只有"在跑"与两种终态：
+// 会话记录的 status 词表（`Record.Status` 的取值面）。只有"在跑"与两种终态：
 // 记录回答的是"这一轮跑到哪"，不是"leader 验收了没有"（那是计划里 item.Status 的事——
 // 两处各记一份就会漂移）。
 //
@@ -85,9 +85,9 @@ func UnitRecordKeyFor(request WorkerRequest) UnitRecordKey {
 //
 // 时间戳不在这里造：哪一刻开始/落定归计划里的 item 事实，记录只带存储写入的
 // UpdatedAt。
-func UnitRecord(key UnitRecordKey, mainSessionID, status, summary, stage string, worktree store.NodeWorktreeRecord) store.NodeSessionRecord {
-	return store.NodeSessionRecord{
-		SchemaVersion: store.NodeSessionSchemaVersion,
+func UnitRecord(key UnitRecordKey, mainSessionID, status, summary, stage string, worktree storeworkunit.WorktreeRecord) storeworkunit.Record {
+	return storeworkunit.Record{
+		SchemaVersion: storeworkunit.SchemaVersion,
 		NodeID:        strings.TrimSpace(key.NodeID),
 		SessionID:     strings.TrimSpace(key.RoleSessionID),
 		MainSessionID: strings.TrimSpace(mainSessionID),
@@ -104,14 +104,14 @@ func UnitRecord(key UnitRecordKey, mainSessionID, status, summary, stage string,
 //
 // 它只写自己知道的事实，别的一概不动：子代理那一环在内层，看到身份已经有了就不再覆盖
 // （与 `subagent.SubagentUnitRecordLink` 同一种"责任链上的身份环"形状）。
-func TeammateUnitRecordLink(key UnitRecordKey) store.NodeSessionRecordLink {
-	identity := store.NodeUnitRecord{
+func TeammateUnitRecordLink(key UnitRecordKey) storeworkunit.Link {
+	identity := storeworkunit.UnitRecord{
 		Kind:         string(workunit.KindTeammate),
 		Role:         strings.TrimSpace(key.Role),
 		Plugins:      append([]string(nil), key.Plugins...),
 		SystemPrompt: key.SystemPrompt,
 	}
-	return func(record store.NodeSessionRecord) store.NodeSessionRecord {
+	return func(record storeworkunit.Record) storeworkunit.Record {
 		record.Unit = identity
 		return record
 	}

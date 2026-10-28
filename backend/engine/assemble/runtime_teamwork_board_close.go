@@ -2,7 +2,7 @@ package assemble
 
 // runtime_teamwork_board_close.go — 团队看板存档的**封板**面（team_close 的下游一侧）。
 //
-// 生态位：整队收口的领域事实在计划（store.TeamworkPlan.State，U3 裁决），
+// 生态位：整队收口的领域事实在计划（storeteamwork.Plan.State，U3 裁决），
 // 本文件只把**存档那一版**关掉——存档是历史/恢复面，它若不封板就会在重启恢复时
 // 冒充"在册"（readTeamBoardArchive 只恢复 state=active）。
 //
@@ -21,7 +21,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // CloseTeamBoard 实现 teamwork.BoardCloser：把当前会话的团队看板存档封板
@@ -48,15 +48,15 @@ func (r *Runtime) CloseTeamBoard(ctx context.Context) error {
 //
 // 与 CloseTeamBoard 的分工：后者在"计划尚未标 closed"时被收口流程调用（只关板），
 // 本函数在计划已 closed 的**刷新**路径上被调用（关板 + 刷新快照），两者共用 sealTeamBoard。
-func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager jobs.Manager, key store.Key, plan store.TeamworkPlan, now time.Time, assemblies []dto.PluginAssemblyView) error {
+func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager jobs.Manager, key dto.SessionKey, plan storeteamwork.Plan, now time.Time, assemblies []dto.PluginAssemblyView) error {
 	if backend == nil || backend.Boards == nil {
 		return nil
 	}
-	var events []store.TeamworkEvent
+	var events []storeteamwork.Event
 	if backend.Store != nil {
 		events, _ = backend.Store.ReadEvents(ctx, key) // 审计读不出来不该让封板作废（与采集面同口径）。
 	}
-	var bindings []store.TeamworkBinding
+	var bindings []storeteamwork.Binding
 	if backend.Store != nil {
 		bindings, _ = backend.Store.ReadBindings(ctx, key) // 绑定读不出来同理：少了"现场在不在"这一列。
 	}

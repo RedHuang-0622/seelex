@@ -254,7 +254,7 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	// **记录一律不落盘，恢复链在基座上读的是一个空集**，而所有走 harness 的用例
 	// 都跑在这个装配上（2026-10-06 实测：teammate 端到端用例的"单元记录在册"
 	// 断言在补上这一句之前恒为空集，冒烟因为读的是**计划**而不是记录，一直没发现）。
-	runtimeBridge.AttachSubSessionStore(store.NewNodeSessionStore(st.Router))
+	runtimeBridge.AttachSubSessionStore(store.NewWorkUnitSessionStore(st.Router))
 	runtimeBridge.SetEventPersister(store.NewEventStore(st.Router).Append)
 
 	skills := boot.InitSkillSystem()
@@ -303,6 +303,8 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 		events,
 		approval,
 		st.Boards,
+		st.RolePermissions,
+		st.RoleSessions,
 		launchFlags.StorePath,
 	)
 	if err != nil {

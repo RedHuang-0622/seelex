@@ -7,22 +7,23 @@ import (
 
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // newTestNodeSessionStore 构造 JSON 后端节点会话记录存储。
-func newTestNodeSessionStore(t *testing.T) *store.NodeSessionStore {
+func newTestNodeSessionStore(t *testing.T) *storeworkunit.SessionStore {
 	t.Helper()
 	router, err := store.NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = router.Close() })
-	return store.NewNodeSessionStore(router)
+	return store.NewWorkUnitSessionStore(router)
 }
 
 // waitForRecords 轮询等待主会话索引下出现 want 条子会话记录
 // （SubagentSessions 命令异步投递，断言前需等 actor 落盘）。
-func waitForRecords(t *testing.T, st *store.NodeSessionStore, mainID string, want int) []store.NodeSessionRecord {
+func waitForRecords(t *testing.T, st *storeworkunit.SessionStore, mainID string, want int) []storeworkunit.Record {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -38,7 +39,7 @@ func waitForRecords(t *testing.T, st *store.NodeSessionStore, mainID string, wan
 }
 
 // waitForRecordState 轮询等待首条记录满足 predicate（阶段/结果/终态落盘）。
-func waitForRecordState(t *testing.T, st *store.NodeSessionStore, mainID string, predicate func(store.NodeSessionRecord) bool) store.NodeSessionRecord {
+func waitForRecordState(t *testing.T, st *storeworkunit.SessionStore, mainID string, predicate func(storeworkunit.Record) bool) storeworkunit.Record {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -50,18 +51,18 @@ func waitForRecordState(t *testing.T, st *store.NodeSessionStore, mainID string,
 	}
 	records, _ := st.List("", mainID)
 	t.Fatalf("node session record never reached state (records=%+v)", records)
-	return store.NodeSessionRecord{}
+	return storeworkunit.Record{}
 }
 
 // TestSubagentSessionsLifecyclePersistConclusionDelete 验证生命周期策略：
 // 运行期落盘（<main>-<sub>.json）→ 结束结论回传 mainagent → 记录文件删除。
 func TestSubagentSessionsLifecyclePersistConclusionDelete(t *testing.T) {
 	nodeStore := newTestNodeSessionStore(t)
-	var conclusions []store.NodeSessionRecord
+	var conclusions []storeworkunit.Record
 	subagents := NewSubagentSessions(nil,
 		WithNodeSessionStore(nodeStore),
 		WithMainSessionID(func() string { return "sess_main" }),
-		WithConclusionSink(func(mainID string, record store.NodeSessionRecord) {
+		WithConclusionSink(func(mainID string, record storeworkunit.Record) {
 			if mainID != "sess_main" {
 				t.Fatalf("conclusion main session = %q, want sess_main", mainID)
 			}
@@ -89,7 +90,7 @@ func TestSubagentSessionsLifecyclePersistConclusionDelete(t *testing.T) {
 	// 运行期记录持续更新（阶段/结果/终态落盘）。
 	records = waitForRecords(t, nodeStore, "sess_main", 1)
 	_ = records
-	record := waitForRecordState(t, nodeStore, "sess_main", func(record store.NodeSessionRecord) bool {
+	record := waitForRecordState(t, nodeStore, "sess_main", func(record storeworkunit.Record) bool {
 		return record.Status == "done" && len(record.StagesJSON) > 0 && len(record.ResultJSON) > 0
 	})
 	if record.Summary != "ok" {
@@ -104,7 +105,7 @@ func TestSubagentSessionsLifecyclePersistConclusionDelete(t *testing.T) {
 	if conclusions[0].Status != "done" || conclusions[0].Summary != "ok" || len(conclusions[0].ResultJSON) == 0 {
 		t.Fatalf("conclusion = %+v", conclusions[0])
 	}
-	if _, err := nodeStore.Load("", "sess_main", "node-abc"); !errors.Is(err, store.ErrNodeSessionNotFound) {
+	if _, err := nodeStore.Load("", "sess_main", "node-abc"); !errors.Is(err, storeworkunit.ErrNotFound) {
 		t.Fatalf("record after unregister = %v, want ErrNodeSessionNotFound", err)
 	}
 	// 内存详情数据面保留（进程存活期内仍可读）。
@@ -129,7 +130,7 @@ func TestSubagentSessionsRestoreRebuildsDetail(t *testing.T) {
 		NodeID:        "n2", SessionID: "node-xyz", Status: "completed", Summary: "done-ok",
 	})
 	// 进程被杀（不 Unregister）：记录仍在。
-	_ = waitForRecordState(t, nodeStore, "sess_main", func(record store.NodeSessionRecord) bool {
+	_ = waitForRecordState(t, nodeStore, "sess_main", func(record storeworkunit.Record) bool {
 		return len(record.StagesJSON) > 0 && len(record.ResultJSON) > 0
 	})
 	records, err := nodeStore.List("", "sess_main")
@@ -160,11 +161,11 @@ func TestSubagentSessionsRestoreRebuildsDetail(t *testing.T) {
 // 结论含错误信息，记录删除。
 func TestSubagentSessionsPersistFailedOutcome(t *testing.T) {
 	nodeStore := newTestNodeSessionStore(t)
-	var conclusions []store.NodeSessionRecord
+	var conclusions []storeworkunit.Record
 	subagents := NewSubagentSessions(nil,
 		WithNodeSessionStore(nodeStore),
 		WithMainSessionID(func() string { return "sess_main" }),
-		WithConclusionSink(func(_ string, record store.NodeSessionRecord) {
+		WithConclusionSink(func(_ string, record storeworkunit.Record) {
 			conclusions = append(conclusions, record)
 		}),
 	)
@@ -177,7 +178,7 @@ func TestSubagentSessionsPersistFailedOutcome(t *testing.T) {
 	if len(conclusions) != 1 || conclusions[0].Status != "failed" || conclusions[0].Error != "llm completion failed" {
 		t.Fatalf("failed conclusion = %+v", conclusions)
 	}
-	if _, err := nodeStore.Load("", "sess_main", "node-fail"); !errors.Is(err, store.ErrNodeSessionNotFound) {
+	if _, err := nodeStore.Load("", "sess_main", "node-fail"); !errors.Is(err, storeworkunit.ErrNotFound) {
 		t.Fatalf("failed record after unregister = %v, want ErrNodeSessionNotFound", err)
 	}
 }

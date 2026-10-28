@@ -99,7 +99,7 @@ func (u Unit) Active() bool { return u.Status.Active() }
 
 // Scene 是被执行单元重建出来的现场（不透明载荷 + 人类可读摘要）。
 //
-// Payload 由端口自行编码（例如 NodeSessionRecord 的 JSON），模板不解释它，
+// Payload 由端口自行编码（例如 Record 的 JSON），模板不解释它，
 // 只在 RestoreScene → InjectNote → Reexecute 之间原样传递。
 type Scene struct {
 	// Payload 是现场载荷（端口自定义编码）。

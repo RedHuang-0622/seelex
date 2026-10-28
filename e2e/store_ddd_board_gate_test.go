@@ -35,7 +35,13 @@ func TestStoreDDDMBoardOwnershipGate(t *testing.T) {
 
 	compat, err := os.ReadFile(filepath.Join(root, "store", "project_board_compat.go"))
 	if err != nil {
-		t.Fatalf("读取根兼容文件：%v", err)
+		if !os.IsNotExist(err) {
+			t.Fatalf("读取根兼容文件：%v", err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "internal", "host", "boardrouter", "router.go")); err != nil {
+			t.Fatalf("根兼容文件删除后缺少 boardrouter adapter：%v", err)
+		}
+		return
 	}
 	compatText := string(compat)
 	for _, forbidden := range []string{"json.Unmarshal", "os.OpenFile", "sort.Slice", "sync.Map", "TruncateCrashTail"} {

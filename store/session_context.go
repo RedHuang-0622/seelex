@@ -326,7 +326,7 @@ func (s *SessionContextStore) writeStack(kind StackKind, mutate func() error) er
 // refreshStack 从栈通道回读指定 kind 的 active 条目覆盖内存投影。
 func (s *SessionContextStore) refreshStack(kind StackKind) error {
 	projectID := s.workspace()
-	rows, err := s.router.StackActive(projectID, s.sessionID, kind)
+	rows, err := NewStackStore(s.router).StackActive(projectID, s.sessionID, kind)
 	if err != nil {
 		return err
 	}
@@ -384,7 +384,7 @@ func (s *SessionContextStore) PushPlan(frame PlanFrame) error {
 		return err
 	}
 	return s.writeStack(StackKindPlan, func() error {
-		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindPlan, "plan:"+frame.PlanID, []StackItemInput{item})
+		_, err := NewStackStore(s.router).StackPush(s.workspace(), s.sessionID, StackKindPlan, "plan:"+frame.PlanID, []StackItemInput{item})
 		return err
 	})
 }
@@ -395,7 +395,7 @@ func (s *SessionContextStore) CloseTopPlan(planID string) error {
 		return err
 	}
 	return s.writeStack(StackKindPlan, func() error {
-		_, err := s.router.StackSetStatus(s.workspace(), s.sessionID, StackKindPlan, planID, "closed")
+		_, err := NewStackStore(s.router).StackSetStatus(s.workspace(), s.sessionID, StackKindPlan, planID, "closed")
 		return err
 	})
 }
@@ -407,7 +407,7 @@ func (s *SessionContextStore) PushTask(frame TaskFrame) error {
 		return err
 	}
 	return s.writeStack(StackKindTask, func() error {
-		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindTask, "task:"+frame.TaskID, []StackItemInput{item})
+		_, err := NewStackStore(s.router).StackPush(s.workspace(), s.sessionID, StackKindTask, "task:"+frame.TaskID, []StackItemInput{item})
 		return err
 	})
 }
@@ -418,7 +418,7 @@ func (s *SessionContextStore) CloseTopTask(taskID string) error {
 		return err
 	}
 	return s.writeStack(StackKindTask, func() error {
-		_, err := s.router.StackSetStatus(s.workspace(), s.sessionID, StackKindTask, taskID, "completed")
+		_, err := NewStackStore(s.router).StackSetStatus(s.workspace(), s.sessionID, StackKindTask, taskID, "completed")
 		return err
 	})
 }
@@ -463,7 +463,7 @@ func (s *SessionContextStore) PushGoal(frame GoalFrame) error {
 		return err
 	}
 	return s.writeStack(StackKindGoal, func() error {
-		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindGoal, "goal:"+frame.GoalID, []StackItemInput{item})
+		_, err := NewStackStore(s.router).StackPush(s.workspace(), s.sessionID, StackKindGoal, "goal:"+frame.GoalID, []StackItemInput{item})
 		return err
 	})
 }
@@ -478,7 +478,7 @@ func (s *SessionContextStore) CloseTopGoal(goalID string) error {
 		return err
 	}
 	return s.writeStack(StackKindGoal, func() error {
-		_, err := s.router.StackPopTop(s.workspace(), s.sessionID, StackKindGoal, goalID, "closed")
+		_, err := NewStackStore(s.router).StackPopTop(s.workspace(), s.sessionID, StackKindGoal, goalID, "closed")
 		return err
 	})
 }
@@ -509,7 +509,7 @@ func (s *SessionContextStore) ReplaceGoalStack(frames []GoalFrame) error {
 		})
 	}
 	return s.writeStack(StackKindGoal, func() error {
-		_, err := s.router.StackReplace(s.workspace(), s.sessionID, StackKindGoal, items, "closed")
+		_, err := NewStackStore(s.router).StackReplace(s.workspace(), s.sessionID, StackKindGoal, items, "closed")
 		return err
 	})
 }

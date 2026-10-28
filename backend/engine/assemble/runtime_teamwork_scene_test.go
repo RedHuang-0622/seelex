@@ -19,21 +19,23 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // sceneTestTeamPlan 造一份含两个现场的计划：teammate 级（member.Worktree）与
 // Work Item 级（items[0].Worktree）。
-func sceneTestTeamPlan() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func sceneTestTeamPlan() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID:  "t-scene",
 		Version: 1,
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "exec", RoleSessionID: "sess-1-t-scene-exec", Worktree: "seelex/exec"},
 		},
-		Milestones: []store.TeamworkMilestone{{
+		Milestones: []storeteamwork.Milestone{{
 			ID: "m1",
-			Items: []store.TeamworkWorkItem{
+			Items: []storeteamwork.WorkItem{
 				{ID: "wi-clean", Milestone: "m1", Role: "exec", Name: "干净但还没合并", Worktree: "seelex/exec-wi-clean"},
 			},
 		}},
@@ -44,7 +46,7 @@ func sceneTestTeamPlan() store.TeamworkPlan {
 // 重启 + 宿主恢复之后，团队现场在册、目录/分支保留、Prune 不删它，且绑根落到现场。
 func TestRestoreAnchorsAdoptsTeamScenesBeforePrune(t *testing.T) {
 	ctx := context.Background()
-	key := store.Key{ProjectID: "p-team", SessionID: "sess-1"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "sess-1"}
 	st := &memPlanStore{}
 	if err := st.WritePlan(ctx, key, sceneTestTeamPlan(), 0); err != nil {
 		t.Fatal(err)
@@ -52,9 +54,9 @@ func TestRestoreAnchorsAdoptsTeamScenesBeforePrune(t *testing.T) {
 	// 账本两种行形状都要认领：
 	//   - Work Item 级（WorkItem 非空）；
 	//   - teammate 级（WorkItem 留空、Role=角色名、Worktree=seelex/<role>，leader 定的形状）
-	//     ——`store.TeamworkBindings` 的折叠按 work_item 为键，会把这一行整行丢掉，
+	//     ——`storeteamwork.Bindings` 的折叠按 work_item 为键，会把这一行整行丢掉，
 	//     所以恢复侧必须读**原始行**。
-	for _, row := range []store.TeamworkBinding{
+	for _, row := range []storeteamwork.Binding{
 		{WorkItem: "wi-clean", Role: "exec", SessionID: "sess-1-t-scene-exec", Worktree: "seelex/exec-wi-clean"},
 		{WorkItem: "", Role: "exec", SessionID: "sess-1-t-scene-exec", Worktree: "seelex/exec"},
 	} {
@@ -68,7 +70,7 @@ func TestRestoreAnchorsAdoptsTeamScenesBeforePrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer router.Close()
-	nodeStore := store.NewNodeSessionStore(router)
+	nodeStore := store.NewWorkUnitSessionStore(router)
 	repo := setupGitRepo(t)
 
 	// ── 旧进程：建出两个现场（都**干净**——探针实测里被 Prune 删掉的就是这种）
@@ -142,12 +144,12 @@ func TestRestoreAnchorsAdoptsTeamScenesBeforePrune(t *testing.T) {
 // 已释放（Released）的绑定不再认领。
 func TestTeamSceneNodeIDsReadsPlanAndRawLedgerRows(t *testing.T) {
 	ctx := context.Background()
-	key := store.Key{ProjectID: "p-team", SessionID: "sess-1"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "sess-1"}
 	st := &memPlanStore{}
 	if err := st.WritePlan(ctx, key, sceneTestTeamPlan(), 0); err != nil {
 		t.Fatal(err)
 	}
-	for _, row := range []store.TeamworkBinding{
+	for _, row := range []storeteamwork.Binding{
 		{WorkItem: "wi-clean", Role: "exec", SessionID: "rs", Worktree: "seelex/exec-wi-clean"},
 		{WorkItem: "", Role: "exec", SessionID: "rs", Worktree: "seelex/exec"},
 		{WorkItem: "wi-old", Role: "exec", SessionID: "rs", Worktree: "seelex/exec-wi-old", Released: true, Reason: "accept"},

@@ -3,7 +3,6 @@ package store
 import (
 	"encoding/json"
 	"io/fs"
-	"math"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +26,7 @@ import (
 type (
 	Kind          = dto.SessionRecordKind
 	Status        = dto.SessionRecordStatus
-	Record        = dto.SessionRecord
+	Record        = dto.SessionIndexRecord
 	Binding       = dto.SessionBinding
 	ToolResultRef = dto.SessionToolResultRef
 	ContextStack  = dto.SessionContextStack
@@ -39,19 +38,13 @@ const (
 	KindSubagent = dto.SessionRecordKindSubagent
 
 	StatusDraft            = dto.SessionRecordStatusDraft
+	StatusActive           = dto.SessionRecordStatusActive
 	StatusIdle             = dto.SessionRecordStatusIdle
 	StatusRunning          = dto.SessionRecordStatusRunning
 	StatusQueued           = dto.SessionRecordStatusQueued
 	StatusAwaitingApproval = dto.SessionRecordStatusAwaitingApproval
 	StatusArchived         = dto.SessionRecordStatusArchived
 )
-
-// TranscriptEvent 是会话事件日志条目（session:<id>:transcript）。
-type TranscriptEvent struct {
-	Seq     uint64          `json:"seq"`
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-}
 
 // SessionGranularStore 是会话粒度存储实现（消费端口定义在
 // application/core/session_runtime/ports.go，适配由 wiring/adapters 承担；
@@ -227,19 +220,9 @@ func (store *SessionGranularStore) LoadRecordRaw(projectID, sessionID string) ([
 		return []byte{}, nil
 	}
 	if store.router.LayoutV8() {
-		// D9/S20：record 通道停读；按 §2.5.4 从既有通道派生 SessionRecord 形状
-		// 供应用消费。
-		payload, handled, err := store.router.DerivedRecordWorkspace(store.projectID(projectID), sessionID)
-		if !handled {
-			return store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if len(payload) == 0 {
-			return nil, fs.ErrNotExist
-		}
-		return payload, nil
+		// v8 的 record 通道已退役；conversation 由 Kernel Session 从原始
+		// message 行投影，Store 不再返回派生 record payload。
+		return nil, fs.ErrNotExist
 	}
 	return store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
 }
@@ -296,7 +279,7 @@ func (store *SessionGranularStore) LoadSession(projectID, sessionID string) (Rec
 		if !ok || info.ID != sessionID {
 			return Record{}, false, nil
 		}
-		return Record{ID: sessionID, Kind: KindMain, Status: StatusIdle, Title: info.Title}, true, nil
+		return Record{ID: sessionID, Kind: KindMain, Status: StatusActive, Title: info.Title}, true, nil
 	}
 	return record, true, nil
 }
@@ -370,29 +353,6 @@ func (store *SessionGranularStore) HistoryRange(projectID, sessionID string, off
 		return nil, 0, nil
 	}
 	return store.router.LoadRangeWorkspace(store.projectID(projectID), sessionID, offset, limit)
-}
-
-// Transcript 读取会话事件日志（session:<id>:transcript；事件通道与
-// provider history 同库，事务序=seq 序）。
-func (store *SessionGranularStore) Transcript(projectID, sessionID string) ([]TranscriptEvent, error) {
-	if store == nil || store.router == nil {
-		return []TranscriptEvent{}, nil
-	}
-	events, err := store.router.LoadEventTailWorkspace(store.projectID(projectID), sessionID, math.MaxInt, math.MaxInt)
-	if err != nil {
-		if IsSessionNotFound(err) {
-			return []TranscriptEvent{}, nil
-		}
-		return nil, err
-	}
-	transcript := make([]TranscriptEvent, 0, len(events))
-	for _, event := range events {
-		transcript = append(transcript, TranscriptEvent{
-			Seq:  event.Seq,
-			Type: event.Role,
-		})
-	}
-	return transcript, nil
 }
 
 // TranscriptTail 读取会话事件日志尾部窗口（token + 单元上限；会话粒度键）。
@@ -610,15 +570,6 @@ func (store *SessionGranularStore) DiscardPendingMessageTail(projectID, sessionI
 	return store.router.DiscardPendingMessageTailWorkspace(store.projectID(projectID), sessionID)
 }
 
-// ConversationRange 读取会话 conversation 模块窗口（只解析 conversation
-// 子树；offset/limit 语义与 Router 一致）。
-func (store *SessionGranularStore) ConversationRange(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error) {
-	if store == nil || store.router == nil {
-		return nil, 0, nil
-	}
-	return store.router.LoadConversationRangeWorkspace(store.projectID(projectID), sessionID, offset, limit)
-}
-
 // Delete 以会话粒度删除会话（record/history/transcript/toolresults/context
 // 同键；项目索引同步移除）。
 func (store *SessionGranularStore) Delete(projectID, sessionID string) error {
@@ -648,7 +599,7 @@ func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, 
 			ID:         meta.SessionID,
 			Title:      meta.Summary,
 			Kind:       KindMain,
-			Status:     StatusIdle,
+			Status:     StatusActive,
 			UpdatedAt:  meta.UpdatedAt,
 			TokenCount: meta.TokenCount,
 		}
@@ -690,7 +641,7 @@ func (store *SessionGranularStore) loadSessionLiteral(projectID, sessionID strin
 		if !ok || info.ID != sessionID {
 			return Record{}, false
 		}
-		return Record{ID: sessionID, Kind: KindMain, Status: StatusIdle, Title: info.Title}, true
+		return Record{ID: sessionID, Kind: KindMain, Status: StatusActive, Title: info.Title}, true
 	}
 	return record, true
 }
@@ -704,7 +655,7 @@ func (store *SessionGranularStore) derivedRecord(projectID, sessionID string) (R
 	if err != nil || !handled || meta.SessionID == "" {
 		return Record{}, false
 	}
-	status := StatusIdle
+	status := StatusActive
 	if archivedAt, _, err := store.router.SessionArchivedWorkspace(projectID, sessionID); err == nil && !archivedAt.IsZero() {
 		status = StatusArchived
 	} else if jsonRepository, ok := store.router.jsonRepository(); ok && jsonRepository.hasDraft(Key{ProjectID: projectID, SessionID: sessionID}) {
@@ -738,7 +689,7 @@ func parseRecordInfo(payload []byte) (Record, bool) {
 		record.Kind = KindMain
 	}
 	if record.Status == "" {
-		record.Status = StatusIdle
+		record.Status = StatusActive
 	}
 	record.Title = parseRecordTitle(header.Title)
 	return record, record.ID != ""

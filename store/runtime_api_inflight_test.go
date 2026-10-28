@@ -87,7 +87,7 @@ func TestRuntimeEntriesKeepOKFalseOnClosedRouter(t *testing.T) {
 		call func() (bool, error)
 	}{
 		{"AssembleWireWorkspace", func() (bool, error) {
-			_, ok, err := router.AssembleWireWorkspace(projectID, sessionID, 100, 3)
+			_, ok, err := wireAdapter(router).AssembleWireWorkspace(projectID, sessionID, 100, 3)
 			return ok, err
 		}},
 		{"CommitCompactFrameWorkspace", func() (bool, error) {

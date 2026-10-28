@@ -21,6 +21,7 @@ import (
 	//     于是"现场上有工作 + 合回主工作区"这一跳从未被断言过。
 	// 本文件把三跳连起来：**派发 → 现场上有真文件 → 合并回主工作区 → 析构销项按 teammate
 	// 自己的策略走（收尾/验收都不拆会话，整队收口才是唯一回收点）**。
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 	"sync"
 	"testing"
 	"time"
@@ -226,7 +227,7 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 	if !ok {
 		t.Fatal("④ 拿不到会话作用域键（KeyFor 无解）")
 	}
-	nodeStore := store.NewNodeSessionStore(smoke.harness.st)
+	nodeStore := store.NewWorkUnitSessionStore(smoke.harness.st)
 	records, err := nodeStore.List(key.ProjectID, key.SessionID)
 	if err != nil {
 		t.Fatalf("④ 读单元记录：%v", err)
@@ -302,7 +303,7 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 	<-probeDone
 }
 
-func hasNodeRecord(records []store.NodeSessionRecord, nodeID string) bool {
+func hasNodeRecord(records []storeworkunit.Record, nodeID string) bool {
 	for _, record := range records {
 		if record.NodeID == nodeID {
 			return true

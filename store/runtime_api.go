@@ -39,12 +39,22 @@ func (router *Router) jsonRepository() (*jsonRepository, bool) {
 	return router.jsonRepositoryLocked()
 }
 
+// WireStore is the session-layout adapter for provider wire reads.
+type WireStore struct {
+	router *Router
+}
+
+// NewWireStore constructs a wire store adapter.
+func NewWireStore(router *Router) *WireStore {
+	return &WireStore{router: router}
+}
+
 // AssembleWireWorkspace 对会话执行 wire 装配（frame 摘要 + tail + 最近 K
 // 条尝试）。非该布局返回 ok=false。
-func (router *Router) AssembleWireWorkspace(projectID, sessionID string, budget, k int) ([]types.Message, bool, error) {
+func (adapter *WireStore) AssembleWireWorkspace(projectID, sessionID string, budget, k int) ([]types.Message, bool, error) {
 	var messages []types.Message
 	var supported bool
-	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+	ok, err := adapter.router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
 		var inner error
 		messages, supported, inner = repository.assembleWireWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, budget, k)
 		return inner
@@ -248,31 +258,42 @@ func (router *Router) QueueRecoverItemsWorkspace(projectID, sessionID string) (Q
 
 // ---------- 栈通道（my_design §2.4/§3.2）----------
 
+// StackStore is the session-layout adapter for context stack persistence.
+// Stack state machines and journal algorithms remain in stack_* owners.
+type StackStore struct {
+	router *Router
+}
+
+// NewStackStore constructs a stack store adapter.
+func NewStackStore(router *Router) *StackStore {
+	return &StackStore{router: router}
+}
+
 // StackPush 把一批条目压入指定栈（batchID 为空 = 本次入栈自成一批）。
-func (router *Router) StackPush(projectID, sessionID string, kind StackKind, batchID string, items []StackItemInput) (StackMutation, error) {
-	return router.stackMutate(projectID, sessionID, kind, stackPushMessage(kind, batchID, items))
+func (adapter *StackStore) StackPush(projectID, sessionID string, kind StackKind, batchID string, items []StackItemInput) (StackMutation, error) {
+	return adapter.stackMutate(projectID, sessionID, kind, stackPushMessage(kind, batchID, items))
 }
 
 // StackSetStatus 更新栈条目状态；所属批次全部完成时整批弹栈归档。
-func (router *Router) StackSetStatus(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error) {
-	return router.stackMutate(projectID, sessionID, kind, stackSetStatusMessage(itemID, status))
+func (adapter *StackStore) StackSetStatus(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error) {
+	return adapter.stackMutate(projectID, sessionID, kind, stackSetStatusMessage(itemID, status))
 }
 
 // StackPopTop 弹出栈顶条目（goal LIFO）。
-func (router *Router) StackPopTop(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error) {
-	return router.stackMutate(projectID, sessionID, kind, stackPopTopMessage(itemID, status))
+func (adapter *StackStore) StackPopTop(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error) {
+	return adapter.stackMutate(projectID, sessionID, kind, stackPopTopMessage(itemID, status))
 }
 
 // StackReplace 用新的条目集合替换 active 栈，并推导出逐条迁移。
-func (router *Router) StackReplace(projectID, sessionID string, kind StackKind, items []StackItemInput, closedStatus string) (StackMutation, error) {
-	return router.stackMutate(projectID, sessionID, kind, stackReplaceMessage(kind, items, closedStatus))
+func (adapter *StackStore) StackReplace(projectID, sessionID string, kind StackKind, items []StackItemInput, closedStatus string) (StackMutation, error) {
+	return adapter.stackMutate(projectID, sessionID, kind, stackReplaceMessage(kind, items, closedStatus))
 }
 
 // stackMutate 是栈通道的统一写入口：变更以闭包（actor 消息）交给当前后端的
 // 会话提交临界区执行 → 单写者，可变投影不会被第二个 goroutine 同时触碰。
-func (router *Router) stackMutate(projectID, sessionID string, kind StackKind, mutate func(*stackState) (StackMutation, error)) (StackMutation, error) {
+func (adapter *StackStore) stackMutate(projectID, sessionID string, kind StackKind, mutate func(*stackState) (StackMutation, error)) (StackMutation, error) {
 	var mutation StackMutation
-	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+	err := adapter.router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		var err error
 		mutation, err = stackCommit(repository.stackJournal(), Key{ProjectID: projectID, SessionID: sessionID}, kind, mutate)
 		return err
@@ -281,9 +302,9 @@ func (router *Router) stackMutate(projectID, sessionID string, kind StackKind, m
 }
 
 // StackActive 返回指定栈当前 active 条目（按 seq 升序）。
-func (router *Router) StackActive(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error) {
+func (adapter *StackStore) StackActive(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error) {
 	var rows []StackItemRecord
-	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+	err := adapter.router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		var err error
 		rows, err = stackReadActive(repository.stackJournal(), Key{ProjectID: projectID, SessionID: sessionID}, kind)
 		return err
@@ -292,9 +313,9 @@ func (router *Router) StackActive(projectID, sessionID string, kind StackKind) (
 }
 
 // StackHistory 返回指定栈的归档条目。
-func (router *Router) StackHistory(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error) {
+func (adapter *StackStore) StackHistory(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error) {
 	var rows []StackItemRecord
-	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+	err := adapter.router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		var err error
 		rows, err = stackReadHistory(repository.stackJournal(), Key{ProjectID: projectID, SessionID: sessionID}, kind)
 		return err
@@ -303,17 +324,17 @@ func (router *Router) StackHistory(projectID, sessionID string, kind StackKind) 
 }
 
 // StackVerify 校验栈通道 head 水位与数据计数一致（M5 巡检的栈通道部分）。
-func (router *Router) StackVerify(projectID, sessionID string) error {
-	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+func (adapter *StackStore) StackVerify(projectID, sessionID string) error {
+	return adapter.router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		return stackVerify(repository.stackJournal(), Key{ProjectID: projectID, SessionID: sessionID})
 	})
 }
 
 // StackStorageStats 返回栈通道的延迟归因：栈锁等待与 active / history / head /
 // guide / EVENT 各数据域耗时，用于回答「延迟落在哪个文件」。
-func (router *Router) StackStorageStats() (stackJournalStats, error) {
+func (adapter *StackStore) StackStorageStats() (stackJournalStats, error) {
 	var stats stackJournalStats
-	err := router.withRepository(func(repository Repository, projectID string) error {
+	err := adapter.router.withRepository(func(repository Repository, projectID string) error {
 		stats = repository.stackJournal().stats()
 		return nil
 	})
@@ -322,8 +343,8 @@ func (router *Router) StackStorageStats() (stackJournalStats, error) {
 
 // ForkStacks 按 message 锚把父会话三栈重建进子会话（§8.1 + T-FK-02）。
 // fromSeq 必须 ≥ 父会话 LRU watermark（I7），否则显式报错、不产生半成品栈。
-func (router *Router) ForkStacks(parentProjectID, parentSessionID, childProjectID, childSessionID string, fromSeq uint64) error {
-	return router.withRepositoryAt(childProjectID, func(repository Repository, childProjectID string) error {
+func (adapter *StackStore) ForkStacks(parentProjectID, parentSessionID, childProjectID, childSessionID string, fromSeq uint64) error {
+	return adapter.router.withRepositoryAt(childProjectID, func(repository Repository, childProjectID string) error {
 		return stackFork(repository.stackJournal(),
 			Key{ProjectID: strings.TrimSpace(parentProjectID), SessionID: parentSessionID},
 			Key{ProjectID: childProjectID, SessionID: childSessionID}, fromSeq)

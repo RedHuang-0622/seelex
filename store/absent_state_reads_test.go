@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"testing"
 
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"github.com/RedHuang-0622/seelex/store/workunit"
 )
 
@@ -27,7 +28,7 @@ func TestAbsentHeadReadsReturnStateNotIOError(t *testing.T) {
 
 	// ── ① 空值档：零值 + nil ────────────────────────────────────────────
 	t.Run("空值档", func(t *testing.T) {
-		if plan, err := repository.layout.teamwork.ReadPlan(key); err != nil || !TeamworkPlanIsEmpty(plan) {
+		if plan, err := repository.layout.teamwork.ReadPlan(key); err != nil || !storeteamwork.PlanIsEmpty(plan) {
 			t.Fatalf("ReadTeamworkPlan = (%+v, %v)，want 空计划 + nil", plan, err)
 		}
 		if events, err := repository.layout.teamwork.ReadEvents(key); err != nil || len(events) != 0 {
@@ -49,8 +50,8 @@ func TestAbsentHeadReadsReturnStateNotIOError(t *testing.T) {
 
 	// ── ② 哨兵档：调用方点名了应当存在的东西 / 压缩链要区分"没有"与"读坏" ──
 	t.Run("哨兵档", func(t *testing.T) {
-		if _, err := workunit.New(repository.sessionDir(key)).Read(key.SessionID, "sub-1"); !errors.Is(err, ErrNodeSessionNotFound) {
-			t.Fatalf("ReadNodeSession(缺失) = %v，want ErrNodeSessionNotFound", err)
+		if _, err := workunit.New(repository.sessionDir(key)).Read(key.SessionID, "sub-1"); !errors.Is(err, workunit.ErrNotFound) {
+			t.Fatalf("ReadNodeSession(缺失) = %v，want workunit.ErrNotFound", err)
 		}
 		if _, err := repository.readCheckpointLayout(key); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("readCheckpointLayout(缺失) = %v，want fs.ErrNotExist（压缩链据此区分「没有快照」与「快照读坏了」）", err)

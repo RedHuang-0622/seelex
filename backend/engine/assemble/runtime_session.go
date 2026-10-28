@@ -10,6 +10,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/store"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
 // 主会话与子代理 merge-back 的会话侧内部方法。公开会话端口见 ports.go。
@@ -115,7 +116,7 @@ func (r *Runtime) getTurnArchiver() seelexctx.TurnArchiver {
 
 // setProjectKnowledge 设置全局项目级模块语义提供者（ProjectKnowledge
 // 会话前预读；nil 关闭 project 块）。
-func (r *Runtime) setProjectKnowledge(provider func() *store.ProjectRecord) {
+func (r *Runtime) setProjectKnowledge(provider func() *storeproject.ProjectRecord) {
 	r.projectMu.Lock()
 	r.project = provider
 	r.projectMu.Unlock()

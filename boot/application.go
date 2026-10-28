@@ -12,6 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/startup"
 	"github.com/RedHuang-0622/seelex/store"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storerole "github.com/RedHuang-0622/seelex/store/role"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 )
 
@@ -36,6 +37,8 @@ func InitApplication(
 	workspaces *workspace.Repo,
 	events *application.EventHub, approval application.ApprovalBroker,
 	boards *storeboard.SessionStore,
+	rolePermissions *storerole.PermissionStore,
+	roleSessions *store.RoleSessionAdapter,
 	// storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录
 	// 计数开关都落在它下面的 runtime-limits.json，所以它是**显式输入**而不是
 	// 包级变量的隐含读取。
@@ -53,7 +56,11 @@ func InitApplication(
 	// 决策段跑在每一次工具调用上。
 	runtime.SetSessionSSHEnvResolver(host.SessionSSHEnvResolver(sessions.Router()))
 
-	sessionPort := host.SessionPort{Manager: sessions, Runtime: runtime, Boards: boards}
+	sessionPort := host.SessionPort{
+		Manager: sessions, Runtime: runtime, Boards: boards,
+		RolePermissions: rolePermissions,
+		RoleSessions:    roleSessions,
+	}
 	// 会话展示元数据（置顶/别名/排序位）按项目存一份 blob：与 SessionRecord 的
 	// 落盘路径完全隔离，不会被回合结束的记录重建覆盖。
 	sessionPort.Meta = store.NewSessionMetaStore(sessions.Router())

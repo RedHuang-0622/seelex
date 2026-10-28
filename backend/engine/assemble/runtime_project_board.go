@@ -14,8 +14,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/board"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // errTeamworkPlanUnavailable 是"teamwork 后端未装配"在计划读口上的报错（与"读失败"同解：
@@ -25,9 +26,9 @@ var errTeamworkPlanUnavailable = errors.New("teamwork: 后端未装配")
 // TeamworkPlanFor 实现 `board.TeamworkPlanSource`：返回该会话的 teamwork 计划。
 //
 // 判定在域包（`board.TeamworkPlanFor`）；本方法只把"当前装配到的 teamwork 后端"接成两格读数。
-func (r *Runtime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
+func (r *Runtime) TeamworkPlanFor(sessionID string) (storeteamwork.Plan, bool) {
 	if r == nil {
-		return store.TeamworkPlan{}, false
+		return storeteamwork.Plan{}, false
 	}
 	return board.TeamworkPlanFor(sessionID, board.TeamworkPlanDeps{
 		KeyFor:   r.teamworkKeyFor,
@@ -36,12 +37,12 @@ func (r *Runtime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
 }
 
 // readTeamworkPlan 读当前装配的 teamwork 后端的计划读口（未装配 ⇒ 报错，与"读失败"同解）。
-func (r *Runtime) readTeamworkPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error) {
+func (r *Runtime) readTeamworkPlan(ctx context.Context, key dto.SessionKey) (storeteamwork.Plan, error) {
 	r.teamworkMu.Lock()
 	backend := r.teamworkBackend
 	r.teamworkMu.Unlock()
 	if backend == nil || backend.Store == nil {
-		return store.TeamworkPlan{}, errTeamworkPlanUnavailable
+		return storeteamwork.Plan{}, errTeamworkPlanUnavailable
 	}
 	return backend.Store.ReadPlan(ctx, key)
 }

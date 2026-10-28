@@ -7,12 +7,11 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
-	"github.com/RedHuang-0622/seelex/store"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
 
 type goalContextStoreProvider interface {
-	SessionContextStoreFor(string) *store.SessionContextStore
+	SessionContextStoreFor(string) goaldomain.SessionContextPort
 	SessionBoardsFor(string) *storeboard.BoundStore
 }
 
@@ -60,5 +59,8 @@ func goalStoreFor(provider goalContextStoreProvider, sessionID string) *goaldoma
 		return nil
 	}
 	boards := provider.SessionBoardsFor(sessionID)
+	if boards == nil {
+		return goaldomain.NewContextStateStore(session)
+	}
 	return goaldomain.NewContextStateStore(session, boards)
 }

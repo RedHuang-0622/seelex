@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 )
 
 // projectRecordTestProjectID 是这些用例的项目级记录键，形状与 workspace.New 生成的
-// `ws-<nano>` 一致；RefreshProjectKnowledge 的写入键与读面（store.Workspace()）必须同键。
+// `ws-<nano>` 一致；storeproject.RefreshProjectKnowledge 的写入键与读面（store.Workspace()）必须同键。
 const projectRecordTestProjectID = "ws-0000000000000000001"
 
 func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T) {
@@ -26,9 +27,9 @@ func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer repository.Close()
-			want := ProjectRecord{
+			want := storeproject.ProjectRecord{
 				Version: "abc",
-				Modules: []ModuleSemantics{
+				Modules: []storeproject.ModuleSemantics{
 					{Name: "gui", Summary: "GUI 前端职责", Path: "gui", Docs: []string{"gui/README.md"}},
 					{Name: "core", Summary: "core 职责", Path: "application/core"},
 				},
@@ -48,7 +49,7 @@ func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T) {
 				t.Fatalf("record = %s, want %s", gotJSON, wantJSON)
 			}
 			// 项目级记录按 projectID 隔离：其它项目读不到。
-			if _, err := repository.ReadProjectRecord(context.Background(), "other"); err == nil || !isProjectRecordNotFound(err) {
+			if _, err := repository.ReadProjectRecord(context.Background(), "other"); err == nil || !storeproject.IsRecordNotFound(err) {
 				t.Fatalf("missing record error = %v, want not found", err)
 			}
 		})
@@ -63,7 +64,7 @@ func TestProjectRecordEmptyProjectIDRejected(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := repository.WriteProjectRecord(context.Background(), "  ", ProjectRecord{}); err == nil {
+		if err := repository.WriteProjectRecord(context.Background(), "  ", storeproject.ProjectRecord{}); err == nil {
 			t.Fatalf("%s: empty project ID succeeded", storageLayoutName)
 		}
 		if _, err := repository.ReadProjectRecord(context.Background(), ""); err == nil {
@@ -117,7 +118,7 @@ func newKnowledgeProject(t *testing.T) string {
 
 func TestProjectKnowledgeBuilderBuildsModules(t *testing.T) {
 	root := newKnowledgeProject(t)
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
 
 	record, err := builder.Build()
 	if err != nil {
@@ -127,7 +128,7 @@ func TestProjectKnowledgeBuilderBuildsModules(t *testing.T) {
 	if len(record.Modules) != 4 {
 		t.Fatalf("modules = %d, want 4: %+v", len(record.Modules), record.Modules)
 	}
-	byName := map[string]ModuleSemantics{}
+	byName := map[string]storeproject.ModuleSemantics{}
 	for _, module := range record.Modules {
 		byName[module.Name] = module
 	}
@@ -157,7 +158,7 @@ func TestProjectKnowledgeBuilderBuildsModules(t *testing.T) {
 
 func TestProjectKnowledgeBuilderSameSourcesDetectsChanges(t *testing.T) {
 	root := newKnowledgeProject(t)
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
 	record, err := builder.Build()
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +176,7 @@ func TestProjectKnowledgeBuilderSameSourcesDetectsChanges(t *testing.T) {
 }
 
 func TestProjectKnowledgeBuilderFailsWithoutSources(t *testing.T) {
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: t.TempDir()})
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: t.TempDir()})
 	if _, err := builder.SourceHashes(); err == nil {
 		t.Fatal("no sources must fail explicitly (first build)")
 	}
@@ -187,9 +188,9 @@ func TestProjectKnowledgeBuilderFailsWithoutSources(t *testing.T) {
 func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 	router := newTestRouter(t)
 	root := newKnowledgeProject(t)
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
 
-	first, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
+	first, err := storeproject.RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +199,7 @@ func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 	}
 
 	// 来源未变 → 直接复用，不重建（Version/BuiltAt 不变）。
-	second, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
+	second, err := storeproject.RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +211,7 @@ func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 	}
 
 	// 强制重建 → 落盘新记录（BuiltAt 前进）。
-	forced, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, true)
+	forced, err := storeproject.RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +223,7 @@ func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "docs", "gui", "module_dotting.json"), []byte(`{"modules":[{"id":"core","responsibility":"新职责"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
+	changed, err := storeproject.RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,8 +235,8 @@ func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 func TestRefreshProjectKnowledgeFallsBackOnRebuildFailure(t *testing.T) {
 	router := newTestRouter(t)
 	root := newKnowledgeProject(t)
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
-	first, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
+	first, err := storeproject.RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +245,7 @@ func TestRefreshProjectKnowledgeFallsBackOnRebuildFailure(t *testing.T) {
 	if err := os.WriteFile(broken, []byte(`not-json`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fallback, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
+	fallback, err := storeproject.RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,20 +257,20 @@ func TestRefreshProjectKnowledgeFallsBackOnRebuildFailure(t *testing.T) {
 	}
 	// 首建失败 → 显式错误。用**另一个键**才是真正的「首建」：同键已有记录时
 	// 走的是上面的回退分支（保留上一版本）。
-	emptyBuilder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: t.TempDir()})
-	if _, err := RefreshProjectKnowledge(context.Background(), router, "ws-0000000000000000002", emptyBuilder, false); err == nil {
+	emptyBuilder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: t.TempDir()})
+	if _, err := storeproject.RefreshProjectKnowledge(context.Background(), router, "ws-0000000000000000002", emptyBuilder, false); err == nil {
 		t.Fatal("first build failure must fail explicitly")
 	}
 }
 
 func TestIsProjectRecordNotFound(t *testing.T) {
-	if isProjectRecordNotFound(nil) {
+	if storeproject.IsRecordNotFound(nil) {
 		t.Fatal("nil is not not-found")
 	}
-	if !isProjectRecordNotFound(fs.ErrNotExist) {
+	if !storeproject.IsRecordNotFound(fs.ErrNotExist) {
 		t.Fatal("fs.ErrNotExist must be not-found")
 	}
-	if isProjectRecordNotFound(errors.New("boom")) {
+	if storeproject.IsRecordNotFound(errors.New("boom")) {
 		t.Fatal("other errors are not not-found")
 	}
 }

@@ -11,11 +11,12 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
-func conclusionRecord() store.NodeSessionRecord {
-	return store.NodeSessionRecord{
-		SchemaVersion: store.NodeSessionSchemaVersion,
+func conclusionRecord() storeworkunit.Record {
+	return storeworkunit.Record{
+		SchemaVersion: storeworkunit.SchemaVersion,
 		NodeID:        "n1", SessionID: "node-abc", Status: "failed",
 		Goal: "实现渲染件", Summary: "半途而废", Error: "provider 402", ResultJSON: json.RawMessage(`{"k":"v"}`),
 	}
@@ -44,12 +45,12 @@ func TestConclusionEventShape(t *testing.T) {
 		t.Fatalf("结论必须落在**主会话**的事件库里：%#v", event.Locations)
 	}
 
-	done := ConclusionEvent("sess-main", store.NodeSessionRecord{NodeID: "n2", Status: "done"}, at)
+	done := ConclusionEvent("sess-main", storeworkunit.Record{NodeID: "n2", Status: "done"}, at)
 	if done.Status != frameworkevent.StatusCompleted {
 		t.Fatalf("done 应投影为 completed，得到 %q", done.Status)
 	}
 	// 认不出的状态词按"非失败"处理（与既有 nodeStateOfRecord 兜底一致）：不静默判死。
-	unknown := ConclusionEvent("sess-main", store.NodeSessionRecord{NodeID: "n3", Status: "??"}, at)
+	unknown := ConclusionEvent("sess-main", storeworkunit.Record{NodeID: "n3", Status: "??"}, at)
 	if unknown.Status != frameworkevent.StatusCompleted {
 		t.Fatalf("未知状态词应投影为 completed（不判死），得到 %q", unknown.Status)
 	}
@@ -79,7 +80,7 @@ func TestConclusionsRoundTripIsLossless(t *testing.T) {
 		string(got.ResultJSON) != string(record.ResultJSON) {
 		t.Fatalf("往返丢字段：\nwant %+v\ngot  %+v", record, got)
 	}
-	if got.SchemaVersion != store.NodeSessionSchemaVersion {
+	if got.SchemaVersion != storeworkunit.SchemaVersion {
 		t.Fatalf("重建的记录必须带当前 schema 版本：%d", got.SchemaVersion)
 	}
 }
@@ -109,13 +110,13 @@ func TestConclusionsFromEventsSkipsForeignAndBrokenEntries(t *testing.T) {
 func TestTakeoverPredicateOnlyTakesOverDeadOwners(t *testing.T) {
 	live := map[string]bool{"n1": true}
 	predicate := TakeoverPredicate(func(nodeID string) bool { return live[nodeID] })
-	if predicate(store.NodeSessionRecord{NodeID: "n1"}) {
+	if predicate(storeworkunit.Record{NodeID: "n1"}) {
 		t.Fatal("本进程仍在跑的节点不得被记录接管（否则会被覆盖成 interrupted）")
 	}
-	if !predicate(store.NodeSessionRecord{NodeID: "n2"}) {
+	if !predicate(storeworkunit.Record{NodeID: "n2"}) {
 		t.Fatal("主人不在本进程的记录必须按崩溃口径接管")
 	}
-	if !TakeoverPredicate(nil)(store.NodeSessionRecord{NodeID: "n1"}) {
+	if !TakeoverPredicate(nil)(storeworkunit.Record{NodeID: "n1"}) {
 		t.Fatal("没有内存判据时按记录恢复（既有语义）")
 	}
 }

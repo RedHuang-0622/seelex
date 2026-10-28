@@ -19,10 +19,9 @@ package teamwork
 
 import (
 	"context"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // blockWorker 让 worker 停在半路：工作项因此**稳定地**处于"在跑"——这正是尾插要用现场
@@ -43,7 +42,7 @@ func runningItem(t *testing.T, fixture *itemFixture, id string) {
 		t.Fatalf("DispatchItem(%s): %v", id, err)
 	}
 	waitRequests(t, fixture, 1)
-	if status := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, id)); status != store.TeamworkItemRunning {
+	if status := storeteamwork.WorkItemStatusOrPending(itemState(t, fixture, id)); status != storeteamwork.ItemRunning {
 		t.Fatalf("前置：worker 还在飞时 %s 应在跑，得到 %q", id, status)
 	}
 }
@@ -68,7 +67,7 @@ func TestAcceptRefusesItemStillRunning(t *testing.T) {
 
 	// 让它跑完：尾插（合并 → 回执 → 状态）走完，链尾才轮到验收。
 	close(block)
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	bound, merged, _ := fixture.spaces.snapshot()
 	if len(merged) != 1 || merged[0] != "wi-req" {
 		t.Fatalf("尾插必须先合并（顺序即责任），得到 %v", merged)
@@ -101,7 +100,7 @@ func TestAcceptAllowsRunningItemWhoseHandleIsGone(t *testing.T) {
 
 	// 重启：新协调器 + 空作业表——句柄只在内存，重启必然作废；状态照旧停在 running。
 	restarted := newItemFixtureOver(t, fixture)
-	if status := store.TeamworkWorkItemStatusOrPending(itemState(t, restarted, "wi-req")); status != store.TeamworkItemRunning {
+	if status := storeteamwork.WorkItemStatusOrPending(itemState(t, restarted, "wi-req")); status != storeteamwork.ItemRunning {
 		t.Fatalf("前置：重启后状态仍是 running（句柄作废不是错误，是「可重派」的信号），得到 %q", status)
 	}
 	if err := restarted.coordinator.AcceptItem(context.Background(), "wi-req", "重启后清理现场"); err != nil {
@@ -141,7 +140,7 @@ func TestCloseRefusesWhileItemRunning(t *testing.T) {
 
 	// ② 尾插走完（review）：合并已落地，释放它的现场是安全的——收口放行。
 	close(block)
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	alreadyClosed, err := fixture.coordinator.Close(ctx)
 	if err != nil || alreadyClosed {
 		t.Fatalf("落定之后收口必须通过，得到 alreadyClosed=%v err=%v", alreadyClosed, err)
@@ -164,7 +163,7 @@ func TestCloseRefusesFailedItemUntilSettled(t *testing.T) {
 	block := blockWorker(fixture)
 	runningItem(t, fixture, "wi-req")
 	close(block)
-	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", storeteamwork.ItemReview)
 	if err := fixture.coordinator.FailItem(ctx, "wi-req", "这一轮跑歪了，现场留着人工处置"); err != nil {
 		t.Fatalf("FailItem: %v", err)
 	}

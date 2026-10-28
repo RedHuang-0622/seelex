@@ -22,7 +22,7 @@ func TestPushCompactBridgesOutsideStoreLock(t *testing.T) {
 	events := make([]Event, 0, frameCount)
 	for index := 1; index <= frameCount; index++ {
 		events = append(events, Event{
-			Role: "user", Content: fmt.Sprintf("q-%d", index), MessageID: fmt.Sprintf("u%d", index),
+			Seq: uint64(index), Role: "user", Content: fmt.Sprintf("q-%d", index), MessageID: fmt.Sprintf("u%d", index),
 		})
 	}
 	if err := router.SaveCommitWorkspace(projectID, sessionID, Commit{Events: events}); err != nil {

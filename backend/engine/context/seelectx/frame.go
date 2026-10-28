@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
-	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
@@ -96,7 +95,7 @@ type CarryDiagnostics struct {
 // 下限同一条取舍原则。
 //
 // 第二个返回值是决策事实（报表/门禁打点用）；prev 为 nil 或正文为空时返回空串。
-func CarryPreviousChapter2(prev *store.CompactFrame, limitTokens int) (string, CarryDiagnostics) {
+func CarryPreviousChapter2(prev *storecontext.CompactFrame, limitTokens int) (string, CarryDiagnostics) {
 	if prev == nil {
 		return "", CarryDiagnostics{}
 	}
@@ -119,7 +118,7 @@ func CarryPreviousChapter2(prev *store.CompactFrame, limitTokens int) (string, C
 // renderCarryAnchor 渲染并入上限降级后的锚点正文：定位信息（segment_id /
 // request 首尾 / 一句话）一个不少，"正文为什么不见了"也写清楚——读的人不必
 // 猜是被裁了还是本来就没有。
-func renderCarryAnchor(prev store.CompactFrame, limitTokens, carried int) string {
+func renderCarryAnchor(prev storecontext.CompactFrame, limitTokens, carried int) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder,
 		"先前压缩摘要超出并入上限: %d tokens > %d（limits.context_frame_carry_tokens），正文退化为锚点，细节经 search_history / read_compressed_turn 回读。\n",
@@ -141,7 +140,7 @@ func AnchorSourceWithCarry(base string, carry CarryDiagnostics) string {
 // CarryEvidence 把帧摘要传递的决策事实写成一条证据引用——帧持久化在会话
 // state blob 的 CompactStack 里，证据列表可审计、可回读，因此不必为此新增
 // schema 字段。无上一帧（LimitTokens == 0）时不写。
-func CarryEvidence(carry CarryDiagnostics) []store.EvidenceRef {
+func CarryEvidence(carry CarryDiagnostics) []storecontext.EvidenceRef {
 	if carry.LimitTokens <= 0 {
 		return nil
 	}
@@ -150,7 +149,7 @@ func CarryEvidence(carry CarryDiagnostics) []store.EvidenceRef {
 		ref = "anchor"
 		summary = "previous frame chapter-2 exceeded limits.context_frame_carry_tokens; degraded to anchor (read back via search_history / read_compressed_turn)"
 	}
-	return []store.EvidenceRef{{
+	return []storecontext.EvidenceRef{{
 		Ref:     fmt.Sprintf("frame-carry:%s:%d/%d", ref, carry.CarriedTokens, carry.LimitTokens),
 		Summary: summary,
 	}}
@@ -167,7 +166,7 @@ type LocalCompactOptions struct {
 	// PrevTop 上一栈顶帧（非 nil 时把其 Chapter 2 正文并入 Current Work，
 	// 维持本地压缩路径的栈顶自足；不复制 Chapter 1 锚点，避免递归嵌套）。
 	// 并入量受 CarryLimitTokens 约束（超限退化为锚点，见 CarryPreviousChapter2）。
-	PrevTop *store.CompactFrame
+	PrevTop *storecontext.CompactFrame
 	// CarryLimitTokens 是帧摘要传递上限（limits.context_frame_carry_tokens；
 	// 0 → DefaultFrameCarryTokens）。
 	CarryLimitTokens int
@@ -332,7 +331,7 @@ func RenderFrameSummary(anchor string, chapter2 string) string {
 
 // RenderAnchorChapter 生成 Chapter 1 锚点正文（无 "## " 标题）：上一帧的
 // segment_id + request 首尾 + 一句话摘要；prev 为 nil（首帧）→ 显式占位。
-func RenderAnchorChapter(prev *store.CompactFrame) string {
+func RenderAnchorChapter(prev *storecontext.CompactFrame) string {
 	if prev == nil {
 		return "（首帧：无上一压缩栈）"
 	}
@@ -354,13 +353,13 @@ func RenderAnchorChapter(prev *store.CompactFrame) string {
 
 // FrameChapter1 返回帧 Summary 的 Chapter 1 正文；旧记录（无章节标记）
 // 返回空串。
-func FrameChapter1(frame store.CompactFrame) string {
+func FrameChapter1(frame storecontext.CompactFrame) string {
 	return frameChapter(frame.Summary, "## "+CompactChapter1Title)
 }
 
 // FrameChapter2 返回帧 Summary 的 Chapter 2 正文；旧记录（无章节标记）
 // 退化为整段摘要（模型可见范围保持兼容）。
-func FrameChapter2(frame store.CompactFrame) string {
+func FrameChapter2(frame storecontext.CompactFrame) string {
 	return Chapter2Body(frame.Summary)
 }
 
@@ -420,7 +419,7 @@ func frameChapter(summary, title string) string {
 // 开头，一旦有人把它误写进 Summary，锚点的一句话就会变成一段花括号，经
 // PrevSummaryOneLine 渲染进下一帧的 Chapter 1 —— 污染整条帧链，而且每一帧看起来
 // 都"有锚点"，不会触发 degraded 标记，因此不会有任何报警。
-func OneLineSummary(frame store.CompactFrame) string {
+func OneLineSummary(frame storecontext.CompactFrame) string {
 	candidates := append(strings.Split(FrameChapter2(frame), "\n"),
 		strings.Split(frame.Summary, "\n")...)
 	for _, line := range candidates {
@@ -444,7 +443,7 @@ func OneLineSummary(frame store.CompactFrame) string {
 
 // FrameAnchorSource 计算链锚点质量标记：无前驱 → 空；有前驱且能提取
 // 一句话 → ok；否则 degraded。
-func FrameAnchorSource(prev *store.CompactFrame) string {
+func FrameAnchorSource(prev *storecontext.CompactFrame) string {
 	if prev == nil {
 		return ""
 	}

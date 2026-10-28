@@ -25,7 +25,7 @@ func seedMessageRows(t *testing.T, store *storeEngine, key Key, count int) {
 	t.Helper()
 	for index := 0; index < count; index++ {
 		if _, err := store.messageCommit(key, "seed", []Event{{
-			Role: "user", Content: "seed-row", CreatedAt: time.Now().UTC(),
+			Seq: uint64(index + 1), Role: "user", Content: "seed-row", CreatedAt: time.Now().UTC(),
 		}}); err != nil {
 			t.Fatalf("seed row %d: %v", index, err)
 		}
@@ -48,7 +48,7 @@ func TestCommitSkipsTailShardDecode(t *testing.T) {
 	shardDecodeHook = func() { decodes.Add(1) }
 	t.Cleanup(func() { shardDecodeHook = nil })
 
-	if _, err := store.messageCommit(key, "fast", []Event{{Role: "user", Content: "fast-row", CreatedAt: time.Now().UTC()}}); err != nil {
+	if _, err := store.messageCommit(key, "fast", []Event{{Seq: 11, Role: "user", Content: "fast-row", CreatedAt: time.Now().UTC()}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := decodes.Load(); got != 0 {
@@ -66,7 +66,7 @@ func TestCommitSkipsTailShardDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 	decodes.Store(0)
-	if _, err := store.messageCommit(key, "slow", []Event{{Role: "user", Content: "slow-row", CreatedAt: time.Now().UTC()}}); err != nil {
+	if _, err := store.messageCommit(key, "slow", []Event{{Seq: 12, Role: "user", Content: "slow-row", CreatedAt: time.Now().UTC()}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := decodes.Load(); got == 0 {
@@ -82,7 +82,7 @@ func TestTrustedTailKeepsIndexExact(t *testing.T) {
 	key := Key{ProjectID: "p", SessionID: "s"}
 	seedMessageRows(t, store, key, 10)
 	for round := 0; round < 3; round++ {
-		if _, err := store.messageCommit(key, "fast", []Event{{Role: "user", Content: "row", CreatedAt: time.Now().UTC()}}); err != nil {
+		if _, err := store.messageCommit(key, "fast", []Event{{Seq: uint64(11 + round), Role: "user", Content: "row", CreatedAt: time.Now().UTC()}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -129,8 +129,8 @@ func TestTrustedTailFallsBackWhenDraftRowsPresent(t *testing.T) {
 	}
 	beforeLast := head.LastSeq
 	draft, err := store.appendDraftRows(key, "draft-1", []Event{
-		{Role: "assistant", Content: "draft-a", CreatedAt: time.Now().UTC()},
-		{Role: "assistant", Content: "draft-b", CreatedAt: time.Now().UTC()},
+		{Seq: 11, Role: "assistant", Content: "draft-a", CreatedAt: time.Now().UTC()},
+		{Seq: 12, Role: "assistant", Content: "draft-b", CreatedAt: time.Now().UTC()},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestTrustedTailFallsBackWhenDraftRowsPresent(t *testing.T) {
 	if trusted := store.trustedTailFor(key, head); trusted != nil {
 		t.Fatalf("草稿行在片上却仍给出可信末分片索引：%+v", trusted)
 	}
-	if _, err := store.messageCommit(key, "commit-after-draft", []Event{{Role: "user", Content: "real", CreatedAt: time.Now().UTC()}}); err != nil {
+	if _, err := store.messageCommit(key, "commit-after-draft", []Event{{Seq: 11, Role: "user", Content: "real", CreatedAt: time.Now().UTC()}}); err != nil {
 		t.Fatal(err)
 	}
 	head, err = store.readMessageHead(key)

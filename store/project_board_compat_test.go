@@ -5,47 +5,28 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
 )
-
-func TestProjectBoardRouterCompatibilityForwardsToBoardOwner(t *testing.T) {
-	router := newLockProfileRouter(t, t.TempDir())
-	projectRoot := t.TempDir()
-	const sessionID = "session-compat"
-	row := ProjectBoardRow{
-		Schema: ProjectBoardSchema, Kind: ProjectBoardKindWork, Key: "work:1", Seq: 1,
-		Scope: ProjectBoardScope{Session: sessionID}, Payload: map[string]any{"task": "compat"},
-	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, sessionID, ProjectBoardWorkFile, []ProjectBoardRow{row}); err != nil {
-		t.Fatal(err)
-	}
-	rows, err := router.ReadProjectBoardRows(projectRoot, sessionID, ProjectBoardWorkFile)
-	if err != nil || len(rows) != 1 || rows[0].Key != "work:1" {
-		t.Fatalf("compat read rows=%#v err=%v", rows, err)
-	}
-	if _, err := router.ReadProjectBoardMarkdown(projectRoot); err != nil {
-		t.Fatalf("compat markdown read: %v", err)
-	}
-}
 
 func TestProjectBoardReclaimUsesInjectedProjectRootButLeavesModuleLocksAlone(t *testing.T) {
 	router := newLockProfileRouter(t, t.TempDir())
 	projectRoot := t.TempDir()
 	const sessionID = "session-reclaim"
-	router.SetProjectBoardRootFor(func(got string) string {
+	ConfigureProjectBoardReclaimer(router, func(got string) error {
 		if got != sessionID {
-			t.Fatalf("resolver got session %q, want %q", got, sessionID)
+			t.Fatalf("reclaimer got session %q, want %q", got, sessionID)
 		}
-		return projectRoot
+		return storeboard.Reclaim(projectRoot, got)
 	})
-	row := ProjectBoardRow{
-		Schema: ProjectBoardSchema, Kind: ProjectBoardKindWork, Key: "work:1", Seq: 1,
-		Scope: ProjectBoardScope{Session: sessionID}, Payload: map[string]any{"task": "compat"},
+	row := dto.ProjectBoardRow{
+		Schema: dto.ProjectBoardSchema, Kind: dto.ProjectBoardKindWork, Key: "work:1", Seq: 1,
+		Scope: dto.ProjectBoardScope{Session: sessionID}, Payload: map[string]any{"task": "compat"},
 	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, sessionID, ProjectBoardWorkFile, []ProjectBoardRow{row}); err != nil {
+	if _, err := storeboard.Append(projectRoot, sessionID, dto.ProjectBoardWorkFile, []dto.ProjectBoardRow{row}); err != nil {
 		t.Fatal(err)
 	}
-	boardLock := projectBoardLock(filepath.Join(storeboard.Dir(projectRoot), sessionID, ProjectBoardWorkFile))
+	boardLock := storeboard.Mutex(filepath.Join(storeboard.Dir(projectRoot), sessionID, dto.ProjectBoardWorkFile))
 	repository, ok := router.jsonRepository()
 	if !ok {
 		t.Fatal("router is not JSON repository")
@@ -56,7 +37,7 @@ func TestProjectBoardReclaimUsesInjectedProjectRootButLeavesModuleLocksAlone(t *
 			t.Fatalf("board lock aliases module %q", module)
 		}
 	}
-	if err := router.ReclaimProjectBoard("ignored", sessionID); err != nil {
+	if err := router.projectBoardReclaim(sessionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(storeboard.SessionDir(projectRoot, sessionID)); !os.IsNotExist(err) {

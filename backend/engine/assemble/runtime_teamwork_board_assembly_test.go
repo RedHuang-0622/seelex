@@ -25,7 +25,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 const boardAssemblySessionID = "s-board-assembly"
@@ -113,7 +112,7 @@ func TestTeamworkBoardCarriesMemberAssemblyReadings(t *testing.T) {
 	}
 	// 计划才是事实：声明面必须与**落盘计划**里的那一份逐条一致（看板只是投影）。
 	plan, err := plans.ReadPlan(context.Background(),
-		store.Key{ProjectID: "p-team", SessionID: boardAssemblySessionID})
+		dto.SessionKey{ProjectID: "p-team", SessionID: boardAssemblySessionID})
 	if err != nil {
 		t.Fatalf("读落盘计划：%v", err)
 	}
@@ -320,7 +319,7 @@ func TestTeamBoardArchiveCarriesSameAssemblyReadings(t *testing.T) {
 	}
 	boardAssemblyPlan(t, runtime)
 
-	key := store.Key{ProjectID: "p-team", SessionID: boardAssemblySessionID}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: boardAssemblySessionID}
 	meta, ok := boards.latest(key)
 	if !ok {
 		t.Fatal("team_plan 之后必须有存档（写侧与下发同一条组装路径）")

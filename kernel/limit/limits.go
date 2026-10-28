@@ -230,7 +230,7 @@ type AsyncExecLimits struct {
 // ProjectBoardLimits 是**项目看板**的开关块（limits.project_board）。
 //
 // 三格里没有 `max_rows`，这是**有意的偏离**（契约 §5.4 的示例块里有它）：单次追加的
-// 行数上限是存储面的硬不变量，唯一判据是 `store.ProjectBoardMaxRows`
+// 行数上限是存储面的硬不变量，唯一判据是 `dto.ProjectBoardMaxRows`
 // （越界显式报错，不静默截断）。在这里再放一个可调上限，就会有两个判据对同一次追加
 // 各说各话（配置说 1000、存储说 512，用户看到的只有"没生效"）。
 type ProjectBoardLimits struct {

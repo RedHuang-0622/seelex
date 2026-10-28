@@ -21,7 +21,7 @@ import (
 	"github.com/RedHuang-0622/Seele/jobs"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // BoardEventLimit 是审计投影的条数上限：审计是**只追加**的流水，
@@ -46,9 +46,9 @@ func SubjectPrefix() string { return SubjectForRole("") }
 // 两处各拼一遍就是两份事实，重启恢复出的看板迟早和活体下发的不一样。装配读数
 // （assemblies）因此是**参数**而不是在这里现算：算它需要宿主的插件域与工具面。
 func BuildBoardView(
-	plan store.TeamworkPlan,
-	events []store.TeamworkEvent,
-	bindings []store.TeamworkBinding,
+	plan storeteamwork.Plan,
+	events []storeteamwork.Event,
+	bindings []storeteamwork.Binding,
 	records []jobs.Record,
 	maxMembers int,
 	assemblies []dto.PluginAssemblyView,
@@ -75,9 +75,9 @@ func BuildBoardView(
 // BuildBoardViewWithLimits adds the independent role/job limit readings to
 // the single board projection path.
 func BuildBoardViewWithLimits(
-	plan store.TeamworkPlan,
-	events []store.TeamworkEvent,
-	bindings []store.TeamworkBinding,
+	plan storeteamwork.Plan,
+	events []storeteamwork.Event,
+	bindings []storeteamwork.Binding,
 	records []jobs.Record,
 	maxMembers, maxJobs int,
 	assemblies []dto.PluginAssemblyView,
@@ -91,7 +91,7 @@ func BuildBoardViewWithLimits(
 //
 // 判据 = 有里程碑（阶段口径 2026-10-04 整条退场：计划里**没有** stages 这个概念了）。
 // 里程碑是计划的最小形状（校验层也要求至少一份），所以"没有里程碑"就等于"没有计划"。
-func PlanHasOrchestration(plan store.TeamworkPlan) bool {
+func PlanHasOrchestration(plan storeteamwork.Plan) bool {
 	return len(plan.Milestones) > 0
 }
 
@@ -106,7 +106,7 @@ func PlanHasOrchestration(plan store.TeamworkPlan) bool {
 // 生效面取调用方算好的读数（走宿主那**同一条**装配面判据）。两格都**拷贝**而不是共享底层
 // 数组：计划来自看板缓存（同一份计划会被多个快照与并发读者共享），让 DTO 指回缓存就是给
 // "前端读到一半的写"留口子。
-func MemberViews(plan store.TeamworkPlan, events []store.TeamworkEvent, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView {
+func MemberViews(plan storeteamwork.Plan, events []storeteamwork.Event, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView {
 	if len(plan.Members) == 0 {
 		return nil
 	}
@@ -136,14 +136,14 @@ func MemberViews(plan store.TeamworkPlan, events []store.TeamworkEvent, records 
 				if item.Role != member.Role {
 					continue
 				}
-				if store.TeamworkWorkItemStatusOrPending(item) == store.TeamworkItemDone {
+				if storeteamwork.WorkItemStatusOrPending(item) == storeteamwork.ItemDone {
 					continue // 已销项：不占队列
 				}
 				view.Queue = append(view.Queue, item.Name)
 			}
 		}
 		for _, event := range events {
-			if event.Kind != store.TeamworkEventMessage || event.Role != member.Role {
+			if event.Kind != storeteamwork.EventMessage || event.Role != member.Role {
 				continue
 			}
 			view.Messages = append(view.Messages, dto.TeamworkTeammateMessageView{
@@ -164,13 +164,13 @@ func MemberViews(plan store.TeamworkPlan, events []store.TeamworkEvent, records 
 // 为什么没有 done / review：这个字段回答的是"**这个人此刻在不在干活**"。一件事做完没
 // 做完是工作项自己的 status 列，两处都写"完成"就是把同一个事实存两遍——而 teammate 的
 // 状态一旦出现 done，看板上就会出现"人 done 了但队列里还有活"这种自相矛盾的一帧。
-func MemberStatus(plan store.TeamworkPlan, member store.TeamworkMember) string {
+func MemberStatus(plan storeteamwork.Plan, member storeteamwork.Member) string {
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			if item.Role != member.Role {
 				continue
 			}
-			if store.TeamworkWorkItemStatusOrPending(item) == store.TeamworkItemRunning {
+			if storeteamwork.WorkItemStatusOrPending(item) == storeteamwork.ItemRunning {
 				return MemberRunning
 			}
 		}
@@ -184,7 +184,7 @@ func MemberStatus(plan store.TeamworkPlan, member store.TeamworkMember) string {
 // 为什么不能拿 RoleSessionID 顶替（2026-10-04 用户口径：看板点开的是"历史会话"而不是
 // 当前的 teammate 的会话）：RoleSessionID 是**员工的长期会话**（跨工作项、跨轮次），
 // 而"一 Work Item 一个 Session"的隔离意味着每一件事都有自己的会话号——面板要的是后者。
-func MemberCurrent(plan store.TeamworkPlan, role string) (sessionID, workItem string) {
+func MemberCurrent(plan storeteamwork.Plan, role string) (sessionID, workItem string) {
 	var runningSession, runningItem string
 	var reviewSession, reviewItem string
 	var lastSession, lastItem string
@@ -193,11 +193,11 @@ func MemberCurrent(plan store.TeamworkPlan, role string) (sessionID, workItem st
 			if item.Role != role || strings.TrimSpace(item.SessionID) == "" {
 				continue
 			}
-			switch store.TeamworkWorkItemStatusOrPending(item) {
-			case store.TeamworkItemRunning:
+			switch storeteamwork.WorkItemStatusOrPending(item) {
+			case storeteamwork.ItemRunning:
 				// 在跑的那件事优先（同一个人同时只跑一件事：派发按工作项去重）。
 				runningSession, runningItem = item.SessionID, item.ID
-			case store.TeamworkItemReview:
+			case storeteamwork.ItemReview:
 				// 等验收的次之：结论已经有了，但会话还是"这件事的会话"。
 				if reviewSession == "" {
 					reviewSession, reviewItem = item.SessionID, item.ID
@@ -223,8 +223,8 @@ func MemberCurrent(plan store.TeamworkPlan, role string) (sessionID, workItem st
 // Live / Interrupted 都是**读出来的事实**：Live = 这件事有一份未释放的工作区绑定；
 // Interrupted = 状态说在跑、而本进程作业表里查不到它的句柄（jobs I-4 的显式化——
 // 进程重启后句柄必然作废，这不是错误，是"可以重派"的信号）。
-func WorkItemViews(plan store.TeamworkPlan, bindings []store.TeamworkBinding, records []jobs.Record) []dto.TeamworkWorkItemView {
-	liveBindings := store.TeamworkBindings(bindings)
+func WorkItemViews(plan storeteamwork.Plan, bindings []storeteamwork.Binding, records []jobs.Record) []dto.TeamworkWorkItemView {
+	liveBindings := storeteamwork.Bindings(bindings)
 	readings := make(map[string]JobReading, len(records))
 	for _, record := range records {
 		readings[string(record.Handle)] = JobReading{Alive: true, Running: record.Running()}
@@ -240,7 +240,7 @@ func WorkItemViews(plan store.TeamworkPlan, bindings []store.TeamworkBinding, re
 				ID: item.ID, Milestone: item.Milestone, Role: item.Role, Name: item.Name,
 				Description: item.Description, Goal: item.Goal,
 				DependsOn: append([]string(nil), item.DependsOn...),
-				Status:    store.TeamworkWorkItemStatusOrPending(item), SessionID: item.SessionID, Worktree: item.Worktree,
+				Status:    storeteamwork.WorkItemStatusOrPending(item), SessionID: item.SessionID, Worktree: item.Worktree,
 				WorkspaceMode: item.WorkspaceMode,
 				Handle:        item.Handle, Note: item.Note,
 				StartedAt: item.StartedAt, FinishedAt: item.FinishedAt,
@@ -257,7 +257,7 @@ func WorkItemViews(plan store.TeamworkPlan, bindings []store.TeamworkBinding, re
 }
 
 // MilestoneViews 搬运里程碑（after 是判据边，原样搬；status 空 = pending）。
-func MilestoneViews(milestones []store.TeamworkMilestone) []dto.TeamworkMilestoneView {
+func MilestoneViews(milestones []storeteamwork.Milestone) []dto.TeamworkMilestoneView {
 	if len(milestones) == 0 {
 		return nil
 	}
@@ -307,7 +307,7 @@ func RoleFromSubject(subject string) string {
 }
 
 // EventViews 搬运审计流水；只取**最近** `BoardEventLimit` 条（保持文件顺序 = 发生顺序）。
-func EventViews(events []store.TeamworkEvent) []dto.TeamworkEventView {
+func EventViews(events []storeteamwork.Event) []dto.TeamworkEventView {
 	if len(events) == 0 {
 		return nil
 	}
@@ -336,7 +336,7 @@ func EventViews(events []store.TeamworkEvent) []dto.TeamworkEventView {
 //
 // 它只是一个提示位：不改变任何判定，也不阻止渲染——看板该显示的是事实，
 // 而不是"因为可能过期就不显示"。
-func ProjectionStale(state store.TeamworkState, views []dto.TeamworkJobView) bool {
+func ProjectionStale(state storeteamwork.State, views []dto.TeamworkJobView) bool {
 	if len(state.Jobs) == 0 {
 		return false
 	}

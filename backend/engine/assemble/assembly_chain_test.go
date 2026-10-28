@@ -36,9 +36,9 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 基座 ────────────────────────────────────────────────────────────────────
@@ -411,7 +411,7 @@ func TestAssemblyChainRejectionsSpellOutTheReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), sessionID)
-	key := store.Key{ProjectID: "p-team", SessionID: sessionID}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: sessionID}
 
 	// 先落一份合法计划当基准：后面每一条被拒之后，落盘的必须**还是这一份**。
 	accepted := `{"team_id":"t-accepted","milestones":[{"id":"m-1"}],"members":[{"role":"exec","plugins":["docs"]}]}`
@@ -551,7 +551,7 @@ func TestAssemblyChainReceiptCarriesCatalogReadingsAndYellow(t *testing.T) {
 	if !assemblyChainSameStrings(got.Assemblies[2].Plugins, []string{assemblyChainOpsPlugin}) || got.Assemblies[2].PluginCount != 1 {
 		t.Fatalf("规整结果必须写回并出现在回执里：%#v", got.Assemblies[2])
 	}
-	plan, err := st.ReadPlan(context.Background(), store.Key{ProjectID: "p-team", SessionID: sessionID})
+	plan, err := st.ReadPlan(context.Background(), dto.SessionKey{ProjectID: "p-team", SessionID: sessionID})
 	if err != nil {
 		t.Fatalf("计划未落盘：%v", err)
 	}
@@ -784,7 +784,7 @@ func assemblyChainPlanStore(t *testing.T, runtime *Runtime, sessionID, argsJSON 
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), sessionID)
 	_, err := runtime.teamPlanHandler(ctx, argsJSON)
-	plan, readErr := st.ReadPlan(context.Background(), store.Key{ProjectID: "p-team", SessionID: sessionID})
+	plan, readErr := st.ReadPlan(context.Background(), dto.SessionKey{ProjectID: "p-team", SessionID: sessionID})
 	return assemblyChainPlanResult{err: err, empty: readErr != nil || plan.TeamID == ""}
 }
 

@@ -51,8 +51,8 @@ func TestStoreDDDMTeamworkIOOwnershipGate(t *testing.T) {
 	for _, name := range []string{"teamwork.go", "teamwork_items.go", "team_registry.go"} {
 		body, err := os.ReadFile(filepath.Join(root, "store", name))
 		if err != nil {
-			if os.IsNotExist(err) && name == "teamwork_items.go" {
-				continue // M10 retired the remaining binding adapter file.
+			if os.IsNotExist(err) && (name == "teamwork_items.go" || name == "teamwork.go" || name == "team_registry.go") {
+				continue // Migrated aliases are physically gone; owner checks below pin the new surface.
 			}
 			t.Fatalf("读取根 store/%s：%v", name, err)
 		}
@@ -66,6 +66,10 @@ func TestStoreDDDMTeamworkIOOwnershipGate(t *testing.T) {
 
 	// 3) M10 删除运行期能力发现与数据转发后，根包只保留同身份 alias。
 	teamworkForward, err := os.ReadFile(filepath.Join(root, "store", "teamwork.go"))
+	if os.IsNotExist(err) {
+		teamworkForward = nil
+		err = nil
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

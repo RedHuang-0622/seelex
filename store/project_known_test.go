@@ -2,14 +2,15 @@ package store
 
 // project_known_test.go — 项目摘要渲染件（M5，T5.3–T5.6 + 落点随存储根变）。
 //
-// 口径：渲染件是 `ProjectRecord` 的**人读渲染（读侧视图）**，所以这里既查"渲染得
+// 口径：渲染件是 `storeproject.ProjectRecord` 的**人读渲染（读侧视图）**，所以这里既查"渲染得
 // 确定"（两次渲染字节相同、剔除 BuiltAt / 绝对路径 / ws-<nano>），也查"落得被动"
 // （无显式调用不产文件、空键空内容显式报错），还查"链不重复"（判定仍只有
-// RefreshProjectKnowledge 三分支，渲染不写事实）。
+// storeproject.RefreshProjectKnowledge 三分支，渲染不写事实）。
 
 import (
 	"context"
 	"errors"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -30,12 +31,12 @@ func projectKnownAbsPath(t *testing.T) string {
 
 // projectKnownRecord 造一条"含所有脏字段"的记录：未排序模块 + 绝对 Path/Docs +
 // 抖动 BuiltAt + 带 ws-<nano> 的摘要。返回值第二个是那条绝对路径（供断言用）。
-func projectKnownRecord(t *testing.T, builtAt time.Time) (ProjectRecord, string) {
+func projectKnownRecord(t *testing.T, builtAt time.Time) (storeproject.ProjectRecord, string) {
 	t.Helper()
 	abs := projectKnownAbsPath(t)
-	record := ProjectRecord{
+	record := storeproject.ProjectRecord{
 		Version: "versionhash01",
-		Modules: []ModuleSemantics{
+		Modules: []storeproject.ModuleSemantics{
 			{
 				Name:    "zeta",
 				Summary: "zeta 职责（会话 ws-1700000000000000000 的说明）",
@@ -64,8 +65,8 @@ func projectKnownRecord(t *testing.T, builtAt time.Time) (ProjectRecord, string)
 // 不含 BuiltAt 时间戳 / 绝对路径 / ws-<nano>；模块按 Name 稳定排序。
 func TestProjectKnownRenderDeterministic(t *testing.T) {
 	record, abs := projectKnownRecord(t, time.Unix(1700000000, 0).UTC())
-	first := ProjectKnownMarkdown(record)
-	second := ProjectKnownMarkdown(record)
+	first := storeproject.ProjectKnownMarkdown(record)
+	second := storeproject.ProjectKnownMarkdown(record)
 	if string(first) != string(second) {
 		t.Fatalf("同一 record 两次渲染不同：\n%s\n---\n%s", first, second)
 	}
@@ -111,7 +112,7 @@ func TestProjectKnownRenderDeterministic(t *testing.T) {
 	// ⑤ 只有 BuiltAt 不同 ⇒ 渲染字节完全相同（这是"每次刷新都不产生 diff"的判据）。
 	sameExceptBuiltAt := record
 	sameExceptBuiltAt.BuiltAt = record.BuiltAt.Add(37 * time.Hour)
-	if again := ProjectKnownMarkdown(sameExceptBuiltAt); string(again) != text {
+	if again := storeproject.ProjectKnownMarkdown(sameExceptBuiltAt); string(again) != text {
 		t.Fatalf("BuiltAt 变化影响了渲染字节：\n%s\n---\n%s", text, again)
 	}
 	// 纯函数：不改入参（入参顺序必须原样保留）。
@@ -131,12 +132,12 @@ func TestProjectKnownPassiveOnly(t *testing.T) {
 		t.Fatal("router 不是 JSON 会话存储布局")
 	}
 	projectRoot := t.TempDir()
-	path := projectKnownPath(projectRoot)
+	path := storeproject.KnownPath(projectRoot)
 
 	// 构造 + 刷新（写 project-record.json）之后：渲染件仍不存在。
 	root := newKnowledgeProject(t)
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
-	result, err := RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
+	result, err := storeproject.RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
@@ -144,16 +145,16 @@ func TestProjectKnownPassiveOnly(t *testing.T) {
 		t.Fatalf("刷新应写下项目记录：%v", statErr)
 	}
 	// 纯渲染同样不产文件（渲染是纯函数，不是写动作）。
-	_ = ProjectKnownMarkdown(result.Record)
+	_ = storeproject.ProjectKnownMarkdown(result.Record)
 	if _, statErr := os.Stat(path); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("无显式调用就产出了渲染件（%v）：%v", path, statErr)
 	}
-	if _, readErr := router.ReadProjectKnown(projectRoot); !errors.Is(readErr, fs.ErrNotExist) {
+	if _, readErr := storeproject.ReadKnown(projectRoot); !errors.Is(readErr, fs.ErrNotExist) {
 		t.Fatalf("未渲染过的 ReadProjectKnown 错误 = %v，期望 fs.ErrNotExist", readErr)
 	}
 
 	// 显式调用才产文件。
-	if err := router.WriteProjectKnown(projectRoot, ProjectKnownMarkdown(result.Record)); err != nil {
+	if err := storeproject.WriteKnown(projectRoot, storeproject.ProjectKnownMarkdown(result.Record)); err != nil {
 		t.Fatalf("显式渲染落盘失败：%v", err)
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
@@ -161,20 +162,20 @@ func TestProjectKnownPassiveOnly(t *testing.T) {
 	}
 
 	// 空根 / 空内容显式报错，且不产空文件。
-	if err := router.WriteProjectKnown("  ", []byte("x")); err == nil {
+	if err := storeproject.WriteKnown("  ", []byte("x")); err == nil {
 		t.Fatal("空 projectRoot 必须显式报错")
 	}
-	if err := router.WriteProjectKnown(projectRoot, nil); err == nil {
+	if err := storeproject.WriteKnown(projectRoot, nil); err == nil {
 		t.Fatal("空内容必须显式报错（空文件不是一份渲染件）")
 	}
-	if err := router.WriteProjectKnown(projectRoot, []byte("   \n")); err == nil {
+	if err := storeproject.WriteKnown(projectRoot, []byte("   \n")); err == nil {
 		t.Fatal("空白内容必须显式报错")
 	}
-	if _, err := router.ReadProjectKnown(""); err == nil {
+	if _, err := storeproject.ReadKnown(""); err == nil {
 		t.Fatal("空 projectRoot 读取必须显式报错")
 	}
 	// 上面三次失败写入不得把既有渲染件清空 / 改成空文件。
-	data, readErr := router.ReadProjectKnown(projectRoot)
+	data, readErr := storeproject.ReadKnown(projectRoot)
 	if readErr != nil {
 		t.Fatalf("渲染件被失败写入破坏：%v", readErr)
 	}
@@ -184,31 +185,31 @@ func TestProjectKnownPassiveOnly(t *testing.T) {
 }
 
 // TestProjectKnownReusesExistingChain 对应 T5.5：**命中即处理、未命中传递** ——
-// 谁能产出 ProjectRecord 仍只有 RefreshProjectKnowledge 三分支；
-// 渲染只是它的读侧视图（复用 ProjectKnowledgeBuilder / RefreshProjectKnowledge）。
+// 谁能产出 storeproject.ProjectRecord 仍只有 storeproject.RefreshProjectKnowledge 三分支；
+// 渲染只是它的读侧视图（复用 storeproject.ProjectKnowledgeBuilder / storeproject.RefreshProjectKnowledge）。
 func TestProjectKnownReusesExistingChain(t *testing.T) {
 	router := newTestRouter(t)
 	const workspaceID = "ws-1700000000000000000"
 	router.SetWorkspace(workspaceID)
 	projectRoot := t.TempDir()
-	knownPath := projectKnownPath(projectRoot)
+	knownPath := storeproject.KnownPath(projectRoot)
 
 	root := newKnowledgeProject(t)
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
 
 	// [未命中] 首建：来源已变（无既有记录）⇒ 走重建分支。
-	built, err := RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
+	built, err := storeproject.RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
 	if err != nil {
 		t.Fatalf("首建失败：%v", err)
 	}
 	if built.Reused || built.Fallback {
 		t.Fatalf("首建不应命中复用/回退：%+v", built)
 	}
-	markdown := ProjectKnownMarkdown(built.Record)
-	if err := router.WriteProjectKnown(projectRoot, markdown); err != nil {
+	markdown := storeproject.ProjectKnownMarkdown(built.Record)
+	if err := storeproject.WriteKnown(projectRoot, markdown); err != nil {
 		t.Fatal(err)
 	}
-	firstBytes, err := router.ReadProjectKnown(projectRoot)
+	firstBytes, err := storeproject.ReadKnown(projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,11 +217,11 @@ func TestProjectKnownReusesExistingChain(t *testing.T) {
 		t.Fatalf("读回 ≠ 写入：\n%s\n---\n%s", firstBytes, markdown)
 	}
 	if !strings.Contains(string(firstBytes), "版本：`"+built.Record.Version+"`") {
-		t.Fatalf("渲染件没有绑定 ProjectRecord.Version（渲染不是它的视图）：\n%s", firstBytes)
+		t.Fatalf("渲染件没有绑定 storeproject.ProjectRecord.Version（渲染不是它的视图）：\n%s", firstBytes)
 	}
 
 	// [命中] 来源 hash 未变 ⇒ 复用分支：记录不重建、渲染字节逐字节不变。
-	reused, err := RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
+	reused, err := storeproject.RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
 	if err != nil {
 		t.Fatalf("复用刷新失败：%v", err)
 	}
@@ -231,14 +232,14 @@ func TestProjectKnownReusesExistingChain(t *testing.T) {
 		t.Fatalf("复用分支换了版本：%q → %q", built.Record.Version, reused.Record.Version)
 	}
 	// 复用分支重渲染后仍逐字节相同（确定性渲染 + 无时间戳 ⇒ 不产生 diff）。
-	reusedBytes := ProjectKnownMarkdown(reused.Record)
+	reusedBytes := storeproject.ProjectKnownMarkdown(reused.Record)
 	if string(reusedBytes) != string(firstBytes) {
 		t.Fatalf("复用分支渲染出了不同字节：\n%s\n---\n%s", firstBytes, reusedBytes)
 	}
 
 	// [渲染不写事实] 拿一条"外部"记录渲染，既有项目记录不被改写。
 	stray, _ := projectKnownRecord(t, time.Unix(1, 0).UTC())
-	_ = ProjectKnownMarkdown(stray)
+	_ = storeproject.ProjectKnownMarkdown(stray)
 	stored, loadErr := router.LoadProjectRecord(workspaceID)
 	if loadErr != nil {
 		t.Fatalf("渲染动作把项目记录弄丢了：%v", loadErr)
@@ -250,7 +251,7 @@ func TestProjectKnownReusesExistingChain(t *testing.T) {
 	if err := os.Remove(knownPath); err != nil {
 		t.Fatal(err)
 	}
-	_ = ProjectKnownMarkdown(stored)
+	_ = storeproject.ProjectKnownMarkdown(stored)
 	if _, statErr := os.Stat(knownPath); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("纯渲染把渲染件复活了：%v", statErr)
 	}
@@ -263,16 +264,16 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 	const workspaceID = "ws-1700000000000000000"
 	router.SetWorkspace(workspaceID)
 	projectRoot := t.TempDir()
-	knownPath := projectKnownPath(projectRoot)
+	knownPath := storeproject.KnownPath(projectRoot)
 
 	root := newKnowledgeProject(t)
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
-	built, err := RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
+	built, err := storeproject.RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
 	if err != nil {
 		t.Fatalf("首建失败：%v", err)
 	}
-	first := ProjectKnownMarkdown(built.Record)
-	if err := router.WriteProjectKnown(projectRoot, first); err != nil {
+	first := storeproject.ProjectKnownMarkdown(built.Record)
+	if err := storeproject.WriteKnown(projectRoot, first); err != nil {
 		t.Fatal(err)
 	}
 
@@ -282,7 +283,7 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	fallback, err := RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, true)
+	fallback, err := storeproject.RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, true)
 	if err != nil {
 		t.Fatalf("已有记录时重建失败应回退而不是报错：%v", err)
 	}
@@ -296,7 +297,7 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 	if _, statErr := os.Stat(knownPath); statErr != nil {
 		t.Fatalf("回退后渲染件应当仍在盘上：%v", statErr)
 	}
-	kept, readErr := router.ReadProjectKnown(projectRoot)
+	kept, readErr := storeproject.ReadKnown(projectRoot)
 	if readErr != nil {
 		t.Fatalf("回退把渲染件弄丢了：%v", readErr)
 	}
@@ -308,9 +309,9 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 	fresh := newTestRouter(t)
 	fresh.SetWorkspace(workspaceID)
 	freshRoot := t.TempDir()
-	freshKnown := projectKnownPath(freshRoot)
-	emptyBuilder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: t.TempDir()})
-	if _, err := RefreshProjectKnowledge(context.Background(), fresh, workspaceID, emptyBuilder, false); err == nil {
+	freshKnown := storeproject.KnownPath(freshRoot)
+	emptyBuilder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: t.TempDir()})
+	if _, err := storeproject.RefreshProjectKnowledge(context.Background(), fresh, workspaceID, emptyBuilder, false); err == nil {
 		t.Fatal("首建失败必须显式报错（不产空记录）")
 	} else if !strings.Contains(err.Error(), "no sources") {
 		t.Fatalf("首建失败应点明来源缺失：%v", err)
@@ -323,20 +324,19 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 // TestProjectKnownPathFollowsProjectRoot 覆盖"落点跟**项目根**走"：换一个项目根，
 // 渲染件随之落到那个项目的 `.seelex/board/` 下（不再跟数据根/hash 目录走）。
 func TestProjectKnownPathFollowsProjectRoot(t *testing.T) {
-	router := newTestRouter(t)
 	paths := make([]string, 0, 2)
 	roots := make([]string, 0, 2)
 	for index := 0; index < 2; index++ {
 		projectRoot := t.TempDir()
-		path := projectKnownPath(projectRoot)
-		want := filepath.Join(projectRoot, ".seelex", "board", ProjectBoardKnownFile)
+		path := storeproject.KnownPath(projectRoot)
+		want := filepath.Join(projectRoot, ".seelex", "board", storeproject.KnownFile)
 		if path != want {
 			t.Fatalf("落点 = %q，期望 %q", path, want)
 		}
 		if !strings.HasPrefix(path, projectRoot) {
 			t.Fatalf("落点不在项目根之下：%q vs %q", path, projectRoot)
 		}
-		if err := router.WriteProjectKnown(projectRoot, []byte("# 项目摘要（Project Known）\n\n## core\n\ncore 职责\n")); err != nil {
+		if err := storeproject.WriteKnown(projectRoot, []byte("# 项目摘要（Project Known）\n\n## core\n\ncore 职责\n")); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(path); err != nil {
@@ -352,7 +352,7 @@ func TestProjectKnownPathFollowsProjectRoot(t *testing.T) {
 		t.Fatalf("换项目根后落点没变：%q", paths[0])
 	}
 	// 两个项目互不可见：第一个项目根读不到第二个项目的渲染件。
-	if _, err := router.ReadProjectKnown(t.TempDir()); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := storeproject.ReadKnown(t.TempDir()); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("另一个项目根读到了别的项目的渲染件：%v", err)
 	}
 }

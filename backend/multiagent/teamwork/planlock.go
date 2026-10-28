@@ -24,10 +24,10 @@ package teamwork
 import (
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// planLocks 是「计划头读-改-写」的互斥锁表，按会话作用域键（store.Key）分片。
+// planLocks 是「计划头读-改-写」的互斥锁表，按会话作用域键（dto.SessionKey）分片。
 //
 // 为什么是**包级表**而不是 Coordinator 的字段：契约要求"同一进程内、同一 Key 的所有
 // Coordinator 实例共享同一把计划锁"。Runtime.coordinatorForKey 确实按 Key 复用实例，但
@@ -39,11 +39,11 @@ import (
 // 是为了让"并发安全"不依赖任何后台清理（清理与取锁之间的一点竞态就足以让两方各拿一把）。
 var (
 	planLocksMu sync.Mutex
-	planLocks   = map[store.Key]*sync.Mutex{}
+	planLocks   = map[dto.SessionKey]*sync.Mutex{}
 )
 
 // planLockFor 返回（必要时建）某个会话作用域键的计划锁。
-func planLockFor(key store.Key) *sync.Mutex {
+func planLockFor(key dto.SessionKey) *sync.Mutex {
 	planLocksMu.Lock()
 	defer planLocksMu.Unlock()
 	if lock, ok := planLocks[key]; ok {

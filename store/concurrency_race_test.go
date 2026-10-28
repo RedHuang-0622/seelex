@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
 // TestDurableHistoryConcurrentSessionsStaySeparate（阶段 D6b，-race）：多会话
@@ -46,8 +47,8 @@ func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
 				marker := fmt.Sprintf("s%d-r%d", index, round)
 				if err := store.SaveCommit(project, fmt.Sprintf("sess-h-%d", index), Commit{
 					Events: []Event{
-						{Role: "user", Content: marker + "-0", MessageID: marker + "-0"},
-						{Role: "user", Content: marker + "-1", MessageID: marker + "-1"},
+						{Seq: uint64(round*2 + 1), Role: "user", Content: marker + "-0", MessageID: marker + "-0"},
+						{Seq: uint64(round*2 + 2), Role: "user", Content: marker + "-1", MessageID: marker + "-1"},
 					},
 				}); err != nil {
 					t.Errorf("commit sess-h-%d/%d: %v", index, round, err)
@@ -71,9 +72,9 @@ func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
 			marker := fmt.Sprintf("s%d-final", index)
 			if err := store.SaveCommit(project, fmt.Sprintf("sess-h-%d", index), Commit{
 				Events: []Event{
-					{Role: "user", Content: marker + "-0", MessageID: marker + "-0"},
-					{Role: "user", Content: marker + "-1", MessageID: marker + "-1"},
-					{Role: "user", Content: marker + "-2", MessageID: marker + "-2"},
+					{Seq: uint64(rounds*2 + 1), Role: "user", Content: marker + "-0", MessageID: marker + "-0"},
+					{Seq: uint64(rounds*2 + 2), Role: "user", Content: marker + "-1", MessageID: marker + "-1"},
+					{Seq: uint64(rounds*2 + 3), Role: "user", Content: marker + "-2", MessageID: marker + "-2"},
 				},
 			}); err != nil {
 				t.Errorf("final commit sess-h-%d: %v", index, err)
@@ -138,7 +139,7 @@ func TestRouterConcurrentProjectIsolation(t *testing.T) {
 				sessionID := fmt.Sprintf("%s-sess-%d", project, index)
 				for round := 0; round < rounds; round++ {
 					commit := Commit{Events: []Event{{
-						Role: "user", Content: fmt.Sprintf("%s-%d", project, round),
+						Seq: uint64(round + 1), Role: "user", Content: fmt.Sprintf("%s-%d", project, round),
 						MessageID: fmt.Sprintf("%s-sess-%d-r%d", project, index, round),
 					}}}
 					if err := store.SaveCommit(project, sessionID, commit); err != nil {
@@ -201,9 +202,9 @@ func TestProjectRecordConcurrentReadDoesNotTear(t *testing.T) {
 		go func(projectID string) {
 			defer group.Done()
 			for round := 0; round < rounds; round++ {
-				record := ProjectRecord{
+				record := storeproject.ProjectRecord{
 					Version:      fmt.Sprintf("%s-v%d", projectID, round),
-					Modules:      []ModuleSemantics{{Name: "mod", Summary: fmt.Sprintf("round %d", round), Path: "mod/"}},
+					Modules:      []storeproject.ModuleSemantics{{Name: "mod", Summary: fmt.Sprintf("round %d", round), Path: "mod/"}},
 					SourceHashes: []string{fmt.Sprintf("hash-%d", round)},
 				}
 				if err := router.SaveProjectRecord(projectID, record); err != nil {
@@ -217,7 +218,7 @@ func TestProjectRecordConcurrentReadDoesNotTear(t *testing.T) {
 			for round := 0; round < rounds*2; round++ {
 				record, err := router.LoadProjectRecord(projectID)
 				if err != nil {
-					if isProjectRecordNotFound(err) {
+					if storeproject.IsRecordNotFound(err) {
 						continue
 					}
 					t.Errorf("load %s: %v", projectID, err)

@@ -32,7 +32,7 @@
 ### project_board_wiring_test.go
 
 - `func projectBoardWiringStore(t *testing.T) (router *store.Router, dataRoot, projectRoot string)` — projectBoardWiringStore 建一个临时 JSON 会话存储**与一个临时项目根**。
-- `func projectBoardWiringDeps(projectRoot string) ( func(string) []model.WorkItem, func(string) *store.TeamworkPlan, func(string) *store.TeamworkState, func(string) string, )` — projectBoardWiringDeps 造一份最小活体投影：一条 todo + 一个里程碑，外加**落点解析器**。
+- `func projectBoardWiringDeps(projectRoot string) ( func(string) []model.WorkItem, func(string) *storeteamwork.Plan, func(string) *storeteamwork.State, func(string) string, )` — projectBoardWiringDeps 造一份最小活体投影：一条 todo + 一个里程碑，外加**落点解析器**。
 - `func projectBoardMarkdown(t *testing.T, projectRoot string) string` — projectBoardMarkdown 读回人读件（`BOARD.md`，落在**看板根**、不分会话）：它是
 - `func projectBoardArtifacts(t *testing.T, root string) []string` — projectBoardArtifacts 列出投影落点下的全部文件（相对数据根的斜杠路径）。
 - `func waitForProjectBoardArtifacts(t *testing.T, root, file string) []string` — waitForProjectBoardArtifacts 轮询等投影落盘（去抖窗是时间驱动的，不能假设立即到）。

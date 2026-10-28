@@ -26,7 +26,7 @@ import (
 	"github.com/RedHuang-0622/Seele/jobs"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 const (
@@ -69,11 +69,11 @@ type ContextOptions struct {
 // 它是本读面的**唯一**组装路径（与看板的 `BuildBoardView` 同款），于是"读到的是什么"只有
 // 一个答案，用例可以直接钉它。outputs 是回读残边用的输出面（nil = 没有回读），只在"行不在册"
 // 时才用得到。
-func BuildContextView(ctx context.Context, plan store.TeamworkPlan, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkContextView {
+func BuildContextView(ctx context.Context, plan storeteamwork.Plan, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkContextView {
 	view := dto.TeamworkContextView{
 		TeamID:  plan.TeamID,
 		Version: plan.Version,
-		Closed:  plan.State.State == store.TeamworkStateClosed,
+		Closed:  plan.State.State == storeteamwork.StateClosed,
 	}
 	wanted := roleFilter(options.Roles)
 	view.Members = make([]dto.TeamworkMemberContextView, 0, len(plan.Members))
@@ -89,7 +89,7 @@ func BuildContextView(ctx context.Context, plan store.TeamworkPlan, records []jo
 }
 
 // memberContext 组装一个成员的工作上下文：先找它名下**最新**的作业行，再按需取正文。
-func memberContext(ctx context.Context, plan store.TeamworkPlan, member store.TeamworkMember, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkMemberContextView {
+func memberContext(ctx context.Context, plan storeteamwork.Plan, member storeteamwork.Member, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkMemberContextView {
 	view := dto.TeamworkMemberContextView{
 		Role:          member.Role,
 		RoleSessionID: member.RoleSessionID,
@@ -194,7 +194,7 @@ func latestRecordFor(records []jobs.Record, subject string) (jobs.Record, bool) 
 // 它是"这个人此刻在干什么"的定位坐标。阶段口径已退场：不再有"角色的归属阶段"这回事——
 // 同一个角色可以在不同里程碑的多个工作项里出现，所以这个值回答的是"它最早出现在哪一步"，
 // 而不是一条顺序事实（顺序事实是 milestones[].depends_on 与 work_items[].depends_on）。
-func RoleMilestone(plan store.TeamworkPlan, role string) string {
+func RoleMilestone(plan storeteamwork.Plan, role string) string {
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			if item.Role == role {

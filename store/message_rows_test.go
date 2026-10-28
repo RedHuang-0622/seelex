@@ -36,7 +36,7 @@ func messageRow(seq uint64, messageID, role, kind, content string) Event {
 // TestMessageRowsFirstCommitCreatesGuideAndMessageHead 对应 T-M1-01。
 func TestMessageRowsFirstCommitCreatesGuideAndMessageHead(t *testing.T) {
 	store, key := messageFixture(t, 0)
-	u1 := messageRow(0, "u1", "user", EventKindUserInput, "你好")
+	u1 := messageRow(1, "u1", "user", EventKindUserInput, "你好")
 
 	if _, err := store.messageCommit(key, "commit-1", []Event{u1}); err != nil {
 		t.Fatal(err)
@@ -195,7 +195,7 @@ func TestMessageRowsIndependentModuleLocks(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 1; i <= 50; i++ {
-			row := messageRow(0, fmt.Sprintf("m-%d", i), "user", EventKindUserInput, fmt.Sprintf("message-%d", i))
+			row := messageRow(uint64(i), fmt.Sprintf("m-%d", i), "user", EventKindUserInput, fmt.Sprintf("message-%d", i))
 			if _, err := store.messageCommit(key, fmt.Sprintf("mc-%d", i), []Event{row}); err != nil {
 				errs <- err
 				return
@@ -296,7 +296,7 @@ func TestMessageRowsShardRolloverAt101Rows(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	batch := make([]Event, 0, 101)
 	for index := 1; index <= 101; index++ {
-		batch = append(batch, messageRow(0, fmt.Sprintf("message-%d", index), "user", EventKindUserInput, fmt.Sprintf("content-%d", index)))
+		batch = append(batch, messageRow(uint64(index), fmt.Sprintf("message-%d", index), "user", EventKindUserInput, fmt.Sprintf("content-%d", index)))
 	}
 	if _, err := store.messageCommit(key, "big", batch); err != nil {
 		t.Fatal(err)

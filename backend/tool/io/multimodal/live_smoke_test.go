@@ -17,14 +17,15 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/store"
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 )
 
 type routerMediaReader struct {
-	router *store.Router
+	media *storeartifact.SessionStore
 }
 
-func (reader routerMediaReader) ReadMedia(ctx context.Context, key dto.SessionKey, ref string) (store.MediaRef, []byte, error) {
-	return reader.router.ReadMediaWorkspace(ctx, key.ProjectID, key.SessionID, ref)
+func (reader routerMediaReader) ReadMedia(ctx context.Context, key dto.SessionKey, ref string) (storeartifact.MediaRef, []byte, error) {
+	return reader.media.ReadMedia(ctx, key.ProjectID, key.SessionID, ref)
 }
 
 // TestLiveMultimodalImageSmoke 是真机多模态冒烟（opt-in）：
@@ -68,18 +69,18 @@ func TestLiveMultimodalImageSmoke(t *testing.T) {
 		t.Fatalf("open stores: %v", err)
 	}
 	t.Cleanup(func() { _ = stores.Close() })
-	media := routerMediaReader{router: stores.Router}
+	media := routerMediaReader{media: stores.Media}
 	key := dto.SessionKey{ProjectID: "p-live-multimodal", SessionID: "s-live-multimodal"}
 	pngBytes := liveSplitPNG(t, 128, 128)
 	name := "prompt-smoke-" + time.Now().UTC().Format("20060102-150405.000") + ".png"
-	item, err := stores.Router.WriteMediaWorkspace(ctx, key.ProjectID, key.SessionID, store.MediaItem{
+	item, err := stores.Media.WriteMedia(ctx, key.ProjectID, key.SessionID, storeartifact.MediaItem{
 		Name: name, MimeType: "image/png", Kind: "screenshot",
 		Data: pngBytes, Width: 128, Height: 128, Scale: 1,
 	})
 	if err != nil {
 		t.Fatalf("WriteMedia: %v", err)
 	}
-	readMeta, readData, err := stores.Router.ReadMediaWorkspace(ctx, key.ProjectID, key.SessionID, item.Ref)
+	readMeta, readData, err := stores.Media.ReadMedia(ctx, key.ProjectID, key.SessionID, item.Ref)
 	if err != nil || !bytes.Equal(readData, pngBytes) {
 		t.Fatalf("ReadMedia = %d bytes err=%v", len(readData), err)
 	}
@@ -87,7 +88,7 @@ func TestLiveMultimodalImageSmoke(t *testing.T) {
 		t.Fatalf("stored name = %q, want original name %q", readMeta.Name, name)
 	}
 	onDisk, parent := findStoredFile(t, storePath, name)
-	hash := strings.TrimPrefix(item.Ref, store.MediaRefPrefix)
+	hash := strings.TrimPrefix(item.Ref, storeartifact.MediaRefPrefix)
 	if parent != hash {
 		t.Fatalf("media folder = %q, want content hash %q (path %s)", parent, hash, onDisk)
 	}

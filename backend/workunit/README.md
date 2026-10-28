@@ -35,7 +35,7 @@ tool / multiagent / internal 三块（`backend/tool/worktree` 依赖本包的哨
 | 层 | 相对下层**增**了什么 | 现场 | 会话 | 收尾策略 |
 |---|---|---|---|---|
 | `job` | ——（基线） | 无 | 无（后台运行 + 结果回传） | 不适用：**不实现 `Unit`** |
-| `subagent` | worktree 现场 + 一件活自己的异步会话 + 存储与合并纪律 | **临时**（派出即建、收尾即清） | 一件活一条，落 `store.NodeSessionStore` | `Immediate` |
+| `subagent` | worktree 现场 + 一件活自己的异步会话 + 存储与合并纪律 | **临时**（派出即建、收尾即清） | 一件活一条，落 `store/workunit.SessionStore` | `Immediate` |
 | `teammate` | 听 leader 调度 + 装配（plugin / 系统提示词 / skill 前缀复用） | 归 team | 归 team | `AtTeamClose` |
 
 两条关键口径：
@@ -89,7 +89,7 @@ tool / multiagent / internal 三块（`backend/tool/worktree` 依赖本包的哨
 |---|---|
 | `contract.go` | `Kind` / `Scene` / `Result` / `Outcome(Kind)` / `Ownership`（归属读数）/ `Unit`（层读数：`Kind` `ID` `SessionPath` `Policy` `Owns`）/ `Lifecycle`（父实现契约面：`Begin` `Finish` `Reclaim` `Recover` `AlreadySettled` `Notice`）/ `FinishPolicy`（`Immediate`、`AtTeamClose`）/ **作业面四格 + 合成** `Jobs`（`JobSubmitter`：`Dispatch`；`JobReader`：`Observe` `Peek` `Snapshot`；`JobController`：`Kill` `Done` `Reclaim`；`JobSignals`：`Events`） |
 | `classify.go` | `ClassifyFinish(result, mergeErr)`：三层**唯一一份**收尾分类（跑失败判死 → 未提交（不判死）→ 主工作区挡路（不判死）→ 其他合并错误判死 → 落定）+ `bounded` + 它认的两个哨兵 `ErrUncommittedChanges` / `ErrMergeBlockedByMain`（与 `Is*` 判据；定义在这里 = 依赖方向是 实现 → 契约） |
-| `session.go` | `SessionLedger`（结构上就是 `*store.NodeSessionStore`）/ `Resume` / `RecoveryNoteRole` / `RecoveryNotePrefix` / `RecoveryNote(kind, record)` |
+| `session.go` | `SessionLedger`（结构上由 `*store/workunit.SessionStore` 满足）/ `Resume` / `RecoveryNoteRole` / `RecoveryNotePrefix` / `RecoveryNote(kind, record)` |
 | `progress.go` | 进度**读面**：`Stage` + `EncodeStages`/`DecodeStages`（打点载荷的唯一一份编解码 + `ClipPreview` 唯一一份预览裁剪）+ `Progress`/`ProgressOf`（记录 → 进度的唯一一份折算）+ `UnitReader`（按 nodeID 读一件事的进度：`Read`/`Record`/`List`/`Records`）。步骤②已把它接进生产读路（宿主记录读面 / 子代理恢复定位 / teammate 会话级读回） |
 | `ports.go` | **宿主注入面**（三格窄端口）：`SceneFace`（建 / 合并 / 认领 / 拆 / 在册）、`UnitFace`（归属 / 重入 / 回执 / 回收 / 回灌）、`RecordFace`（状态读数 / 回灌读数 / 落盘 / 写终态 / 清记录）。实现留在装配处（`backend/engine/assemble` 的 `hostPorts`）：`worktree` / `teamwork` / `store` 的具体类型只允许出现在那里 |
 | `lifecycle.go` | **唯一一份生命周期实现** `Host`：`Begin` / `AlreadySettled` / `Finish` / `Reclaim` / `Recover` / `Notice`，只持上面三格端口。判据全在这里（重入怎么回答、合并只做一次、恢复的粒度、要不要收作业），装配处只负责构造（`NewHost`）与挂在装配链的位置 |
@@ -122,7 +122,7 @@ tool / multiagent / internal 三块（`backend/tool/worktree` 依赖本包的哨
 
 ## 四、会话恢复（重启回灌）
 
-1. **形状一致**：一个工作单元 = 一条 `store.NodeSessionRecord`（`NodeID` 定位：
+1. **形状一致**：一个工作单元 = 一条 `store/workunit.Record`（`NodeID` 定位：
    subagent 是节点 id，teammate 是 `<role>-<itemID>`）；记录里的 `History` / `StagesJSON` /
    `ContextJSON` / `Worktree` 就是"跑到哪、现场在哪"。
 2. **运行期落盘**：跑着就写（进程中断可从最近一次记录恢复），落定再写终态。
@@ -179,10 +179,10 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 
 | 函数 | 签名 | 摘要 |
 |---|---|---|
-| `SessionLedger` | `interface` | 会话记录端口（`*store.NodeSessionStore` 结构上满足） |
+| `SessionLedger` | `interface` | 会话记录端口（`*store/workunit.SessionStore` 结构上满足） |
 | `Resume.Empty` | `func (r Resume) Empty() bool` | 这次回灌什么都没发生（正常读数） |
 | `InFlight` | `func InFlight(status string) bool` | "记录说自己在跑"的唯一判据（词表引 `dto.SubAgent*`） |
-| `RecoveryNote` | `func RecoveryNote(kind Kind, record store.NodeSessionRecord) string` | 恢复说明的唯一构建器（事实在前、动作在后，有界） |
+| `RecoveryNote` | `func RecoveryNote(kind Kind, record storeworkunit.Record) string` | 恢复说明的唯一构建器（事实在前、动作在后，有界） |
 | `StatusQueued` / `StatusRunning` | `const` | "在跑"子集（直接引契约枚举） |
 
 ### progress.go
@@ -191,10 +191,10 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 |---|---|---|
 | `EncodeStages` / `DecodeStages` | `func EncodeStages(stages []Stage) []byte` | 打点载荷的唯一一份编解码（空表 = 零值） |
 | `ClipPreview` | `func ClipPreview(text string) string` | 预览裁剪的唯一一份实现（按 rune，三层转调） |
-| `ProgressOf` | `func ProgressOf(kind Kind, record store.NodeSessionRecord) Progress` | 记录 → 进度读数的唯一一份折算 |
-| `NewUnitReader` | `func NewUnitReader(ledger SessionLedger, projectID, mainSessionID string, kind Kind, owned func(store.NodeSessionRecord) bool) *UnitReader` | 建一层面向 nodeID 的读面（`owned` = 归属过滤） |
+| `ProgressOf` | `func ProgressOf(kind Kind, record storeworkunit.Record) Progress` | 记录 → 进度读数的唯一一份折算 |
+| `NewUnitReader` | `func NewUnitReader(ledger SessionLedger, projectID, mainSessionID string, kind Kind, owned func(storeworkunit.Record) bool) *UnitReader` | 建一层面向 nodeID 的读面（`owned` = 归属过滤） |
 | `UnitReader.Read` | `func (r *UnitReader) Read(nodeID string) (Progress, bool, error)` | 读一件事的进度读数（无记录 = found=false） |
-| `UnitReader.Records` / `Record` | `func (r *UnitReader) Records() ([]store.NodeSessionRecord, error)` | 原始记录清单 / 单条（层专有格只有这里读得到） |
+| `UnitReader.Records` / `Record` | `func (r *UnitReader) Records() ([]storeworkunit.Record, error)` | 原始记录清单 / 单条（层专有格只有这里读得到） |
 | `UnitReader.List` | `func (r *UnitReader) List() ([]Progress, error)` | 本读面全部读数（按 NodeID 稳定排序） |
 
 ### ports.go
@@ -317,17 +317,17 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 - `func EncodeStages(stages []Stage) []byte` — EncodeStages 把打点表编成记录里的那串载荷：**唯一一份**（含预览的 rune 上限与空阶段丢弃）。
 - `func DecodeStages(payload []byte) []Stage` — DecodeStages 解出记录里的打点表：**唯一一份**。
 - `func ClipPreview(text string) string` — ClipPreview 把一段正文压成有界的一行（按 rune 裁，避免切断多字节字符）——**唯一一份**
-- `func ProgressOf(kind Kind, record store.NodeSessionRecord) Progress` — ProgressOf 把一条会话记录折成进度读数——**唯一一份折算**。
-- `func NewUnitReader(ledger SessionLedger, projectID, mainSessionID string, kind Kind, owned func(store.NodeSessionRecord) bool) *UnitReader` — NewUnitReader 建一个**面向一层**的读面。
+- `func ProgressOf(kind Kind, record storageworkunit.Record) Progress` — ProgressOf 把一条会话记录折成进度读数——**唯一一份折算**。
+- `func NewUnitReader(ledger SessionLedger, projectID, mainSessionID string, kind Kind, owned func(storageworkunit.Record) bool) *UnitReader` — NewUnitReader 建一个**面向一层**的读面。
 - `func (r *UnitReader) Read(nodeID string) (Progress, bool, error)` — Read 返回一件事的进度读数。
-- `func (r *UnitReader) Records() ([]store.NodeSessionRecord, error)` — Records 返回本读面的**原始记录清单**（归属过滤已生效）：层专有格（`History` /
-- `func (r *UnitReader) Record(nodeID string) (store.NodeSessionRecord, bool, error)` — Record 返回一件事**原始**的会话记录：层专有格（`History` / `ContextJSON` / `ResultJSON`，
+- `func (r *UnitReader) Records() ([]storageworkunit.Record, error)` — Records 返回本读面的**原始记录清单**（归属过滤已生效）：层专有格（`History` /
+- `func (r *UnitReader) Record(nodeID string) (storageworkunit.Record, bool, error)` — Record 返回一件事**原始**的会话记录：层专有格（`History` / `ContextJSON` / `ResultJSON`，
 - `func (r *UnitReader) List() ([]Progress, error)` — List 返回本账本里**归属于本读面**的全部单元进度读数（按 NodeID 稳定排序）。
-- `func (r *UnitReader) records() ([]store.NodeSessionRecord, error)` — records 读回本会话的单元记录（未装配账本 = 空读数；归属过滤在这里统一落地）。
+- `func (r *UnitReader) records() ([]storageworkunit.Record, error)` — records 读回本会话的单元记录（未装配账本 = 空读数；归属过滤在这里统一落地）。
 
 ### progress_bench_test.go
 
-- `func benchRecords(n int) []store.NodeSessionRecord`
+- `func benchRecords(n int) []storeworkunit.Record`
 - `func BenchmarkClipPreview(b *testing.B)`
 - `func BenchmarkEncodeStages(b *testing.B)`
 - `func BenchmarkDecodeStages(b *testing.B)`
@@ -336,9 +336,9 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 
 ### progress_test.go
 
-- `func (f *fakeLedger) Save(string, string, store.NodeSessionRecord) error`
+- `func (f *fakeLedger) Save(string, string, storeworkunit.Record) error`
 - `func (f *fakeLedger) Delete(string, string, string) error`
-- `func (f *fakeLedger) List(string, string) ([]store.NodeSessionRecord, error)`
+- `func (f *fakeLedger) List(string, string) ([]storeworkunit.Record, error)`
 - `func TestStageCodecRoundTripsAndBounds(t *testing.T)` — TestStageCodecRoundTripsAndBounds：打点载荷只有一份编解码，且预览有界。
 - `func TestProgressOfIsAReadOnlyProjection(t *testing.T)` — TestProgressOfIsAReadOnlyProjection：折算逐一对应记录里已有的格子，不加事实。
 - `func TestUnitReaderReadsByNodeIDAndFiltersOwnership(t *testing.T)` — TestUnitReaderReadsByNodeIDAndFiltersOwnership：读法收成一份，归属过滤由调用方给出
@@ -347,8 +347,8 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 
 ### recovery.go
 
-- `func KindOf(record store.NodeSessionRecord, teamScenes map[string]bool) (Kind, string)` — KindOf 读出这条记录属于哪一层（**唯一转换点**：快照里的 wire 串 → 契约枚举）。
-- `func RestoreUnits(sessionID string, records []store.NodeSessionRecord, deps RestoreDeps)` — RestoreUnits 是恢复链的**分派点**：先按身份把记录切开，再交给各自的策略。
+- `func KindOf(record storageworkunit.Record, teamScenes map[string]bool) (Kind, string)` — KindOf 读出这条记录属于哪一层（**唯一转换点**：快照里的 wire 串 → 契约枚举）。
+- `func RestoreUnits(sessionID string, records []storageworkunit.Record, deps RestoreDeps)` — RestoreUnits 是恢复链的**分派点**：先按身份把记录切开，再交给各自的策略。
 - `func (n *ResumeNotes) Set(key, note string)` — Set 记下某个键下一次装配要带的恢复说明（空键 / 空说明 = 不记，幂等）。
 - `func (n *ResumeNotes) Take(key string) string` — Take 取走某个键的恢复说明并**清掉**（一次装配读完即消）。
 - `func (n *ResumeNotes) Peek(key string) string` — Peek 读回某个键的恢复说明但**不清掉**（非消费读：装配期间同一次提示可能被读多次）。
@@ -356,10 +356,10 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 
 ### recovery_test.go
 
-- `func unitRecord(nodeID, kind string) store.NodeSessionRecord`
+- `func unitRecord(nodeID, kind string) storeworkunit.Record`
 - `func TestKindOfReadsTheRecordsOwnIdentity(t *testing.T)` — TestKindOfReadsTheRecordsOwnIdentity：身份判据的顺序是判据的一部分——
 - `func (s *stubStrategy) Kind() Kind`
-- `func (s *stubStrategy) Restore(records []store.NodeSessionRecord)`
+- `func (s *stubStrategy) Restore(records []storeworkunit.Record)`
 - `func TestRestoreUnitsDispatchesByIdentityAndKeepsOrder(t *testing.T)` — TestRestoreUnitsDispatchesByIdentityAndKeepsOrder：分派按身份切开、只把**非空批次**交给
 - `func TestRestoreUnitsWithoutSceneIndex(t *testing.T)` — TestRestoreUnitsWithoutSceneIndex：没有现场名单（未装配计划/账本）时，缺身份的老记录一律
 - `func TestResumeNotesIsReadOnceAndKeyScoped(t *testing.T)` — TestResumeNotesIsReadOnceAndKeyScoped：恢复说明的容器语义——空键/空说明不记、
@@ -369,7 +369,7 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 
 - `func (r Resume) Empty() bool` — Empty 报告这次回灌什么都没发生（无存储/空会话时的正常读数，不是错误）。
 - `func InFlight(status string) bool` — InFlight 报告一条会话记录的 status 是不是"说自己在跑"：记录说在跑、而本进程已无它的
-- `func RecoveryNote(kind Kind, record store.NodeSessionRecord) string` — RecoveryNote 组装"这件事重启前跑到哪、下一步做什么"的恢复说明。三层**共用这一份构建器**
+- `func RecoveryNote(kind Kind, record storageworkunit.Record) string` — RecoveryNote 组装"这件事重启前跑到哪、下一步做什么"的恢复说明。三层**共用这一份构建器**
 
 ### session_test.go
 

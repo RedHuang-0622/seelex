@@ -20,12 +20,15 @@ import (
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/console"
 	"github.com/RedHuang-0622/seelex/internal/host"
+	storeboardrouter "github.com/RedHuang-0622/seelex/internal/host/boardrouter"
 	"github.com/RedHuang-0622/seelex/internal/startup"
 	"github.com/RedHuang-0622/seelex/kernel/event"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/kernel/prompt/assets"
 	"github.com/RedHuang-0622/seelex/kernel/session"
 	"github.com/RedHuang-0622/seelex/store"
+	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
 // Options 是一次装配的全部输入：入口只把「参数 + 构建期版本」装进来，其余判断都在
@@ -157,8 +160,9 @@ func Run(opts Options) (*App, error) {
 	boot.addCleanup(func() { _ = st.Close() })
 	console.LogStageIf(backendTrace, "startup.store.ready")
 	runtime.AttachHistoryRouter(st.Router)
+	runtime.AttachMediaStore(st.Media)
 	// 子代理会话记录持久化（运行期落盘 + 结束时结论归主会话 + 记录删除）。
-	runtime.AttachSubSessionStore(store.NewNodeSessionStore(st.Router))
+	runtime.AttachSubSessionStore(st.WorkUnits)
 	events := event.NewEventHub()
 	approval := limitapproval.NewApprovalBroker(events)
 	// 双轨事件（slice 8）：执行事实 → store 事件库（事实轨），
@@ -250,7 +254,7 @@ func Run(opts Options) (*App, error) {
 			return nil, boot.fail(fmt.Errorf("装配 teamwork 编排面失败: %w", err))
 		}
 	}
-	app, err := InitApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval, st.Boards, flags.StorePath)
+	app, err := InitApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval, st.Boards, st.RolePermissions, st.RoleSessions, flags.StorePath)
 	if err != nil {
 		return nil, boot.fail(err)
 	}
@@ -332,8 +336,9 @@ func Run(opts Options) (*App, error) {
 	// 项目看板（可选能力，M3 装配门）：装配期**一次**交接——开关关 ⇒ 不注入订阅口
 	// （工具完成段判空后什么都不做，一个文件都不写）；开 ⇒ 唯一写盘路径挂上。
 	// 关就是关的口径见 docs/arch/seelex-project-board.md §5.3。
+	boardRouter := storeboardrouter.New()
 	projectBoardSink, closeProjectBoard, err := ProjectBoardSinkFor(
-		runtimeLimits.ProjectBoard, st.Router,
+		runtimeLimits.ProjectBoard, boardRouter,
 		components.Execution.ProjectBoard.WorkTableRowsFor, components.Execution.ProjectBoard.ProjectBoardTeamPlanFor,
 		components.Execution.ProjectBoard.ProjectBoardTeamStateFor, components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
@@ -363,17 +368,17 @@ func Run(opts Options) (*App, error) {
 	// 装配期只装内存（值本来就从覆盖层来）：用户拨开关才走 SetToolRecordEnabled 的
 	// "先落盘、再改内存"。这样覆盖层文件只在用户真改过之后才出现这一格。
 	components.Execution.ToolRecords.ApplyEnabled(toolRecordEnabled)
-	// 会话删除时同批回收项目目录里的投影：项目根只有装配根知道（存储层不认识工作区），
-	// 所以在这里把解析器交给 Router 一次（见 store.SetProjectBoardRootFor）。
-	st.Router.SetProjectBoardRootFor(func(sessionID string) string {
-		if workspace, ok := wsRepo.SessionWorkspace(sessionID); ok {
-			return strings.TrimSpace(workspace.RootPath)
+	// 会话删除时同批回收项目目录里的投影：项目根只有装配根知道。
+	store.ConfigureProjectBoardReclaimer(st.Router, func(sessionID string) error {
+		workspace, ok := wsRepo.SessionWorkspace(sessionID)
+		if !ok {
+			return nil
 		}
-		return ""
+		return storeboard.Reclaim(strings.TrimSpace(workspace.RootPath), sessionID)
 	})
 	// 读取面：**只在这一档注册**（关 ⇒ 工具根本不存在 = 零读取面，而不是"注册了但报错"）。
 	if runtimeLimits.ProjectBoard.Enabled {
-		RegisterProjectBoardReadTool(runtime, st.Router, app)
+		RegisterProjectBoardReadTool(runtime, boardRouter, app)
 	}
 	// plan 节点事件 / 子代理树生命周期 / task 变更均由 application 内的
 	// CSP 消费者经 channel 处理（service_assembler 启动），无需模型调用
@@ -413,7 +418,7 @@ func Run(opts Options) (*App, error) {
 				return session_runtime.WorkspaceID(components.Session.Snapshot.Snapshot().CurrentWorkspace)
 			},
 		},
-		ProjectKnowledge: func() *store.ProjectRecord {
+		ProjectKnowledge: func() *storeproject.ProjectRecord {
 			record, readErr := st.Router.LoadProjectRecord(st.Router.Workspace())
 			if readErr != nil {
 				return nil

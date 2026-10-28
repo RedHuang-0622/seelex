@@ -23,7 +23,7 @@ import (
 
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // ── C：读数与运行同判据 ─────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ func TestAssemblyReadingMatchesRuntimeFaceForInheritedMember(t *testing.T) {
 	defer runtime.Shutdown()
 	all := assemblyChainTools()
 
-	view := runtime.assemblyViews([]store.TeamworkMember{{Role: "pm"}})[0]
+	view := runtime.assemblyViews([]storeteamwork.Member{{Role: "pm"}})[0]
 	if view.Mode != assemblyModeInheritHost {
 		t.Fatalf("没声明 = inherit-host，得 %q", view.Mode)
 	}
@@ -71,12 +71,12 @@ func TestAssemblyReadingMatchesRuntimeFaceForInheritedMember(t *testing.T) {
 func TestAssemblyReadingAgreesWithRuntimeAfterPluginRevoked(t *testing.T) {
 	runtime := newAssemblyChainRuntime(t)
 	defer runtime.Shutdown()
-	member := store.TeamworkMember{Role: "exec", Plugins: []string{assemblyChainDocsPlugin}}
+	member := storeteamwork.Member{Role: "exec", Plugins: []string{assemblyChainDocsPlugin}}
 	all := assemblyChainTools()
 	ctx := toolreg.WithRolePlugins(context.Background(), member.Plugins)
 
 	// 声明时：读数与运行面一致且非零（这一段是基线，证明后面的差异不是"读数一直为 0"）。
-	before := runtime.assemblyViews([]store.TeamworkMember{member})[0]
+	before := runtime.assemblyViews([]storeteamwork.Member{member})[0]
 	beforeFact := assemblyChainNames(runtime.visibilityPolicy.Filter(ctx, all))
 	if before.PluginFaceFaulted || before.PluginFaceTools != len(beforeFact) || len(beforeFact) == 0 {
 		t.Fatalf("声明时的读数与运行面必须一致且非零：读数 %#v，运行面 %v", before, beforeFact)
@@ -89,7 +89,7 @@ func TestAssemblyReadingAgreesWithRuntimeAfterPluginRevoked(t *testing.T) {
 	if len(afterFact) != 0 {
 		t.Fatalf("定义没了必须失灵（空面），得 %v", afterFact)
 	}
-	after := runtime.assemblyViews([]store.TeamworkMember{member})[0]
+	after := runtime.assemblyViews([]storeteamwork.Member{member})[0]
 	if after.PluginFaceTools != len(afterFact) {
 		t.Fatalf("失灵后读数 %d 与运行事实 %d 相反（修前的表现：读数报满面、运行面为空）",
 			after.PluginFaceTools, len(afterFact))

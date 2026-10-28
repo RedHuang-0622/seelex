@@ -1,15 +1,14 @@
 package workunit
 
 import (
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
-func unitRecord(nodeID, kind string) store.NodeSessionRecord {
-	record := store.NodeSessionRecord{NodeID: nodeID}
+func unitRecord(nodeID, kind string) storeworkunit.Record {
+	record := storeworkunit.Record{NodeID: nodeID}
 	record.Unit.Kind = kind
 	return record
 }
@@ -48,7 +47,7 @@ type stubStrategy struct {
 
 func (s *stubStrategy) Kind() Kind { return s.kind }
 
-func (s *stubStrategy) Restore(records []store.NodeSessionRecord) {
+func (s *stubStrategy) Restore(records []storeworkunit.Record) {
 	nodeIDs := make([]string, 0, len(records))
 	for _, record := range records {
 		nodeIDs = append(nodeIDs, record.NodeID)
@@ -63,7 +62,7 @@ func TestRestoreUnitsDispatchesByIdentityAndKeepsOrder(t *testing.T) {
 	teammates := &stubStrategy{kind: KindTeammate}
 	var logs []string
 
-	RestoreUnits("sess-1", []store.NodeSessionRecord{
+	RestoreUnits("sess-1", []storeworkunit.Record{
 		unitRecord("n1", string(KindSubagent)),
 		unitRecord("n2", string(KindTeammate)),
 		unitRecord("n3", "weird"),
@@ -93,7 +92,7 @@ func TestRestoreUnitsDispatchesByIdentityAndKeepsOrder(t *testing.T) {
 	// 空批不惊动策略；空输入与空策略表都是幂等的无事路径。
 	idle := &stubStrategy{kind: KindSubagent}
 	RestoreUnits("sess-1", nil, RestoreDeps{Strategies: []RecoveryStrategy{idle}})
-	RestoreUnits("sess-1", []store.NodeSessionRecord{unitRecord("n1", "")}, RestoreDeps{})
+	RestoreUnits("sess-1", []storeworkunit.Record{unitRecord("n1", "")}, RestoreDeps{})
 	if len(idle.restored) != 0 {
 		t.Fatalf("空输入不该触发恢复：%v", idle.restored)
 	}
@@ -103,7 +102,7 @@ func TestRestoreUnitsDispatchesByIdentityAndKeepsOrder(t *testing.T) {
 // 按子代理算（与迁移前一致：没有团队事实就不做 teammate 兜底）。
 func TestRestoreUnitsWithoutSceneIndex(t *testing.T) {
 	subagents := &stubStrategy{kind: KindSubagent}
-	RestoreUnits("sess-1", []store.NodeSessionRecord{unitRecord("n1", "")}, RestoreDeps{
+	RestoreUnits("sess-1", []storeworkunit.Record{unitRecord("n1", "")}, RestoreDeps{
 		Strategies: []RecoveryStrategy{subagents},
 	})
 	if len(subagents.restored) != 1 || subagents.restored[0][0] != "n1" {

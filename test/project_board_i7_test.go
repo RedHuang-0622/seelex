@@ -19,7 +19,8 @@ import (
 	//
 	// 为什么要有 T4.2 这一半：只看前缀会漏掉"装配层把投影塞进请求尾部"这条路径——而尾部
 	// 同样是缓存前缀的一部分（前后两轮之间尾部一变，缓存就整段作废）。
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeboardrouter "github.com/RedHuang-0622/seelex/internal/host/boardrouter"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,23 +83,23 @@ func writeMarkedProjectBoardProjection(t *testing.T, harness fullChainHarness, p
 	if strings.TrimSpace(sinkRoot) == "" {
 		t.Fatal("会话没有工作区绑定（没有落点）：这条用例会退化成同义反复")
 	}
-	rows := func(kind, key string) []store.ProjectBoardRow {
-		return []store.ProjectBoardRow{{
-			Schema: store.ProjectBoardSchema, Kind: kind, Key: key, Seq: 1, At: time.Now().Unix(),
-			Scope:   store.ProjectBoardScope{Session: projectBoardMarkerSession},
+	rows := func(kind, key string) []dto.ProjectBoardRow {
+		return []dto.ProjectBoardRow{{
+			Schema: dto.ProjectBoardSchema, Kind: kind, Key: key, Seq: 1, At: time.Now().Unix(),
+			Scope:   dto.ProjectBoardScope{Session: projectBoardMarkerSession},
 			Payload: map[string]any{"task": projectBoardMarker, "status": "doing"},
 		}}
 	}
-	if _, err := harness.st.AppendProjectBoardRows(sinkRoot, projectBoardMarkerSession, store.ProjectBoardWorkFile,
-		rows(store.ProjectBoardKindWork, "work:marker")); err != nil {
+	if _, err := storeboardrouter.New().AppendProjectBoardRows(sinkRoot, projectBoardMarkerSession, dto.ProjectBoardWorkFile,
+		rows(dto.ProjectBoardKindWork, "work:marker")); err != nil {
 		t.Fatalf("写 worktable 投影: %v", err)
 	}
-	if _, err := harness.st.AppendProjectBoardRows(sinkRoot, projectBoardMarkerSession, store.ProjectBoardTeamworkFile,
-		rows(store.ProjectBoardKindMilestone, "milestone:marker")); err != nil {
+	if _, err := storeboardrouter.New().AppendProjectBoardRows(sinkRoot, projectBoardMarkerSession, dto.ProjectBoardTeamworkFile,
+		rows(dto.ProjectBoardKindMilestone, "milestone:marker")); err != nil {
 		t.Fatalf("写 teamwork 投影: %v", err)
 	}
 	// 真写出去了才谈得上"它没进请求"：
-	folded, err := harness.st.ReadProjectBoardRows(sinkRoot, projectBoardMarkerSession, store.ProjectBoardWorkFile)
+	folded, err := storeboardrouter.New().ReadProjectBoardRows(sinkRoot, projectBoardMarkerSession, dto.ProjectBoardWorkFile)
 	if err != nil || len(folded) != 1 {
 		t.Fatalf("回读投影失败（folded=%d, err=%v）：用例前提没成立", len(folded), err)
 	}
@@ -122,7 +123,7 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	on := newFullChainHarnessWithLimits(t, AccountsPath, onRoot, 30*time.Second, true, onLimits)
 	// 能力开的这一臂按生产装配补齐两件事：注入订阅口 + 注册读取面。
 	sink, closeSink, err := boot.ProjectBoardSinkFor(
-		onLimits.ProjectBoard, on.st,
+		onLimits.ProjectBoard, storeboardrouter.New(),
 		on.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(on.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
 		assembly.ComponentsFor(on.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, on.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
@@ -132,7 +133,7 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	}
 	defer closeSink()
 	on.components.Execution.ProjectBoardSink.Store(sink)
-	boot.RegisterProjectBoardReadTool(on.runtime, on.st, on.app)
+	boot.RegisterProjectBoardReadTool(on.runtime, storeboardrouter.New(), on.app)
 	writeMarkedProjectBoardProjection(t, on, onRoot)
 
 	onPrefix := promptLayerBytes(t, on.components)
@@ -162,7 +163,7 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	limits.ProjectBoard.Enabled = true
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	sink, closeSink, err := boot.ProjectBoardSinkFor(
-		limits.ProjectBoard, harness.st,
+		limits.ProjectBoard, storeboardrouter.New(),
 		harness.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
 		assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, harness.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
@@ -172,7 +173,7 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	}
 	defer closeSink()
 	harness.components.Execution.ProjectBoardSink.Store(sink)
-	boot.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
+	boot.RegisterProjectBoardReadTool(harness.runtime, storeboardrouter.New(), harness.app)
 	writeMarkedProjectBoardProjection(t, harness, projectRoot)
 
 	if err := harness.components.Conversation.Submission.Submit(ctx, "只回复『收到』两个字，不要调用任何工具。"); err != nil {

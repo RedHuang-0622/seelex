@@ -77,8 +77,9 @@ func EmptyMessageHead(sessionID string) MessageHead {
 	return MessageHead{SessionID: sessionID}
 }
 
-// AssignRowSeqs is the single event seq allocator. Explicit seq <= base is
-// idempotently skipped; explicit seq must otherwise be strictly increasing.
+// AssignRowSeqs validates runtime-assigned event identities before persistence.
+// Seq <= base is treated as an idempotent replay and skipped. New rows must
+// start at base+1 and remain strictly contiguous; Store never invents a seq.
 func AssignRowSeqs(rows []protocol.TranscriptEvent, base uint64, commitID string) ([]protocol.TranscriptEvent, error) {
 	if len(rows) == 0 {
 		return []protocol.TranscriptEvent{}, nil
@@ -87,14 +88,13 @@ func AssignRowSeqs(rows []protocol.TranscriptEvent, base uint64, commitID string
 	delta := make([]protocol.TranscriptEvent, 0, len(rows))
 	for _, row := range rows {
 		if row.Seq == 0 {
-			next++
-			row.Seq = next
+			return nil, errors.New("session storage: message rows must carry an explicit seq")
 		} else {
 			if row.Seq <= base {
 				continue
 			}
-			if row.Seq <= next {
-				return nil, fmt.Errorf("session storage: message rows must be strictly increasing (seq %d)", row.Seq)
+			if row.Seq != next+1 {
+				return nil, fmt.Errorf("session storage: message rows must be contiguous after head %d (got %d)", next, row.Seq)
 			}
 			next = row.Seq
 		}
@@ -258,8 +258,9 @@ type DraftItem struct {
 	SavedAt   time.Time `json:"saved_at"`
 }
 
-// QueueItem is one at-least-once request in the durable queue.
-type QueueItem struct {
+// QueueRow is the private durable lifecycle row. The public projection is
+// contract/dto.QueueItem; root/session code converts at the boundary.
+type QueueRow struct {
 	Seq        uint64         `json:"seq"`
 	ItemID     string         `json:"item_id"`
 	RequestID  string         `json:"request_id,omitempty"`
@@ -274,7 +275,7 @@ type QueueItem struct {
 // LifecycleState is the file-authoritative draft/queue projection.
 type LifecycleState struct {
 	Draft *DraftItem
-	Queue []QueueItem
+	Queue []QueueRow
 }
 
 // LifecycleHead is metadata/lifecycle.json payload.
@@ -301,7 +302,7 @@ type CompactRef struct {
 }
 
 // QueueHeadState returns the current queue head state.
-func QueueHeadState(items []QueueItem) QueueState {
+func QueueHeadState(items []QueueRow) QueueState {
 	if len(items) == 0 {
 		return ""
 	}
@@ -390,7 +391,7 @@ func ValidateRetentionPrefix(remaining []protocol.TranscriptEvent, upToSeq, last
 }
 
 // NextQueueSeq returns the next stable queue sequence.
-func NextQueueSeq(items []QueueItem) uint64 {
+func NextQueueSeq(items []QueueRow) uint64 {
 	var top uint64
 	for _, item := range items {
 		if item.Seq > top {
@@ -400,14 +401,14 @@ func NextQueueSeq(items []QueueItem) uint64 {
 	return top + 1
 }
 
-// NewQueueItem creates one queued item with deterministic identity.
-func NewQueueItem(state LifecycleState, requestID, content string, now time.Time) QueueItem {
+// NewQueueRow creates one queued row with deterministic identity.
+func NewQueueRow(state LifecycleState, requestID, content string, now time.Time) QueueRow {
 	seq := NextQueueSeq(state.Queue)
 	itemID := "q:" + requestID
 	if requestID == "" {
 		itemID = "q:" + storeroot.Hash(content+"|"+fmt.Sprintf("%d", seq))
 	}
-	return QueueItem{
+	return QueueRow{
 		Seq: seq, ItemID: itemID, RequestID: requestID,
 		Content: content, State: QueueQueued, CreatedAt: now,
 	}
@@ -420,7 +421,7 @@ func Enqueue(state LifecycleState, requestID, content string, now time.Time) (Li
 			return state, false
 		}
 	}
-	state.Queue = append(state.Queue, NewQueueItem(state, requestID, content, now))
+	state.Queue = append(state.Queue, NewQueueRow(state, requestID, content, now))
 	return state, true
 }
 
@@ -433,7 +434,7 @@ func SaveDraft(state LifecycleState, sessionID, content string, now time.Time) L
 // MoveDraftToQueue atomically clears draft and appends the queued copy.
 func MoveDraftToQueue(state LifecycleState, sessionID, content string, now time.Time) LifecycleState {
 	state.Draft = nil
-	state.Queue = append(state.Queue, NewQueueItem(state, "", content, now))
+	state.Queue = append(state.Queue, NewQueueRow(state, "", content, now))
 	return state
 }
 
@@ -443,18 +444,18 @@ func DirectSendState(state LifecycleState, content string, now time.Time) (Lifec
 	if len(state.Queue) == 0 {
 		return state, false
 	}
-	state.Queue = append(state.Queue, NewQueueItem(state, "", content, now))
+	state.Queue = append(state.Queue, NewQueueRow(state, "", content, now))
 	return state, true
 }
 
 // SendFront transitions the FIFO head to sending.
-func SendFront(state LifecycleState) (LifecycleState, QueueItem, error) {
+func SendFront(state LifecycleState) (LifecycleState, QueueRow, error) {
 	if len(state.Queue) == 0 {
-		return state, QueueItem{}, errors.New("session storage: queue empty")
+		return state, QueueRow{}, errors.New("session storage: queue empty")
 	}
 	item := state.Queue[0]
 	if item.State == QueueSending || item.State == QueueSent {
-		return state, QueueItem{}, errors.New("session storage: queue head already sending")
+		return state, QueueRow{}, errors.New("session storage: queue head already sending")
 	}
 	item.State = QueueSending
 	item.SendCount++

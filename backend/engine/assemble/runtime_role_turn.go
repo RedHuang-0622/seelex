@@ -480,7 +480,7 @@ func (r *Runtime) newRoleEngineWithHistory(sessionID, systemPrompt string, resum
 			}
 		},
 		ModelName:         func() string { return r.model },
-		HistoryRouter:     r.HistoryRouter,
+		NewHistory:        r.newPreparedHistory,
 		WorkspaceResolver: r.sessionWorkspaceFor,
 		InitialHistory: func(string) []types.Message {
 			return append([]types.Message(nil), resumeHistory...)

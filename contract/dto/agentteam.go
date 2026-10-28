@@ -276,8 +276,8 @@ type TeamSchedule struct {
 // （静态全仓索引只剩 dto 自身、测试夹具与 store 的读写实现）。
 //
 // 兼容政策（A06；与"删退场面"分开执行）：
-//  1. **保留读能力**：`store/team_registry.go` 的 `ReadTeamRegistryWorkspace` /
-//     `WriteTeamRegistryWorkspace` / `RemoveTeamRegistryWorkspace` 一字未改，旧会话里的
+//  1. **保留读能力**：`store/role.Store` 的 `Read` / `Write` / `Remove` 保持旧 wire，
+//     旧会话里的
 //     `session/team/roles.json` 仍可读出、诊断与迁移——删 reader 会让旧数据失去唯一入口，
 //     那不是清理；
 //  2. **不删文件、不迁移、不停止写入**：旧数据的清理/迁移必须另行中文预警 + 备份 + 用户
@@ -313,7 +313,7 @@ type TeamMaterializeResult struct {
 
 // TeamRegistry 是角色注册表的应用层形态（纯 DTO；存储层只在适配器里出现）。
 //
-// legacy（A06）：读写实现保留在 `store/team_registry.go`（`session/team/roles.json`），
+// legacy（A06）：读写实现保留在 `store/role.Store`（`session/team/roles.json`），
 // 当前没有生产应用适配器调用它——它现在是**旧数据兼容与诊断面**，不是活动装配面。
 type TeamRegistry struct {
 	TeamID      string     `json:"team_id,omitempty"`

@@ -79,14 +79,23 @@ func TestStoreDDDM9RoleWorkUnitOwnershipGate(t *testing.T) {
 		t.Fatalf("store/workunit 缺少模块 README：%v", err)
 	}
 
-	// 2) 根 node/subagent 记录只剩转发。
-	nodeRecord := read("store", "node_session_store.go")
-	assertContains("store/node_session_store.go", nodeRecord, "workunit.", ".Write(", ".Read(", ".List(", ".Delete(")
-	assertAbsent("store/node_session_store.go", nodeRecord,
-		"json.Marshal", "json.Unmarshal", "os.ReadFile", "os.MkdirAll", "storeroot.WriteAtomic", "sort.Slice", "filepath.Join")
-	writer := read("store", "unit_record_writer.go")
-	assertContains("store/unit_record_writer.go", writer, "workunit.")
-	assertAbsent("store/unit_record_writer.go", writer, "errors.New", "NodeSessionStore")
+	// 2) 根 node/subagent wrapper 已物理删除；作用域入口由 owner 提供，根包只留路径适配器。
+	nodeStore := read("store", "workunit", "session_store.go")
+	assertContains("store/workunit/session_store.go", nodeStore,
+		"func (s *SessionStore) Save(", "func (s *SessionStore) Load(", "func (s *SessionStore) List(", "func (s *SessionStore) Delete(")
+	assertNoRootImport("store/workunit/session_store.go", nodeStore)
+	rootRoots := read("store", "workunit_roots.go")
+	assertContains("store/workunit_roots.go", rootRoots, "WithSessionRoot", "NewWorkUnitSessionStore")
+	if _, err := os.Stat(filepath.Join(root, "store", "node_session_store.go")); !os.IsNotExist(err) {
+		t.Fatalf("store/node_session_store.go 应已物理删除，实际 err=%v", err)
+	}
+	if writerBytes, err := os.ReadFile(filepath.Join(root, "store", "unit_record_writer.go")); err == nil {
+		writer := string(writerBytes)
+		assertContains("store/unit_record_writer.go", writer, "workunit.")
+		assertAbsent("store/unit_record_writer.go", writer, "errors.New", "NodeSessionStore")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("读取 store/unit_record_writer.go：%v", err)
+	}
 
 	// 3) store/role：draft（只追加 + 残尾 + 每角色锁 + 排序 + 同步语义）。
 	draft := read("store", "role", "draft.go")
@@ -136,16 +145,19 @@ func TestStoreDDDM9RoleWorkUnitOwnershipGate(t *testing.T) {
 		"func (store *storeEngine) roleStore(",
 		"func (store *storeEngine) roleSessionRoot(",
 	)
-	rootRoleRouter := read("store", "role_session_router.go")
-	assertContains("store/role_session_router.go", rootRoleRouter,
+	rootRoleAdapter := read("store", "role_session_adapter.go")
+	assertContains("store/role_session_adapter.go", rootRoleAdapter,
 		"storerole.AppendDraft(", "storerole.ReadDraft(")
-	assertContains("store/role_session.go", rootRole, "storerole.SyncDraft(", "storerole.SessionRoot(")
+	assertContains("store/role_session.go", rootRole,
+		"storerole.SyncDraft(", "storerole.SessionRoot(", "storerole.BuildSnapshot(",
+		"storerole.ResolveWireWindow(", "storerole.MergeWirePending(", "storerole.BuildWireSnapshot(")
+	assertAbsent("store/role_session_adapter.go", rootRoleAdapter, "func (router *Router)")
 
-	rootPermission := read("store", "role_permission.go")
-	assertAbsent("store/role_permission.go", rootPermission,
-		"os.ReadFile", "json.Unmarshal", "json.Marshal", "storeroot.WriteAtomic",
-		"func normalizedRoleVector(", "func (repository *jsonRepository) readRolePermissionLayout(")
-	assertContains("store/role_permission.go", rootPermission, "storerole.NewPermissionStore(", "storerole.PermissionStore")
+	if _, err := os.Stat(filepath.Join(root, "store", "role_permission.go")); !os.IsNotExist(err) {
+		t.Fatalf("store/role_permission.go 应已物理删除，实际 err=%v", err)
+	}
+	stores := read("store", "stores.go")
+	assertContains("store/stores.go", stores, "RolePermissions *storerole.PermissionStore", "storerole.NewPermissionStore(")
 
 	// 7) 根 storeEngine 不再有递归式子引擎入口；单一机制工厂在位。
 	forks := read("store", "fork_store.go")

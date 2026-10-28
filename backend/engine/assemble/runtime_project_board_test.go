@@ -16,9 +16,8 @@ package assemble
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestTeamworkPlanForRequiresBackendAndScope(t *testing.T) {
@@ -90,7 +89,7 @@ func TestTeamworkPlanForRejectsHalfKey(t *testing.T) {
 	plan := boardPlanFixture()
 	// 半截键下**真的有**一份计划：这样"返回 false"只能是键完整性判据的结果，而不是
 	// "存储里恰好没有"。
-	if err := st.WritePlan(context.Background(), store.Key{SessionID: "s-half"}, plan, 6); err != nil {
+	if err := st.WritePlan(context.Background(), dto.SessionKey{SessionID: "s-half"}, plan, 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
 
@@ -98,9 +97,9 @@ func TestTeamworkPlanForRejectsHalfKey(t *testing.T) {
 	defer r.Shutdown()
 	if err := r.SetTeamworkBackend(TeamworkBackend{
 		Store: st,
-		KeyFor: func(id string) (store.Key, bool) {
+		KeyFor: func(id string) (dto.SessionKey, bool) {
 			// 故意只给会话：项目分量缺失（半截键）。
-			return store.Key{SessionID: id}, true
+			return dto.SessionKey{SessionID: id}, true
 		},
 		MaxTeammates: 6,
 	}); err != nil {

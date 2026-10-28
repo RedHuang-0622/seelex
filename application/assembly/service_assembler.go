@@ -209,7 +209,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		Limits: applicationpolicy.Get,
 		IsInternalContent: func(content string) bool {
-			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content) || context_runtime.IsActiveSkillContent(content)
+			return context_runtime.IsInternalContent(content)
 		},
 		IsOversizedToolResult:      context_runtime.IsOversizedToolResult,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
@@ -260,7 +260,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		TranscriptTailBudget: applicationwindow.RetainedReadTailBudget,
 		IsInternalContent: func(content string) bool {
-			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content) || context_runtime.IsActiveSkillContent(content)
+			return context_runtime.IsInternalContent(content)
 		},
 		TailHistory:                task_context.TranscriptTailHistory,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,

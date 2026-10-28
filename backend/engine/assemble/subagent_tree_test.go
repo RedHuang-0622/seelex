@@ -11,7 +11,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // ── 子代理树（fork 内存态可视化，subagent_tree.go）──────────────────
@@ -166,7 +166,7 @@ func TestRestoredCrashLeftoversMarkedInterrupted(t *testing.T) {
 	defer runtime.Shutdown()
 
 	// nil 谓词 = 启动期崩溃恢复口径（不过滤归属）。
-	runtime.subagentTree.Restore([]store.NodeSessionRecord{
+	runtime.subagentTree.Restore([]storeworkunit.Record{
 		{NodeID: "crashed-run", SessionID: "node-crash-run", Goal: "run-crash", Status: "running"},
 		{NodeID: "crashed-queued", SessionID: "node-crash-queued", Goal: "queued-crash", Status: "queued"},
 		{NodeID: "done-node", SessionID: "node-done", Goal: "done", Status: "done", Summary: "ok"},
@@ -453,7 +453,7 @@ func TestLiveRunningSubagentSurvivesSessionSwitchRestore(t *testing.T) {
 
 	// 模拟切回该会话时的恢复：记录来自运行期 persistLocked（Status=running），
 	// 而节点在本进程内仍然在跑。
-	runtime.subagentTree.Restore([]store.NodeSessionRecord{
+	runtime.subagentTree.Restore([]storeworkunit.Record{
 		{NodeID: "live-1", SessionID: "node-live-1", Goal: "keep working", Status: "running"},
 	}, "session-a", nil)
 
@@ -470,16 +470,16 @@ func TestRestoreSkipsRecordsOfAnotherMainSession(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	record := store.NodeSessionRecord{
+	record := storeworkunit.Record{
 		NodeID: "other-main-node", SessionID: "node-other", MainSessionID: "session-b",
 		Goal: "belongs to B", Status: "running",
 	}
-	belongsToA := func(candidate store.NodeSessionRecord) bool {
+	belongsToA := func(candidate storeworkunit.Record) bool {
 		return candidate.MainSessionID != "session-b"
 	}
 
 	// 视图在 A：B 的 running 记录不属于 A → 不建节点。
-	runtime.subagentTree.Restore([]store.NodeSessionRecord{record}, "session-a", belongsToA)
+	runtime.subagentTree.Restore([]storeworkunit.Record{record}, "session-a", belongsToA)
 	if got := treeNode(t, runtime, "other-main-node"); got.ID != "" {
 		t.Fatalf("record of another main session must not enter this session's tree: %+v", got)
 	}
@@ -487,7 +487,7 @@ func TestRestoreSkipsRecordsOfAnotherMainSession(t *testing.T) {
 	// 视图切到 B：同一记录按崩溃口径接管为 interrupted（它的主会话才是当前视图，
 	// 本进程没有它的活会话）；恢复进来的节点同时带上**归属主会话**——工作表格行
 	// 的会话轴取它，落空的行会被前端当成本会话（跨会话污染，2026-09-29）。
-	runtime.subagentTree.Restore([]store.NodeSessionRecord{record}, "session-b", func(store.NodeSessionRecord) bool { return true })
+	runtime.subagentTree.Restore([]storeworkunit.Record{record}, "session-b", func(storeworkunit.Record) bool { return true })
 	restored := treeNode(t, runtime, "other-main-node")
 	if restored.Status != dto.SubAgentInterrupted {
 		t.Fatalf("restored foreign-session leftover status = %q, want interrupted", restored.Status)

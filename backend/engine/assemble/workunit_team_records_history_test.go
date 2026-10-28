@@ -20,7 +20,7 @@ func TestTeamUnitRecordPersistsItsOwnTranscript(t *testing.T) {
 		t.Fatalf("NewRouter: %v", err)
 	}
 	defer router.Close()
-	nodes := store.NewNodeSessionStore(router)
+	nodes := store.NewWorkUnitSessionStore(router)
 	runtime.AttachSubSessionStore(nodes)
 	mainSessionID := "sess-main"
 	if err := runtime.SetTeamworkBackend(teamworkTestBackend(&memPlanStore{}, mainSessionID)); err != nil {

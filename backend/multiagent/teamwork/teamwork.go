@@ -22,7 +22,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // 作业类别：在 jobs 的开放 Kind 上注册，框架不解释这个值。
@@ -59,14 +60,14 @@ func DefaultRoleSessionID(mainSessionID, teamID, roleName string) string {
 // 不把"文件不存在"当错误上抛——读面宽容（team_items / team_context 对空计划给空结果），
 // 写面显式（需要计划的入口用 requireTeam 翻成领域文案）。
 type PlanStore interface {
-	WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error
-	ReadPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error)
-	AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error
-	ReadEvents(ctx context.Context, key store.Key) ([]store.TeamworkEvent, error)
+	WritePlan(ctx context.Context, key dto.SessionKey, plan storeteamwork.Plan, maxTeammates int) error
+	ReadPlan(ctx context.Context, key dto.SessionKey) (storeteamwork.Plan, error)
+	AppendEvent(ctx context.Context, key dto.SessionKey, event storeteamwork.Event) error
+	ReadEvents(ctx context.Context, key dto.SessionKey) ([]storeteamwork.Event, error)
 	// AppendBinding / ReadBindings 是「一个 Work Item ↔ 一个 Session + 一个 worktree」
-	// 的绑定账本（追加型 JSONL，KV 语义；见 store.TeamworkBinding）。
-	AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error
-	ReadBindings(ctx context.Context, key store.Key) ([]store.TeamworkBinding, error)
+	// 的绑定账本（追加型 JSONL，KV 语义；见 storeteamwork.Binding）。
+	AppendBinding(ctx context.Context, key dto.SessionKey, binding storeteamwork.Binding) error
+	ReadBindings(ctx context.Context, key dto.SessionKey) ([]storeteamwork.Binding, error)
 }
 
 // WorkerRequest 是一次 teammate 作业的全部输入。它同时是作业载荷
@@ -255,7 +256,7 @@ type JobOutputs interface {
 // 缺失时对应的动作显式报错（不静默降级）。
 type Options struct {
 	// Key 是会话作用域（会话键 = 作业隔离与回收粒度）。
-	Key store.Key
+	Key dto.SessionKey
 	// Store 是计划与审计的持久面。
 	Store PlanStore
 	// Jobs 是作业面（frame jobs.Manager），worker/seat 执行体注册在它上面。
@@ -301,7 +302,7 @@ type Options struct {
 // 掌控顺序、作用域与收口——这正是"leader 阻塞与否与 worker 是否推进正交"的
 // 落点（§6.3）。
 type Coordinator struct {
-	key                        store.Key
+	key                        dto.SessionKey
 	st                         PlanStore
 	jobs                       jobs.Manager
 	workers                    WorkerRunner
@@ -367,22 +368,22 @@ func New(options Options) (*Coordinator, error) {
 }
 
 // Key 返回会话作用域。
-func (c *Coordinator) Key() store.Key { return c.key }
+func (c *Coordinator) Key() dto.SessionKey { return c.key }
 
 // audit 追加一条审计行。审计失败**不吞**：它与计划是同一份事实的两个面。
-func (c *Coordinator) audit(ctx context.Context, event store.TeamworkEvent) error {
+func (c *Coordinator) audit(ctx context.Context, event storeteamwork.Event) error {
 	event.At = c.clock().UTC()
 	return c.st.AppendEvent(ctx, c.key, event)
 }
 
 // memberFor 返回在编成员。
-func memberFor(plan store.TeamworkPlan, role string) (store.TeamworkMember, bool) {
+func memberFor(plan storeteamwork.Plan, role string) (storeteamwork.Member, bool) {
 	for _, member := range plan.Members {
 		if member.Role == role {
 			return member, true
 		}
 	}
-	return store.TeamworkMember{}, false
+	return storeteamwork.Member{}, false
 }
 
 // maxTurnsFor 返回一个 teammate 生效的角色回合上限：成员条目自带的 max_turns
@@ -392,7 +393,7 @@ func memberFor(plan store.TeamworkPlan, role string) (store.TeamworkMember, bool
 // 上限的唯一来源——于是"这条 teammate 需要多跑几轮"只能整队一起调。成员条目现在
 // 可以各自声明（与 subagent 的 per-subagent max_loops 同构），这里就是那个抉择点。
 // 0 = 没声明（不是"零轮"），回退默认。
-func maxTurnsFor(member store.TeamworkMember, fallback int) int {
+func maxTurnsFor(member storeteamwork.Member, fallback int) int {
 	if member.MaxTurns > 0 {
 		return member.MaxTurns
 	}
@@ -402,7 +403,7 @@ func maxTurnsFor(member store.TeamworkMember, fallback int) int {
 // memberPermissionGroups 把计划里的权限格子（组 → 位）折成框架的 uint8 位图。
 // 位是非负整数且落在 0..255；越界是**计划写错了**，显式报错而不是截断伪装成
 // "分配成功"。
-func memberPermissionGroups(member store.TeamworkMember) (map[string]uint8, error) {
+func memberPermissionGroups(member storeteamwork.Member) (map[string]uint8, error) {
 	if len(member.Permission) == 0 {
 		// 没写权限格子 = 没有要折的位，不是错误：显式写出类型的零值而不是裸
 		// `return nil, nil`（静态门禁口径，见 permission.go 里同一条注释）。
@@ -420,7 +421,7 @@ func memberPermissionGroups(member store.TeamworkMember) (map[string]uint8, erro
 
 // MemberPermissionGroups exposes the existing permission-bit folding rule to
 // the host adapter. The decision stays in this domain; callers do not copy it.
-func MemberPermissionGroups(member store.TeamworkMember) (map[string]uint8, error) {
+func MemberPermissionGroups(member storeteamwork.Member) (map[string]uint8, error) {
 	return memberPermissionGroups(member)
 }
 

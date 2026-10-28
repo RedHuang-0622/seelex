@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"strings"
@@ -147,10 +148,10 @@ func TestRetentionSearchSummaryAfterDelete(t *testing.T) {
 	if _, err := store.lRUDelete(key, 5, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.rebuildSearchIndex(key); err != nil {
+	if err := rebuildSearchIndexForTest(store, key); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := store.searchQuery(key, "敏感关键词")
+	hits, err := searchQueryForTest(store, key, "敏感关键词")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,13 +267,13 @@ func TestSearchPerSessionHits(t *testing.T) {
 	rowsB := roundRows(8)
 	rowsB[1].Content = "Beta 项目结论"
 	commitRoundRows(t, storeB, keyB, rowsB)
-	if err := storeA.rebuildSearchIndex(keyA); err != nil {
+	if err := rebuildSearchIndexForTest(storeA, keyA); err != nil {
 		t.Fatal(err)
 	}
-	if err := storeB.rebuildSearchIndex(keyB); err != nil {
+	if err := rebuildSearchIndexForTest(storeB, keyB); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := storeA.searchQuery(keyA, "Alpha 项目")
+	hits, err := searchQueryForTest(storeA, keyA, "Alpha 项目")
 	if err != nil || len(hits) == 0 {
 		t.Fatalf("hits=%+v err=%v", hits, err)
 	}
@@ -281,7 +282,7 @@ func TestSearchPerSessionHits(t *testing.T) {
 			t.Fatalf("hit out of session range: %+v", hit)
 		}
 	}
-	cross, err := storeA.searchQuery(keyA, "Beta")
+	cross, err := searchQueryForTest(storeA, keyA, "Beta")
 	if err != nil || len(cross) != 0 {
 		t.Fatalf("cross-session hit: %+v err=%v", cross, err)
 	}
@@ -292,23 +293,23 @@ func TestSearchPerSessionHits(t *testing.T) {
 func TestSearchLagAndRebuild(t *testing.T) {
 	store, key := retentionFixture(t)
 	commitRoundRows(t, store, key, roundRows(6))
-	if err := store.rebuildSearchIndex(key); err != nil {
+	if err := rebuildSearchIndexForTest(store, key); err != nil {
 		t.Fatal(err)
 	}
 	// append 新关键词后索引未重建：旧查询仍命中旧内容（允许落后）。
 	extra := messageRow(7, "msg7", "user", EventKindUserInput, "崭新话题词")
 	commitRoundRows(t, store, key, []Event{extra})
-	before, err := store.searchQuery(key, "崭新话题词")
+	before, err := searchQueryForTest(store, key, "崭新话题词")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(before) != 0 {
 		t.Fatalf("stale index unexpectedly hits: %+v", before)
 	}
-	if err := store.rebuildSearchIndex(key); err != nil {
+	if err := rebuildSearchIndexForTest(store, key); err != nil {
 		t.Fatal(err)
 	}
-	after, err := store.searchQuery(key, "崭新话题词")
+	after, err := searchQueryForTest(store, key, "崭新话题词")
 	if err != nil || len(after) == 0 {
 		t.Fatalf("rebuild missed: hits=%+v err=%v", after, err)
 	}
@@ -326,10 +327,10 @@ func TestSearchDeletedRegionSummaryOnly(t *testing.T) {
 	if _, err := store.lRUDelete(key, 10, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.rebuildSearchIndex(key); err != nil {
+	if err := rebuildSearchIndexForTest(store, key); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(store.searchIndexPath(key))
+	data, err := os.ReadFile(searchIndexPathForTest(store, key))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,10 +346,10 @@ func TestSearchDeletedRegionSummaryOnly(t *testing.T) {
 func TestBigToolResultHardLimitNotPersisted(t *testing.T) {
 	store, key := retentionFixture(t)
 	huge := strings.Repeat("x", storeroot.DefaultSettings().BlobHardLimitBytes+1)
-	if _, err := store.writeBlob(key, "bash", huge); !errors.Is(err, ErrBigToolResultTooLarge) {
+	if _, err := writeBlobForTest(store, key, "bash", huge); !errors.Is(err, storeartifact.ErrBigToolResultTooLarge) {
 		t.Fatalf("err = %v", err)
 	}
-	hashes, err := store.listBlobHashes(key)
+	hashes, err := listBlobHashesForTest(store, key)
 	if err != nil || len(hashes) != 0 {
 		t.Fatalf("blob persisted: %+v err=%v", hashes, err)
 	}
@@ -359,18 +360,18 @@ func TestBigToolResultHardLimitNotPersisted(t *testing.T) {
 func TestBigToolResultSoftLimitTruncatesWithRef(t *testing.T) {
 	store, key := retentionFixture(t)
 	long := strings.Repeat("长", storeroot.DefaultSettings().BlobSoftLimitChars+100)
-	blob, err := store.writeBlob(key, "read", long)
+	blob, err := writeBlobForTest(store, key, "read", long)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !blob.Truncated || blob.Size != storeroot.DefaultSettings().BlobSoftLimitChars {
 		t.Fatalf("blob = %+v", blob)
 	}
-	content, err := store.readBlob(key, blob.Hash)
+	content, err := readBlobForTest(store, key, blob.Hash)
 	if err != nil || len(content) != storeroot.DefaultSettings().BlobSoftLimitChars {
 		t.Fatalf("read content len=%d err=%v", len(content), err)
 	}
-	if !strings.HasPrefix(blobRefOf(blobRefPrefix+blob.Hash), blob.Hash) {
+	if !strings.HasPrefix(blobRefOfForTest(storeartifact.BlobRefPrefix+blob.Hash), blob.Hash) {
 		t.Fatal("ref normalize broken")
 	}
 }
@@ -379,20 +380,20 @@ func TestBigToolResultSoftLimitTruncatesWithRef(t *testing.T) {
 // 不自动删。
 func TestBigToolResultQuotaDryRun(t *testing.T) {
 	store, key := retentionFixture(t)
-	if _, err := store.writeBlob(key, "a", "AAA"); err != nil {
+	if _, err := writeBlobForTest(store, key, "a", "AAA"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.writeBlob(key, "b", "BBB"); err != nil {
+	if _, err := writeBlobForTest(store, key, "b", "BBB"); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := store.blobGarbageCollect(key, nil, true)
+	removed, err := collectBlobsForTest(store, key, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(removed) != 2 {
 		t.Fatalf("dry-run candidates = %+v", removed)
 	}
-	hashes, err := store.listBlobHashes(key)
+	hashes, err := listBlobHashesForTest(store, key)
 	if err != nil || len(hashes) != 2 {
 		t.Fatalf("dry-run deleted blobs: %+v err=%v", hashes, err)
 	}

@@ -15,7 +15,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // ──── 子代理树（fork 内存态可视化数据面）────
@@ -336,7 +336,7 @@ func (s *SubagentTree) Clear() error {
 }
 
 // Restore 从持久化记录重建 fork 树节点（重启/恢复锚点）：
-// 运行中/崩溃遗留节点从 NodeSessionRecord 恢复；父级未知时统一挂到主代理
+// 运行中/崩溃遗留节点从 Record 恢复；父级未知时统一挂到主代理
 // 根下。恢复完成后通知 observer（application 工作表格自动刷新，认领回填
 // subagent:<节点会话ID>）。
 //
@@ -354,7 +354,7 @@ func (s *SubagentTree) Clear() error {
 // 本进程仍在跑的节点（内存态有活会话）不被记录覆盖：崩溃口径（running →
 // interrupted）只适用于"记录的主人已经不在这个进程里"，照搬会把手头正在跑
 // 的节点显示成中断。
-func (s *SubagentTree) Restore(records []store.NodeSessionRecord, mainSessionID string, belongsToCurrent func(store.NodeSessionRecord) bool) {
+func (s *SubagentTree) Restore(records []storeworkunit.Record, mainSessionID string, belongsToCurrent func(storeworkunit.Record) bool) {
 	if s == nil || len(records) == 0 {
 		return
 	}

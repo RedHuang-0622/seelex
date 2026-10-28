@@ -2,7 +2,6 @@ package host
 
 import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // session_status_record.go — 会话可见状态在**存储面**上的转换点（全仓唯一一处）。
@@ -21,7 +20,10 @@ import (
 //   - 认不得的词、空串（老记录没写这个字段）→ `SessionStatusUnknown`：**说认不得**，
 //     不折成 idle/running 这些已知态。折成已知态等于替存储层编一个它没说过的事实，
 //     而"这行在不在跑"正是驱逐/归档/待批判定会去读的东西。
-func sessionStatusOfRecord(wire store.Status) dto.SessionStatus {
+func sessionStatusOfRecord(wire dto.SessionRecordStatus) dto.SessionStatus {
+	if wire == dto.SessionRecordStatusActive {
+		return dto.SessionStatusIdle
+	}
 	if status, ok := dto.ParseSessionStatus(string(wire)); ok {
 		return status
 	}

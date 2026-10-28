@@ -6,13 +6,13 @@ package board
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
-func teamworkPlanFixture() store.TeamworkPlan {
-	return store.TeamworkPlan{TeamID: "team-1", Version: 3}
+func teamworkPlanFixture() storeteamwork.Plan {
+	return storeteamwork.Plan{TeamID: "team-1", Version: 3}
 }
 
 // TestTeamworkPlanForRejectsIncompleteDeps：两格读数缺一（未装配 / nil 端口）⇒ false，
@@ -21,10 +21,10 @@ func TestTeamworkPlanForRejectsIncompleteDeps(t *testing.T) {
 	cases := map[string]TeamworkPlanDeps{
 		"两格都缺": {},
 		"只给 KeyFor": {
-			KeyFor: func(string) (store.Key, bool) { return store.Key{}, false },
+			KeyFor: func(string) (dto.SessionKey, bool) { return dto.SessionKey{}, false },
 		},
 		"只给 ReadPlan": {
-			ReadPlan: func(context.Context, store.Key) (store.TeamworkPlan, error) {
+			ReadPlan: func(context.Context, dto.SessionKey) (storeteamwork.Plan, error) {
 				return teamworkPlanFixture(), nil
 			},
 		},
@@ -40,8 +40,8 @@ func TestTeamworkPlanForRejectsIncompleteDeps(t *testing.T) {
 func TestTeamworkPlanForRejectsEmptySession(t *testing.T) {
 	asked := 0
 	deps := TeamworkPlanDeps{
-		KeyFor: func(string) (store.Key, bool) { asked++; return store.Key{}, false },
-		ReadPlan: func(context.Context, store.Key) (store.TeamworkPlan, error) {
+		KeyFor: func(string) (dto.SessionKey, bool) { asked++; return dto.SessionKey{}, false },
+		ReadPlan: func(context.Context, dto.SessionKey) (storeteamwork.Plan, error) {
 			asked++
 			return teamworkPlanFixture(), nil
 		},
@@ -59,15 +59,15 @@ func TestTeamworkPlanForRejectsEmptySession(t *testing.T) {
 // TestTeamworkPlanForRejectsHalfKey：键缺项目或缺会话分量 ⇒ false，**读口一次都不许被调**
 // （半截键读出来的东西归不到任何一个会话上）。这条判据与 teamwork 域的 coordinatorFor 同源。
 func TestTeamworkPlanForRejectsHalfKey(t *testing.T) {
-	for name, key := range map[string]store.Key{
+	for name, key := range map[string]dto.SessionKey{
 		"缺项目":  {SessionID: "s-1"},
 		"缺会话":  {ProjectID: "p-1"},
 		"只有空白": {ProjectID: "  ", SessionID: "\t"},
 	} {
 		reads := 0
 		deps := TeamworkPlanDeps{
-			KeyFor: func(string) (store.Key, bool) { return key, true },
-			ReadPlan: func(context.Context, store.Key) (store.TeamworkPlan, error) {
+			KeyFor: func(string) (dto.SessionKey, bool) { return key, true },
+			ReadPlan: func(context.Context, dto.SessionKey) (storeteamwork.Plan, error) {
 				reads++
 				return teamworkPlanFixture(), nil
 			},
@@ -84,18 +84,18 @@ func TestTeamworkPlanForRejectsHalfKey(t *testing.T) {
 // TestTeamworkPlanForTreatsReadFailureAndEmptyPlanAlike：读失败与"空计划"同解
 // （调用方对两者只做同一件事：整块退场）。**空计划不能被当成真计划**去渲染一张空看板。
 func TestTeamworkPlanForTreatsReadFailureAndEmptyPlanAlike(t *testing.T) {
-	key := store.Key{ProjectID: "p-1", SessionID: "s-1"}
-	cases := map[string]func(context.Context, store.Key) (store.TeamworkPlan, error){
-		"读失败": func(context.Context, store.Key) (store.TeamworkPlan, error) {
-			return store.TeamworkPlan{}, errors.New("boom")
+	key := dto.SessionKey{ProjectID: "p-1", SessionID: "s-1"}
+	cases := map[string]func(context.Context, dto.SessionKey) (storeteamwork.Plan, error){
+		"读失败": func(context.Context, dto.SessionKey) (storeteamwork.Plan, error) {
+			return storeteamwork.Plan{}, errors.New("boom")
 		},
-		"空计划": func(context.Context, store.Key) (store.TeamworkPlan, error) {
-			return store.TeamworkPlan{}, nil
+		"空计划": func(context.Context, dto.SessionKey) (storeteamwork.Plan, error) {
+			return storeteamwork.Plan{}, nil
 		},
 	}
 	for name, readPlan := range cases {
 		deps := TeamworkPlanDeps{
-			KeyFor:   func(string) (store.Key, bool) { return key, true },
+			KeyFor:   func(string) (dto.SessionKey, bool) { return key, true },
 			ReadPlan: readPlan,
 		}
 		if plan, ok := TeamworkPlanFor("s-1", deps); ok {
@@ -107,16 +107,16 @@ func TestTeamworkPlanForTreatsReadFailureAndEmptyPlanAlike(t *testing.T) {
 // TestTeamworkPlanForReturnsPlanVerbatim：有计划 ⇒ 原样返回（本口不做任何收口折算），
 // 且读口拿到的就是 KeyFor 解析出的那把键（不重算、不新造第二条读链）。
 func TestTeamworkPlanForReturnsPlanVerbatim(t *testing.T) {
-	key := store.Key{ProjectID: "p-1", SessionID: "s-1"}
-	var gotKey store.Key
+	key := dto.SessionKey{ProjectID: "p-1", SessionID: "s-1"}
+	var gotKey dto.SessionKey
 	deps := TeamworkPlanDeps{
-		KeyFor: func(sessionID string) (store.Key, bool) {
+		KeyFor: func(sessionID string) (dto.SessionKey, bool) {
 			if sessionID != "s-1" {
 				t.Fatalf("KeyFor 收到的会话号 = %q, want s-1（归一后）", sessionID)
 			}
 			return key, true
 		},
-		ReadPlan: func(_ context.Context, k store.Key) (store.TeamworkPlan, error) {
+		ReadPlan: func(_ context.Context, k dto.SessionKey) (storeteamwork.Plan, error) {
 			gotKey = k
 			return teamworkPlanFixture(), nil
 		},

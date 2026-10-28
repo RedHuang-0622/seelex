@@ -17,45 +17,46 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // memBoardRepo 是最小的看板存档假体：只实现团队那一半，goal 那一半显式不支持。
 type memBoardRepo struct {
 	mu     sync.Mutex
-	boards map[store.Key]store.TeamBoardMeta
+	boards map[dto.SessionKey]dto.TeamBoardMeta
 }
 
-func (m *memBoardRepo) WriteGoalBoard(context.Context, store.Key, store.GoalBoardMeta) error {
+func (m *memBoardRepo) WriteGoalBoard(context.Context, dto.SessionKey, dto.GoalBoardMeta) error {
 	return errors.New("memBoardRepo: goal 看板不在本用例的作用域里")
 }
 
-func (m *memBoardRepo) ReadGoalBoard(context.Context, store.Key) (store.GoalBoardMeta, error) {
-	return store.GoalBoardMeta{}, fs.ErrNotExist
+func (m *memBoardRepo) ReadGoalBoard(context.Context, dto.SessionKey) (dto.GoalBoardMeta, error) {
+	return dto.GoalBoardMeta{}, fs.ErrNotExist
 }
 
-func (m *memBoardRepo) WriteTeamBoard(_ context.Context, key store.Key, meta store.TeamBoardMeta) error {
+func (m *memBoardRepo) WriteTeamBoard(_ context.Context, key dto.SessionKey, meta dto.TeamBoardMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.boards == nil {
-		m.boards = map[store.Key]store.TeamBoardMeta{}
+		m.boards = map[dto.SessionKey]dto.TeamBoardMeta{}
 	}
 	m.boards[key] = meta
 	return nil
 }
 
-func (m *memBoardRepo) ReadTeamBoard(_ context.Context, key store.Key) (store.TeamBoardMeta, error) {
+func (m *memBoardRepo) ReadTeamBoard(_ context.Context, key dto.SessionKey) (dto.TeamBoardMeta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta, ok := m.boards[key]
 	if !ok {
-		return store.TeamBoardMeta{}, fs.ErrNotExist
+		return dto.TeamBoardMeta{}, fs.ErrNotExist
 	}
 	return meta, nil
 }
 
-func (m *memBoardRepo) board(key store.Key) (store.TeamBoardMeta, bool) {
+func (m *memBoardRepo) board(key dto.SessionKey) (dto.TeamBoardMeta, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta, ok := m.boards[key]
@@ -88,16 +89,16 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 
 	// 计划落盘（members 为空：本用例只验收口的收口面，逐人退场由 coordinator 用例覆盖）+
 	// 一版在册的存档，收口要能把这一版关掉。
 	if _, err := r.teamPlanHandler(ctx, `{"team_id":"team-close","milestones":[{"id":"m-impl"}],"members":[]}`); err != nil {
 		t.Fatalf("team_plan: %v", err)
 	}
-	if err := boards.WriteTeamBoard(ctx, key, store.TeamBoardMeta{
-		BoardLifecycle: store.BoardLifecycle{
-			Kind: store.BoardKindTeam, State: store.BoardStateActive, Seq: 3, OpenedAt: 100,
+	if err := boards.WriteTeamBoard(ctx, key, dto.TeamBoardMeta{
+		BoardLifecycle: dto.BoardLifecycle{
+			Kind: dto.BoardKindTeam, State: dto.BoardStateActive, Seq: 3, OpenedAt: 100,
 		},
 		TeamID: "team-close", Version: 1,
 	}); err != nil {
@@ -120,10 +121,10 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadPlan: %v", err)
 	}
-	if plan.State.State != store.TeamworkStateClosed {
+	if plan.State.State != storeteamwork.StateClosed {
 		t.Fatalf("收口必须把域内计划标 closed（域内权威）：%+v", plan.State)
 	}
-	if plan.State.ClosedReason != store.BoardCloseTeamClose || plan.State.ClosedAt == 0 {
+	if plan.State.ClosedReason != dto.BoardCloseTeamClose || plan.State.ClosedAt == 0 {
 		t.Fatalf("收口原因/时间必须落域内：%+v", plan.State)
 	}
 	if len(plan.State.Jobs) != 0 {
@@ -134,7 +135,7 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 	if !ok {
 		t.Fatal("存档那一版必须还在（它是历史面）")
 	}
-	if !closed.Closed() || closed.ClosedReason != store.BoardCloseTeamClose || closed.ClosedAt == 0 {
+	if !closed.Closed() || closed.ClosedReason != dto.BoardCloseTeamClose || closed.ClosedAt == 0 {
 		t.Fatalf("收口必须封板存档（否则重启恢复会拿一块 active 冒充在册）：%+v", closed.BoardLifecycle)
 	}
 
@@ -144,7 +145,7 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 	}
 	closeEvents := 0
 	for _, event := range events {
-		if event.Kind == store.TeamworkEventClose {
+		if event.Kind == storeteamwork.EventClose {
 			closeEvents++
 		}
 	}
@@ -170,7 +171,7 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 	}
 	closeEvents = 0
 	for _, event := range events {
-		if event.Kind == store.TeamworkEventClose {
+		if event.Kind == storeteamwork.EventClose {
 			closeEvents++
 		}
 	}

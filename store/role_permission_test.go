@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	storerole "github.com/RedHuang-0622/seelex/store/role"
 )
 
 // role_permission_test.go 钉住会话级角色权限登记的三件事：
@@ -13,6 +15,12 @@ import (
 //  2. 三态纪律：空向量是"显式不给任何能力"，必须能写进去、读回来、与"没这条记录"
 //     区分开（删除只走 Drop）；
 //  3. 并发：不同角色同时写不丢更新（每角色一格各自持锁 + 每项目一把文件锁）。
+
+const rolePermissionFileName = "role-permissions.json"
+
+func newRolePermissionStore(router *Router) *storerole.PermissionStore {
+	return storerole.NewPermissionStore(rolePermissionLayout{router: router})
+}
 
 func openRolePermissionRouter(t *testing.T) *Router {
 	t.Helper()
@@ -40,7 +48,7 @@ func rolePermissionFileOnDisk(t *testing.T, router *Router) string {
 
 func TestRolePermissionStoreRoundTrip(t *testing.T) {
 	router := openRolePermissionRouter(t)
-	store := NewRolePermissionStore(router)
+	store := newRolePermissionStore(router)
 
 	if _, err := store.Put("proj-a", "sess-1", "tl", []string{" ro ", "rw", "ro"}); err != nil {
 		t.Fatalf("Put(tl): %v", err)
@@ -61,7 +69,7 @@ func TestRolePermissionStoreRoundTrip(t *testing.T) {
 	}
 
 	// 换一个 store 实例 = 缓存全空，只能从盘上读：验证落盘而不是只改了内存。
-	reloaded := NewRolePermissionStore(router)
+	reloaded := newRolePermissionStore(router)
 	vectors, err := reloaded.Vectors("proj-a", "sess-1")
 	if err != nil {
 		t.Fatalf("Vectors: %v", err)
@@ -80,7 +88,7 @@ func TestRolePermissionStoreRoundTrip(t *testing.T) {
 
 func TestRolePermissionExplicitEmptyVectorIsNotMissing(t *testing.T) {
 	router := openRolePermissionRouter(t)
-	store := NewRolePermissionStore(router)
+	store := newRolePermissionStore(router)
 
 	record, err := store.Put("proj-a", "sess-1", "coworker", nil)
 	if err != nil {
@@ -111,7 +119,7 @@ func TestRolePermissionExplicitEmptyVectorIsNotMissing(t *testing.T) {
 		t.Fatalf("盘上向量 = %s, %v, want []", raw, err)
 	}
 
-	reloaded := NewRolePermissionStore(router)
+	reloaded := newRolePermissionStore(router)
 	vector, ok, err = reloaded.Vector("proj-a", "sess-1", "coworker")
 	if err != nil || !ok {
 		t.Fatalf("Vector = %v, %v, %v；显式空集必须 ok=true", vector, ok, err)
@@ -123,7 +131,7 @@ func TestRolePermissionExplicitEmptyVectorIsNotMissing(t *testing.T) {
 
 func TestRolePermissionDropScopes(t *testing.T) {
 	router := openRolePermissionRouter(t)
-	store := NewRolePermissionStore(router)
+	store := newRolePermissionStore(router)
 	for _, role := range []string{"tl", "coworker", "reviewer"} {
 		if _, err := store.Put("proj-a", "sess-1", role, []string{"ro"}); err != nil {
 			t.Fatalf("Put(%s): %v", role, err)
@@ -132,7 +140,7 @@ func TestRolePermissionDropScopes(t *testing.T) {
 	if err := store.Drop("proj-a", "sess-1", "tl"); err != nil {
 		t.Fatalf("Drop(tl): %v", err)
 	}
-	vectors, err := NewRolePermissionStore(router).Vectors("proj-a", "sess-1")
+	vectors, err := newRolePermissionStore(router).Vectors("proj-a", "sess-1")
 	if err != nil {
 		t.Fatalf("Vectors: %v", err)
 	}
@@ -146,7 +154,7 @@ func TestRolePermissionDropScopes(t *testing.T) {
 	if err := store.DropSession("proj-a", "sess-1"); err != nil {
 		t.Fatalf("DropSession: %v", err)
 	}
-	if vectors, err := NewRolePermissionStore(router).Vectors("proj-a", "sess-1"); err != nil || len(vectors) != 0 {
+	if vectors, err := newRolePermissionStore(router).Vectors("proj-a", "sess-1"); err != nil || len(vectors) != 0 {
 		t.Fatalf("DropSession 后 = %+v, %v", vectors, err)
 	}
 }
@@ -156,7 +164,7 @@ func TestRolePermissionDropScopes(t *testing.T) {
 // 分配的文件锁——缺任何一半，整份文件的读-改-写都会丢别的角色的更新。
 func TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates(t *testing.T) {
 	router := openRolePermissionRouter(t)
-	store := NewRolePermissionStore(router)
+	store := newRolePermissionStore(router)
 
 	roles := []string{"r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"}
 	var wait sync.WaitGroup
@@ -184,7 +192,7 @@ func TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates(t *testing.T) {
 	}
 	wait.Wait()
 
-	vectors, err := NewRolePermissionStore(router).Vectors("proj-a", "sess-1")
+	vectors, err := newRolePermissionStore(router).Vectors("proj-a", "sess-1")
 	if err != nil {
 		t.Fatalf("Vectors: %v", err)
 	}
@@ -200,7 +208,7 @@ func TestRolePermissionConcurrentRoleWritesDoNotLoseUpdates(t *testing.T) {
 }
 
 func TestRolePermissionRejectsEmptyCoordinates(t *testing.T) {
-	store := NewRolePermissionStore(openRolePermissionRouter(t))
+	store := newRolePermissionStore(openRolePermissionRouter(t))
 	if _, err := store.Put("proj-a", "  ", "tl", []string{"ro"}); err == nil {
 		t.Fatal("缺会话号必须报错")
 	}
@@ -217,7 +225,7 @@ func TestRolePermissionRejectsEmptyCoordinates(t *testing.T) {
 
 // TestRolePermissionStoreWithoutRouter 钉住"没装配存储就别假装成功"。
 func TestRolePermissionStoreWithoutRouter(t *testing.T) {
-	store := NewRolePermissionStore(nil)
+	store := storerole.NewPermissionStore(nil)
 	if vectors, err := store.Vectors("proj-a", "sess-1"); err != nil || len(vectors) != 0 {
 		t.Fatalf("无 router 读 = %+v, %v, want 空登记且不报错", vectors, err)
 	}

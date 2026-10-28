@@ -10,41 +10,43 @@ package store
 import (
 	"strings"
 	"testing"
+
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
-func newUnitRecordWriterFixture(t *testing.T) (*NodeSessionStore, *NodeSessionRecordWriter) {
+func newUnitRecordWriterFixture(t *testing.T) (*storeworkunit.SessionStore, *storeworkunit.Writer) {
 	t.Helper()
 	router, err := NewRouter(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = router.Close() })
-	store := NewNodeSessionStore(router)
+	store := NewWorkUnitSessionStore(router)
 	// 内层（子代理那一层）：**只填空缺**——身份已经有了就不动它。
-	inner := func(record NodeSessionRecord) NodeSessionRecord {
+	inner := func(record storeworkunit.Record) storeworkunit.Record {
 		if strings.TrimSpace(record.Unit.Kind) == "" {
 			record.Unit.Kind = "subagent"
 		}
 		return record
 	}
-	return store, NewNodeSessionRecordWriter(store).With(inner)
+	return store, storeworkunit.NewWriter(store).With(inner)
 }
 
 func TestUnitRecordWriterChainFillsWithoutClobbering(t *testing.T) {
 	store, base := newUnitRecordWriterFixture(t)
 	// 外层（teammate 那一层）：先写下自己这一层的身份。
-	teammate := base.With(func(record NodeSessionRecord) NodeSessionRecord {
+	teammate := base.With(func(record storeworkunit.Record) storeworkunit.Record {
 		record.Unit.Kind = "teammate"
 		record.Unit.Role = "exec"
 		return record
 	})
 
 	// ① 外层先写：teammate 写下的身份不许被内层"只填空"的那一环覆盖。
-	if err := teammate.Save("p", "sess-1", NodeSessionRecord{NodeID: "n1", SessionID: "s1"}); err != nil {
+	if err := teammate.Save("p", "sess-1", storeworkunit.Record{NodeID: "n1", SessionID: "s1"}); err != nil {
 		t.Fatalf("teammate 链 Save: %v", err)
 	}
 	// ② 派生新链不动本链：同一条 base 写出来的仍是子代理那一层。
-	if err := base.Save("p", "sess-1", NodeSessionRecord{NodeID: "n2", SessionID: "s2"}); err != nil {
+	if err := base.Save("p", "sess-1", storeworkunit.Record{NodeID: "n2", SessionID: "s2"}); err != nil {
 		t.Fatalf("base 链 Save: %v", err)
 	}
 
@@ -52,7 +54,7 @@ func TestUnitRecordWriterChainFillsWithoutClobbering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	byID := map[string]NodeSessionRecord{}
+	byID := map[string]storeworkunit.Record{}
 	for _, record := range records {
 		byID[record.NodeID] = record
 	}
@@ -67,14 +69,14 @@ func TestUnitRecordWriterChainFillsWithoutClobbering(t *testing.T) {
 // TestUnitRecordWriterWithoutStoreFailsLoud —— 链没装末端（未装配存储）时**显式报错**：
 // 记录是恢复用的证据，静默丢掉就是"重启失忆"被当成正常。
 func TestUnitRecordWriterWithoutStoreFailsLoud(t *testing.T) {
-	if err := NewNodeSessionRecordWriter(nil).Save("p", "sess-1", NodeSessionRecord{NodeID: "n", SessionID: "s"}); err == nil {
+	if err := storeworkunit.NewWriter(nil).Save("p", "sess-1", storeworkunit.Record{NodeID: "n", SessionID: "s"}); err == nil {
 		t.Fatal("链没装末端时必须报错，不许静默丢记录")
 	}
-	var missing *NodeSessionRecordWriter
-	if err := missing.Save("p", "sess-1", NodeSessionRecord{NodeID: "n", SessionID: "s"}); err == nil {
+	var missing *storeworkunit.Writer
+	if err := missing.Save("p", "sess-1", storeworkunit.Record{NodeID: "n", SessionID: "s"}); err == nil {
 		t.Fatal("nil 链必须报错")
 	}
-	if missing.With(func(record NodeSessionRecord) NodeSessionRecord { return record }) != nil {
+	if missing.With(func(record storeworkunit.Record) storeworkunit.Record { return record }) != nil {
 		t.Fatal("对 nil 链派生应当仍是 nil（不制造半个链）")
 	}
 }

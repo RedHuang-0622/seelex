@@ -21,7 +21,7 @@ func TestToolResultLivesInBigToolResultChannel(t *testing.T) {
 	key := Key{ProjectID: "p-s13", SessionID: "s-s13"}
 	content := "归档原文-" + time.Now().UTC().String()
 	if err := repository.WriteCommit(context.Background(), key, Commit{
-		Events: []Event{{Role: "user", Content: "hi", MessageID: "m1"}},
+		Events: []Event{{Seq: 1, Role: "user", Content: "hi", MessageID: "m1"}},
 		ToolResults: []ToolResult{{
 			Ref: CompressedTurnRefPrefix + "seg-1", Tool: "compact_frame",
 			Content: content, Digest: "d1", Size: len(content), TokenCount: 1,

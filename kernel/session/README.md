@@ -29,6 +29,7 @@ history 只服务无 record 的旧格式会话。根包 Service 负责跨域事�
 | `coordinator.go` | `Coordinator` + `sessionRuntimeState` + catalog worker。 |
 | `transition_manager.go` | per-session keyed 过渡锁注册表（G5：同会话串行、跨会话并行）。 |
 | `archive.go` | record 构建/合并、transcript 事件关联、恢复历史回退。 |
+| `projection.go` | `TranscriptEvent → Message` 的唯一可见投影与策略。 |
 | `scope.go` | 目录发现、标题恢复、会话定位、history 读。 |
 | `history.go` | 尾部窗口读与 user 内容判定。 |
 | `storage.go` | 会话存储设置。 |
@@ -53,6 +54,11 @@ durable queue 的恢复端口只返回 `contract/dto.QueueItem` /
 后缀，方法在会话单写者内写 message 草稿尾但不推进发布点。最终提交仍由
 `PersistCurrentSession` 接管；存储不可用或非 v8 布局时返回 unsupported，
 应用侧停止周期快照并继续原路径。
+
+`ProjectConversationEvents` 是 message 行到可见 conversation 的唯一投影。
+Store 只返回原始事件、head 与 lifecycle 事实；Kernel、Host 和 Fork 共用这一
+函数，正文/reasoning、多个 tool call、tool result、群聊归属、路由字段和消息
+ID 不再各写一份。
 
 ### 时序图：持久化一次会话
 

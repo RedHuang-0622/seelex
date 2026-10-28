@@ -14,12 +14,12 @@ import (
 func TestFirstUserInputsSkipsInjectedUserRows(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	rows := []Event{
-		messageRow(0, "m1", "user", EventKindInternal, "<!-- seelex:active-skill:v1 -->\n## Trusted Active Skill: goal"),
+		messageRow(1, "m1", "user", EventKindInternal, "<!-- seelex:active-skill:v1 -->\n## Trusted Active Skill: goal"),
 		// 老数据：kind 为空（EventKindOf 按 role=user 回退成 user_input），
 		// 但正文是内部注入前缀 → 必须按注入行跳过。
-		messageRow(0, "m2", "user", "", "<!-- seelex:skill-context:v1 display=abc -->\nbody"),
-		messageRow(0, "m3", "user", EventKindUserInput, "  注入后的第一条真问题  "),
-		messageRow(0, "m4", "assistant", EventKindLLM, "回答"),
+		messageRow(2, "m2", "user", "", "<!-- seelex:skill-context:v1 display=abc -->\nbody"),
+		messageRow(3, "m3", "user", EventKindUserInput, "  注入后的第一条真问题  "),
+		messageRow(4, "m4", "assistant", EventKindLLM, "回答"),
 	}
 	if _, err := store.messageCommit(key, "c1", rows); err != nil {
 		t.Fatal(err)
@@ -51,14 +51,14 @@ func TestFirstUserInputsStopsEarlyInFirstShard(t *testing.T) {
 		big += "x"
 	}
 	rows := make([]Event, 0, totalRows)
-	rows = append(rows, messageRow(0, "m1", "user", EventKindUserInput, "会话第一问"))
+	rows = append(rows, messageRow(1, "m1", "user", EventKindUserInput, "会话第一问"))
 	for index := 1; index < totalRows; index++ {
 		// 第二个分片起放"诱饵用户输入"：有界读若越过首片就会把它们带出来。
 		if index%shardRows == 0 {
-			rows = append(rows, messageRow(0, "decoy", "user", EventKindUserInput, "后续分片的用户输入"))
+			rows = append(rows, messageRow(uint64(index+1), "decoy", "user", EventKindUserInput, "后续分片的用户输入"))
 			continue
 		}
-		rows = append(rows, messageRow(0, "", "tool", EventKindToolOutput, fmt.Sprintf("%d-%s", index, big)))
+		rows = append(rows, messageRow(uint64(index+1), "", "tool", EventKindToolOutput, fmt.Sprintf("%d-%s", index, big)))
 	}
 	if _, err := store.messageCommit(key, "bulk", rows); err != nil {
 		t.Fatal(err)
@@ -116,8 +116,8 @@ func TestFirstUserInputsReportsMissingLayout(t *testing.T) {
 
 	// 布局存在但没有用户输入行（只有内部注入行）。
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "m1", "user", EventKindInternal, "<!-- seelex:context -->"),
-		messageRow(0, "m2", "assistant", EventKindLLM, "回答"),
+		messageRow(1, "m1", "user", EventKindInternal, "<!-- seelex:context -->"),
+		messageRow(2, "m2", "assistant", EventKindLLM, "回答"),
 	}); err != nil {
 		t.Fatal(err)
 	}

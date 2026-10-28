@@ -37,7 +37,7 @@ func TestLifecycleOneImplementationAcrossLayers(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = nodeRouter.Close() })
 	nodeRuntime.AttachHistoryRouter(nodeRouter)
-	nodeRuntime.AttachSubSessionStore(store.NewNodeSessionStore(nodeRouter))
+	nodeRuntime.AttachSubSessionStore(store.NewWorkUnitSessionStore(nodeRouter))
 	if _, err := nodeRuntime.NewMainSessionWithID("sess_main", nil); err != nil {
 		t.Fatalf("new main session: %v", err)
 	}

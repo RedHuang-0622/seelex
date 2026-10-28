@@ -16,7 +16,7 @@ func TestTailReadAmplificationMeasurement(t *testing.T) {
 	const totalRows = 5000
 	batch := make([]Event, 0, totalRows)
 	for index := 1; index <= totalRows; index++ {
-		row := messageRow(0, "", "user", EventKindUserInput, "x")
+		row := messageRow(uint64(index), "", "user", EventKindUserInput, "x")
 		row.TokenCount = 1
 		batch = append(batch, row)
 	}

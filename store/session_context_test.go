@@ -66,14 +66,14 @@ func TestSessionContextStoreStackLifecycle(t *testing.T) {
 		t.Fatalf("closed batches must pop out of active: plan=%+v task=%+v", record.PlanStack, record.TaskStack)
 	}
 	projectID := router.Workspace()
-	planHistory, err := router.StackHistory(projectID, "session-stacks", StackKindPlan)
+	planHistory, err := stackAdapter(router).StackHistory(projectID, "session-stacks", StackKindPlan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(planHistory) != 1 || planHistory[0].Status != "closed" || planHistory[0].ClosedAt.IsZero() {
 		t.Fatalf("plan history = %+v", planHistory)
 	}
-	taskHistory, err := router.StackHistory(projectID, "session-stacks", StackKindTask)
+	taskHistory, err := stackAdapter(router).StackHistory(projectID, "session-stacks", StackKindTask)
 	if err != nil {
 		t.Fatal(err)
 	}

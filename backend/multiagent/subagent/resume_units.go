@@ -21,7 +21,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // ResumeKind 是恢复模板里的单元种类标识（子代理那一支）。
@@ -38,7 +38,7 @@ const ResumeKind = "subagent"
 // `workunit.ProgressOf` 折状态）：此前这里是"自己 List + 自己判 InFlight + 自己取字段"的
 // 第二份实现，与 teammate 侧、与生命周期的记录读面各写一遍。`conclusions` 是幂等键集合
 // （父级事件库里的结论），由调用方读好后传入。
-func LocateResumeUnits(parentSessionID string, records []store.NodeSessionRecord, conclusions map[string]struct{}) []resume.Unit {
+func LocateResumeUnits(parentSessionID string, records []storeworkunit.Record, conclusions map[string]struct{}) []resume.Unit {
 	units := make([]resume.Unit, 0, len(records))
 	for _, record := range records {
 		progress := workunit.ProgressOf(workunit.KindSubagent, record)
@@ -84,7 +84,7 @@ func ResumeUnitKey(progress workunit.Progress) string {
 //
 // 与进程内 wire 的严格口径（dto.UnmarshalJSON 认不得就报错）是**两种取舍**，不是重复：
 // 进程内的词由我们同一份代码写出，读不懂就是 bug；落盘的词要跨版本、跨机器读回来。
-func RecordIsFailed(record store.NodeSessionRecord) bool {
+func RecordIsFailed(record storeworkunit.Record) bool {
 	state, ok := dto.ParseSubAgentNodeStatus(record.Status)
 	return ok && state == dto.SubAgentFailed
 }
@@ -93,7 +93,7 @@ func RecordIsFailed(record store.NodeSessionRecord) bool {
 //
 // 它给结论重放那一支用：崩溃只可能发生在"写结论 + 删记录"之间，此时记录里的终态事实
 // 即结论，按其重放一次即可。认不出的状态词**不是**终态。
-func RecordIsTerminal(record store.NodeSessionRecord) bool {
+func RecordIsTerminal(record storeworkunit.Record) bool {
 	state, ok := dto.ParseSubAgentNodeStatus(record.Status)
 	if !ok {
 		return false
@@ -105,7 +105,7 @@ func RecordIsTerminal(record store.NodeSessionRecord) bool {
 //
 // 摘要取记录自带的 `Summary`；它为空时回退到**阶段日志里最后一条预览**
 // （"之前做到哪"），两条都有界。
-func SceneOf(record store.NodeSessionRecord) (resume.Scene, error) {
+func SceneOf(record storeworkunit.Record) (resume.Scene, error) {
 	payload, err := json.Marshal(record)
 	if err != nil {
 		return resume.Scene{}, fmt.Errorf("encode scene: %w", err)
@@ -121,7 +121,7 @@ func SceneOf(record store.NodeSessionRecord) (resume.Scene, error) {
 //
 // 解码走契约那**唯一一份**（`workunit.DecodeStages`）：此前这里手写了一个匿名结构自己解
 // 同一串载荷——同一件事的第二份解码实现，载荷形状一变只有一处会跟着改。
-func LastStagePreview(record store.NodeSessionRecord) string {
+func LastStagePreview(record storeworkunit.Record) string {
 	stages := workunit.DecodeStages(record.StagesJSON)
 	if len(stages) == 0 {
 		return ""
@@ -141,7 +141,7 @@ func LastStagePreview(record store.NodeSessionRecord) string {
 // 两条都有界（progress 已被 SceneOf 那条路裁到 240 字节内，条数是一个整数）。
 // 正文来自契约的唯一构建器（`workunit.RecoveryNote`）；契约 builder 不收的两个字段在这里
 // 追上去，不丢事实。
-func ResumeExtraFacts(record store.NodeSessionRecord, progress string) string {
+func ResumeExtraFacts(record storeworkunit.Record, progress string) string {
 	builder := &strings.Builder{}
 	if progress = strings.TrimSpace(progress); progress != "" {
 		builder.WriteString("\n- last known progress: ")
@@ -154,6 +154,6 @@ func ResumeExtraFacts(record store.NodeSessionRecord, progress string) string {
 }
 
 // ResumeNote 组装一条子代理恢复说明：契约正文 + 追加事实（**唯一一份**组合口径）。
-func ResumeNote(record store.NodeSessionRecord, progress string) string {
+func ResumeNote(record storeworkunit.Record, progress string) string {
 	return workunit.RecoveryNote(workunit.KindSubagent, record) + ResumeExtraFacts(record, progress)
 }

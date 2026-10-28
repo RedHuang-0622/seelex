@@ -5,7 +5,8 @@
 角色身份、策略、draft、权限与角色会话路径的限界上下文实现。M8 把 team registry
 （`session/team/roles.json`）迁入本包；M9 完成 role draft、角色会话子树、
 permission 与 floor/message sync 端口。主要调用方是根 `store.Router` 的迁移期
-单层转发及 Middle/Backend 角色用例。
+单层转发及 Middle/Backend 角色用例。PermissionStore 由 `Stores.RolePermissions`
+在组合根构造一次并注入 Host；根包不再暴露 permission constructor/alias。
 
 ## 职责与非职责
 
@@ -86,8 +87,8 @@ go test ./store -run 'Role|Draft|Permission|Subagent' -count=1
 go test ./e2e -run 'TestStoreDDDM9RoleWorkUnitOwnershipGate' -count=1
 ```
 
-`e2e/store_ddd_teamwork_io_ownership_gate_test.go` 验证本包是 registry 的 owner，根包
-只剩单层转发。
+`e2e/store_ddd_teamwork_io_ownership_gate_test.go` 验证本包是 registry 的 owner；
+根 `team_registry.go` 与权限兼容文件已物理删除。
 
 ## 文件与函数索引
 
@@ -218,3 +219,19 @@ go test ./e2e -run 'TestStoreDDDM9RoleWorkUnitOwnershipGate' -count=1
 - `func TestSessionCommitIDIsStable(t *testing.T)` — TestSessionCommitIDIsStable 钉住角色会话创建身份的字符串形态（旧盘上已存在）。
 - `func TestBackupCommitIDFollowsRows(t *testing.T)` — TestBackupCommitIDFollowsRows 钉住备份身份：同一批行稳定、内容变了就变。
 - `func TestJoinPayloadKeepsFieldNames(t *testing.T)` — TestJoinPayloadKeepsFieldNames 钉住 role_session 结构化事件的负载 wire（四个键逐字保持）。
+
+### session_types.go
+
+- `func BuildSnapshot( mainSessionID, roleName, roleSessionID, root string, roleLifecycle, mainLifecycle storesession.LifecycleHead, mainHead storesession.MessageHead, mainRows, roleRows []protocol.TranscriptEvent, draftRows []DraftRow, ) Snapshot` — BuildSnapshot projects raw main/role facts into the role inspection view.
+- `func ResolveWireWindow(roleName string, lifecycle storesession.LifecycleHead, compact storesession.CompactHead) (uint64, *storesession.CompactFrameRecord, error)` — ResolveWireWindow returns the applied sequence and the main compact frame that
+- `func MergeWirePending(roleName, roleSessionID string, rows []protocol.TranscriptEvent, head storesession.MessageHead, draftRows []DraftRow) ([]protocol.TranscriptEvent, int, []string)` — MergeWirePending appends this role's unsynced draft using provisional seqs and
+- `func BuildWireSnapshot(mainSessionID, roleName, roleSessionID string, applied uint64, result storecontext.WireResult, pending int, warnings []string) WireSnapshot` — BuildWireSnapshot projects the shared context wire result into the role view.
+- `func cloneCompactRef(ref *storesession.CompactRef) *storesession.CompactRef`
+- `func cloneFloor(floor *storesession.Floor) *storesession.Floor`
+- `func WireMessages(messages []storecontext.WireMessage) []WireMessage` — WireMessages projects context wire rows into the role-facing shape.
+- `func SnapshotWarnings(snapshot Snapshot) []string` — SnapshotWarnings reports observable design drift without repairing storage.
+
+### session_types_test.go
+
+- `func TestSnapshotWarningsKeepRoleAttributionDiagnostics(t *testing.T)`
+- `func TestWireMessagesPreserveProviderShape(t *testing.T)`

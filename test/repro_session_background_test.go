@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/RedHuang-0622/seelex/application"
+	applicationcontext "github.com/RedHuang-0622/seelex/application/conversation/context"
 	boot "github.com/RedHuang-0622/seelex/boot"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	sessionruntime "github.com/RedHuang-0622/seelex/kernel/session"
 	"github.com/RedHuang-0622/seelex/store"
 
 	// 阶段 0 后台会话收尾测试集（test-cases.md 第 2/3 节）：
@@ -114,33 +117,32 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 // loadStoredRecord 读取 workspace 下会话的持久化 record。
 func loadStoredRecord(t *testing.T, st *store.Router, workspaceID, sessionID string) (application.SessionRecord, bool) {
 	t.Helper()
-	// S20：record 通道退役，优先读派生态（message head.Meta + message 行 +
-	// lifecycle）；非 v8 后端回退 state 通道。
-	payload, handled, err := st.DerivedRecordWorkspace(workspaceID, sessionID)
+	events, err := st.LoadEventTailWorkspace(workspaceID, sessionID, 1<<30, 1<<30)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return application.SessionRecord{}, false
 		}
-		t.Fatalf("load derived record %s/%s: %v", workspaceID, sessionID, err)
+		t.Fatalf("load message rows %s/%s: %v", workspaceID, sessionID, err)
 	}
-	if handled {
-		if len(payload) == 0 {
-			return application.SessionRecord{}, false
-		}
-	} else {
-		payload, err = st.LoadStateWorkspace(workspaceID, sessionID)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return application.SessionRecord{}, false
-			}
-			t.Fatalf("load stored record %s/%s: %v", workspaceID, sessionID, err)
-		}
+	meta, handled, err := st.SessionMetaWorkspace(workspaceID, sessionID)
+	if err != nil {
+		t.Fatalf("load session meta %s/%s: %v", workspaceID, sessionID, err)
 	}
-	var record application.SessionRecord
-	if err := json.Unmarshal(payload, &record); err != nil {
-		t.Fatalf("decode stored record %s/%s: %v", workspaceID, sessionID, err)
+	if !handled || meta.SessionID == "" {
+		return application.SessionRecord{}, false
 	}
-	return record, true
+	messages := sessionruntime.ProjectConversationEvents(events, sessionruntime.ConversationProjectionPolicy{
+		IsInternal: applicationcontext.IsInternalContent,
+	})
+	status, _ := dto.ParseSessionStatus("idle")
+	return application.SessionRecord{
+		Version:      3,
+		ID:           sessionID,
+		Title:        application.SessionTitle{Value: meta.Summary, Source: "message_head"},
+		Status:       status,
+		Conversation: application.ConversationRecord{Messages: messages, UpdatedAt: meta.UpdatedAt},
+		UpdatedAt:    meta.UpdatedAt,
+	}, true
 }
 
 func recordConversationTexts(record application.SessionRecord) []string {

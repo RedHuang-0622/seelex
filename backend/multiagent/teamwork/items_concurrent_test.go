@@ -21,11 +21,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // clonePlan 用 JSON 往返深拷贝一份计划。**这是生产持久面的语义**（store 把计划
@@ -34,12 +33,12 @@ import (
 // `item.Status` 的原地修改会绕过 WritePlan 直接落到 store 上、并让 `Items()` 的只读扫描
 // 与写入方并发读写同一片数组——既把并发写-写冲突悄悄吸收掉（用例假绿），又是一处
 // 数据竞争（2026-10-05 复现时踩到过）。
-func clonePlan(plan store.TeamworkPlan) store.TeamworkPlan {
+func clonePlan(plan storeteamwork.Plan) storeteamwork.Plan {
 	raw, err := json.Marshal(plan)
 	if err != nil {
 		panic("memoryPlanStore: 计划无法序列化: " + err.Error())
 	}
-	var out store.TeamworkPlan
+	var out storeteamwork.Plan
 	if err := json.Unmarshal(raw, &out); err != nil {
 		panic("memoryPlanStore: 计划无法反序列化: " + err.Error())
 	}
@@ -139,7 +138,7 @@ func itemID(i int) string { return fmt.Sprintf("wi-%d", i) }
 
 func assertItemStatus(t *testing.T, fixture *itemFixture, id, want string) {
 	t.Helper()
-	if got := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, id)); got != want {
+	if got := storeteamwork.WorkItemStatusOrPending(itemState(t, fixture, id)); got != want {
 		t.Fatalf("工作项 %s 状态 = %s，want %s", id, got, want)
 	}
 }
@@ -172,7 +171,7 @@ func TestConcurrentSettleDoesNotLoseUpdates(t *testing.T) {
 	close(block)
 
 	for i := 0; i < n; i++ {
-		if status := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status != store.TeamworkItemReview {
+		if status := storeteamwork.WorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status != storeteamwork.ItemReview {
 			t.Fatalf("并发 settle 丢失更新：%s 状态 = %s，want review", itemID(i), status)
 		}
 	}
@@ -242,15 +241,15 @@ func TestConcurrentSettleAndAcceptDoNotResurrectDone(t *testing.T) {
 	close(block)
 
 	for i := 2; i < n; i++ {
-		if status := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status != store.TeamworkItemDone {
+		if status := storeteamwork.WorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status != storeteamwork.ItemDone {
 			t.Fatalf("已 done 被并发 settle 的陈旧快照覆盖：%s 状态 = %s，want done", itemID(i), status)
 		}
 	}
 	for i := 0; i < 2; i++ {
-		assertItemStatus(t, fixture, itemID(i), store.TeamworkItemReview)
+		assertItemStatus(t, fixture, itemID(i), storeteamwork.ItemReview)
 	}
 	for i := 0; i < n; i++ {
-		if status := store.TeamworkWorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status == store.TeamworkItemRunning {
+		if status := storeteamwork.WorkItemStatusOrPending(itemState(t, fixture, itemID(i))); status == storeteamwork.ItemRunning {
 			t.Fatalf("收口风暴之后仍有工作项停在 running：%s（settle 与 accept 混跑丢了更新）", itemID(i))
 		}
 	}

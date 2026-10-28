@@ -2,14 +2,15 @@
 
 ## 生态位
 
-node/subagent/teammate 会话记录与主会话索引的持久化 owner。主要调用方是根
-`store.NodeSessionStore` 的迁移期单层转发、`backend/multiagent/subagent`、
+node/subagent/teammate 会话记录、主会话索引与显式作用域入口的持久化 owner。
+主要调用方是 `Stores.WorkUnits`、`backend/multiagent/subagent`、
 `backend/workunit` 与装配层恢复链。
 
 ## 职责与非职责
 
-- 职责：`NodeSessionRecord` 稳定 wire、`subagents/` 文件布局、原子写、枚举、
-  删除、缺失即 `ErrNotFound`，以及记录写侧责任链。
+- 职责：`Record` 稳定 wire、`subagents/` 文件布局、原子写、枚举、删除、
+  缺失即 `ErrNotFound`、记录写侧责任链，以及通过 `SessionRootResolver`
+  接收显式项目/会话作用域。
 - 非职责：子代理执行、作业调度、主会话消息提交、worktree merge 或跨域收口。
 
 ## 依赖方向
@@ -27,6 +28,7 @@ Application、Middle、Backend 或其它 store 领域实现。
 
 - `record.go`：`Record`、`UnitRecord`、`WorktreeRecord`、`SchemaVersion`、`ErrNotFound`。
 - `store.go`：`Store.Write/Read/List/Delete/MarkTerminal` 与写侧 `Writer` 责任链。
+- `session_store.go`：`SessionStore` 与 `SessionRootResolver`，是生产读写的会话作用域入口。
 - `store_test.go`：路径/默认值、缺失/list/delete/terminal identity、writer chain。
 
 ## 测试
@@ -40,6 +42,15 @@ go test ./store -run 'NodeSession|Subagent|UnitRecord' -count=1
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### session_store.go
+
+- `func NewSessionStore(roots SessionRootResolver) *SessionStore` — NewSessionStore 构造会话作用域记录入口。
+- `func (s *SessionStore) ProjectID() string` — ProjectID 返回解析器当前的稳定项目键（未装配时为空）。
+- `func (s *SessionStore) Save(projectID, mainSessionID string, record Record) error` — Save 写入一条记录，所有坐标经同一个路径端口解析。
+- `func (s *SessionStore) Load(projectID, mainSessionID, nodeSessionID string) (Record, error)` — Load 读取一条记录；缺失语义由 Store 统一返回 ErrNotFound。
+- `func (s *SessionStore) List(projectID, mainSessionID string) ([]Record, error)` — List 从主会话索引列举全部记录。
+- `func (s *SessionStore) Delete(projectID, mainSessionID, nodeSessionID string) error` — Delete 删除一条记录；重复删除是幂等 no-op。
 
 ### store.go
 

@@ -9,7 +9,6 @@ package sessionstate
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -22,7 +21,7 @@ import (
 // store 不得反向依赖本包，见 session_granular.go 说明）。
 type (
 	SessionStatus  = dto.SessionRecordStatus
-	SessionRecord  = dto.SessionRecord
+	SessionRecord  = dto.SessionIndexRecord
 	ToolResultRef  = dto.SessionToolResultRef
 	ContextStack   = dto.SessionContextStack
 	SessionInfo    = dto.SessionInfo
@@ -33,6 +32,7 @@ const (
 	KindMain               = dto.SessionRecordKindMain
 	KindSubagent           = dto.SessionRecordKindSubagent
 	StatusDraft            = dto.SessionRecordStatusDraft
+	StatusActive           = dto.SessionRecordStatusActive
 	StatusIdle             = dto.SessionRecordStatusIdle
 	StatusRunning          = dto.SessionRecordStatusRunning
 	StatusQueued           = dto.SessionRecordStatusQueued
@@ -180,19 +180,18 @@ type SessionSettingPort interface {
 	SetSessionPermissionTier(sessionID, tier string) error
 }
 
-// SessionUnit 是会话资源单元骨架：S_i=(id,K,parent,E,V,Q,C,B,status)。
-// 热/冷由 EnginePort.HasSession 判定（loaded），薄状态机只维护可见状态。
+// SessionUnit 是会话资源单元骨架：S_i=(id,K,parent,E,V,Q,C,B)。
+// 热/冷由执行内核的 HasSession 判定；可见状态由 ProjectVisibleStatus
+// 从运行期事实纯投影，不在单元上保存第二份 status/loaded。
 type SessionUnit struct {
 	ID       string
 	Kind     dto.SessionRecordKind
 	ParentID string
 	Title    string
 
-	mu     sync.Mutex
-	status SessionStatus
-	loaded bool // 引擎热/冷判定（HasSession 驱动）
+	mu sync.Mutex
 	// approvalIDs 是本会话待批审批（波 4 approval 会话级归属：observe 按
-	// sid 记账；非空时 Status()=awaiting_approval——INV-G8 驱逐守卫面）。
+	// sid 记账；非空时可见状态投影为 awaiting_approval——INV-G8 驱逐守卫面）。
 	approvalIDs []string
 	// resident 是引擎 bundle 驻留标记（G6：驱逐释放 bundle 后 false，
 	// 单元与视图保留；重开走 cold_load——驱逐后再进 = 冷）。
@@ -240,7 +239,6 @@ func NewSessionUnit(id string, opts ...func(*SessionUnit)) (*SessionUnit, error)
 	unit := &SessionUnit{
 		ID:      strings.TrimSpace(id),
 		Kind:    KindMain,
-		status:  StatusDraft,
 		Chat:    model.ChatState{},
 		View:    &View{},
 		Queue:   NewInputQueue(),
@@ -259,7 +257,6 @@ func NewSessionUnit(id string, opts ...func(*SessionUnit)) (*SessionUnit, error)
 func NewDraftUnit() *SessionUnit {
 	return &SessionUnit{
 		Kind:    KindMain,
-		status:  StatusDraft,
 		Chat:    model.ChatState{},
 		View:    &View{},
 		Queue:   NewInputQueue(),
@@ -288,18 +285,6 @@ func WithTitle(title string) func(*SessionUnit) {
 	return func(unit *SessionUnit) {
 		unit.Title = title
 	}
-}
-
-// Status 返回当前可见状态：有待批审批时提升为 awaiting_approval（覆盖
-// 运行态——引擎阻塞在审批上仍是运行中，但目录/驱逐必须把它单独标记）。
-// 底层 status 字段继续由 Submit/Finish 等薄状态机维护（运行/排队兜底）。
-func (unit *SessionUnit) Status() SessionStatus {
-	unit.mu.Lock()
-	defer unit.mu.Unlock()
-	if len(unit.approvalIDs) > 0 {
-		return StatusAwaitingApproval
-	}
-	return unit.status
 }
 
 // AddApproval 登记一条本会话待批审批（会话级归属记账；幂等去重）。
@@ -370,76 +355,4 @@ func (unit *SessionUnit) SetResident(on bool) {
 	unit.mu.Lock()
 	unit.resident = on
 	unit.mu.Unlock()
-}
-
-// HasSession 返回引擎热/冷判定（loaded 由 ColdLoad/Unload 驱动，与
-// EnginePort.HasSession 语义一致：热 = bundle 存活）。
-func (unit *SessionUnit) HasSession() bool {
-	unit.mu.Lock()
-	defer unit.mu.Unlock()
-	return unit.loaded
-}
-
-// ColdLoad 冷加载：cold → idle（要求引擎已创建，hasSession=true）。
-// 已加载会话重复冷加载拒绝（B2 双 cold load）。
-func (unit *SessionUnit) ColdLoad(hasSession bool) error {
-	unit.mu.Lock()
-	defer unit.mu.Unlock()
-	if unit.loaded {
-		return fmt.Errorf("session: %q double cold load rejected", unit.ID)
-	}
-	if !hasSession {
-		return fmt.Errorf("session: %q cold load requires an alive engine", unit.ID)
-	}
-	unit.loaded = true
-	if unit.status == StatusDraft {
-		unit.status = StatusIdle
-	}
-	return nil
-}
-
-// Submit 提交输入：idle → running；running/queued 保持（入队由 Queue 承担）。
-// 未加载（hasSession=false）提交拒绝（B2）。
-func (unit *SessionUnit) Submit(hasSession bool) error {
-	unit.mu.Lock()
-	defer unit.mu.Unlock()
-	if !unit.loaded || !hasSession {
-		return fmt.Errorf("session: %q submit requires a loaded engine", unit.ID)
-	}
-	switch unit.status {
-	case StatusIdle:
-		unit.status = StatusRunning
-		return nil
-	case StatusRunning, StatusQueued:
-		unit.status = StatusQueued
-		return nil
-	default:
-		return fmt.Errorf("session: %q illegal submit from %q", unit.ID, unit.status)
-	}
-}
-
-// Finish 完成/取消：running/queued → idle。
-func (unit *SessionUnit) Finish() error {
-	unit.mu.Lock()
-	defer unit.mu.Unlock()
-	if unit.status != StatusRunning && unit.status != StatusQueued {
-		return fmt.Errorf("session: %q illegal finish from %q", unit.ID, unit.status)
-	}
-	unit.status = StatusIdle
-	return nil
-}
-
-// Unload 卸载：释放引擎（loaded=false，回到 draft）。运行中卸载拒绝。
-func (unit *SessionUnit) Unload() error {
-	unit.mu.Lock()
-	defer unit.mu.Unlock()
-	if len(unit.approvalIDs) > 0 || unit.status == StatusRunning || unit.status == StatusQueued {
-		return fmt.Errorf("session: %q cannot unload while running", unit.ID)
-	}
-	if !unit.loaded {
-		return nil // 幂等：未加载会话卸载无操作
-	}
-	unit.loaded = false
-	unit.status = StatusDraft
-	return nil
 }

@@ -22,18 +22,17 @@ package worktree
 // 假设成假的。
 
 import (
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // sceneRecordFor 造一条**记录投影来源**的会话记录（形态与 teammate 落盘一致）。
-func sceneRecordFor(nodeID string, worktree store.NodeWorktreeRecord) store.NodeSessionRecord {
-	return store.NodeSessionRecord{
-		SchemaVersion: store.NodeSessionSchemaVersion,
+func sceneRecordFor(nodeID string, worktree storeworkunit.WorktreeRecord) storeworkunit.Record {
+	return storeworkunit.Record{
+		SchemaVersion: storeworkunit.SchemaVersion,
 		NodeID:        nodeID,
 		Worktree:      worktree,
 	}
@@ -58,16 +57,16 @@ func TestSceneRegistrationSourcesAgreeInBothOrders(t *testing.T) {
 
 			// 重启：新管理器 = 空注册表，随后两个来源各跑一次（顺序互换）。
 			restarted := sceneManager(root)
-			record := sceneRecordFor(nodeID, store.NodeWorktreeRecord{
+			record := sceneRecordFor(nodeID, storeworkunit.WorktreeRecord{
 				Path: created.Path, Branch: created.Branch,
 				MainBranch: created.MainBranch, BaseCommit: created.BaseCommit,
 			})
 			switch order {
 			case "先认领后恢复":
 				restarted.Adopt(nodeID)
-				restarted.Restore([]store.NodeSessionRecord{record})
+				restarted.Restore([]storeworkunit.Record{record})
 			case "先恢复后认领":
-				restarted.Restore([]store.NodeSessionRecord{record})
+				restarted.Restore([]storeworkunit.Record{record})
 				restarted.Adopt(nodeID)
 			}
 
@@ -108,7 +107,7 @@ func TestRestoreDoesNotDowngradeLiveRegistration(t *testing.T) {
 	}
 
 	// 会话恢复链在同一个进程里跑一次（同一个管理器、这个 nodeID 已在册）。
-	mgr.Restore([]store.NodeSessionRecord{sceneRecordFor(nodeID, store.NodeWorktreeRecord{
+	mgr.Restore([]storeworkunit.Record{sceneRecordFor(nodeID, storeworkunit.WorktreeRecord{
 		Path: live.Path, Branch: live.Branch,
 	})})
 
@@ -142,7 +141,7 @@ func TestRestoreStillRebuildsRegistrationAfterRestart(t *testing.T) {
 	if restarted.RegisteredCount() != 0 {
 		t.Fatal("前置条件：重启后的注册表必须是空的")
 	}
-	restarted.Restore([]store.NodeSessionRecord{sceneRecordFor(nodeID, store.NodeWorktreeRecord{
+	restarted.Restore([]storeworkunit.Record{sceneRecordFor(nodeID, storeworkunit.WorktreeRecord{
 		Path: created.Path, Branch: created.Branch,
 		MainBranch: created.MainBranch, BaseCommit: created.BaseCommit,
 	})})
@@ -157,7 +156,7 @@ func TestRestoreStillRebuildsRegistrationAfterRestart(t *testing.T) {
 
 	// 防幽灵语义仍在：目录不在 = 不登记（否则 Info 会报一个不存在的现场）。
 	ghost := sceneManager(root)
-	ghost.Restore([]store.NodeSessionRecord{sceneRecordFor("exec-wi-ghost", store.NodeWorktreeRecord{
+	ghost.Restore([]storeworkunit.Record{sceneRecordFor("exec-wi-ghost", storeworkunit.WorktreeRecord{
 		Path: filepath.Join(filepath.Dir(root), "exec-wi-ghost-does-not-exist"), Branch: "seelex/exec-wi-ghost",
 	})})
 	if _, ok := ghost.Info("exec-wi-ghost"); ok {

@@ -39,7 +39,7 @@ const (
 )
 
 type draftItem = storesession.DraftItem
-type queueItem = storesession.QueueItem
+type queueItem = storesession.QueueRow
 type lifecycleState = storesession.LifecycleState
 type lifecycleHead = storesession.LifecycleHead
 type CompactRef = storesession.CompactRef
@@ -327,7 +327,7 @@ func nextQueueSeq(items []queueItem) uint64 {
 }
 
 func newQueueItem(state lifecycleState, requestID, content string) queueItem {
-	return storesession.NewQueueItem(state, requestID, content, time.Now().UTC())
+	return storesession.NewQueueRow(state, requestID, content, time.Now().UTC())
 }
 
 // draftToQueue 草稿 D → 入队（同一次 lifecycle 提交：queue 含 D，draft

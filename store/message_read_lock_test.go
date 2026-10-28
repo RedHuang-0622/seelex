@@ -28,7 +28,7 @@ func buildMessageRows(t *testing.T, store *storeEngine, key Key, rows, step int)
 		batch := make([]Event, 0, step)
 		for index := start; index < start+step && index < rows; index++ {
 			seq++
-			batch = append(batch, messageRow(0, fmt.Sprintf("m-%d", seq), "user",
+			batch = append(batch, messageRow(uint64(seq), fmt.Sprintf("m-%d", seq), "user",
 				EventKindUserInput, fmt.Sprintf("row-%d", seq)))
 		}
 		if _, err := store.messageCommit(key, fmt.Sprintf("commit-%d", start), batch); err != nil {
@@ -82,7 +82,7 @@ func TestMessageReadDecodeOutsideWriterLock(t *testing.T) {
 	commitDone := make(chan error, 1)
 	go func() {
 		_, err := store.messageCommit(key, "commit-tail",
-			[]Event{messageRow(0, "m-tail", "user", EventKindUserInput, "tail")})
+			[]Event{messageRow(101, "m-tail", "user", EventKindUserInput, "tail")})
 		commitDone <- err
 	}()
 	select {
@@ -168,7 +168,7 @@ func TestWithPublishedHeadRetriesOnceAfterDrift(t *testing.T) {
 		if calls == 1 {
 			// 模拟"读到一半分片被并发清理"：期间提交推进发布点（坐标漂移）。
 			if _, commitErr := store.messageCommit(key, "commit-2",
-				[]Event{messageRow(0, "m-11", "user", EventKindUserInput, "row-11")}); commitErr != nil {
+				[]Event{messageRow(11, "m-11", "user", EventKindUserInput, "row-11")}); commitErr != nil {
 				t.Fatalf("并发提交: %v", commitErr)
 			}
 			return nil, fmt.Errorf("shard vanished mid-read")

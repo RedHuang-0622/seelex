@@ -11,7 +11,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // TestResolvePluginAssemblyPrefersExplicitDeclaration：三层口径——显式声明**替换**集合，
@@ -55,7 +55,7 @@ func TestValidateMemberPluginsRejectsExplicitly(t *testing.T) {
 	defined := map[string]bool{"cad": true, "docs": true}
 	definedFn := func(name string) bool { return defined[name] }
 
-	members := []store.TeamworkMember{{Role: "exec", Plugins: []string{" cad ", "", "docs"}}}
+	members := []storeteamwork.Member{{Role: "exec", Plugins: []string{" cad ", "", "docs"}}}
 	if err := ValidateMemberPlugins(members, 3, definedFn); err != nil {
 		t.Fatalf("合法声明应通过：%v", err)
 	}
@@ -69,22 +69,22 @@ func TestValidateMemberPluginsRejectsExplicitly(t *testing.T) {
 		"超上限显式拒绝":  {"cad", "docs", "cad2", "docs2"},
 	}
 	for name, plugins := range cases {
-		if err := ValidateMemberPlugins([]store.TeamworkMember{{Role: "exec", Plugins: plugins}}, 3, definedFn); err == nil {
+		if err := ValidateMemberPlugins([]storeteamwork.Member{{Role: "exec", Plugins: plugins}}, 3, definedFn); err == nil {
 			t.Fatalf("%s：必须报错", name)
 		}
 	}
 	// 未知名那一支的文案要点明"显式拒绝，不静默忽略"（回执据此说人话）。
-	err := ValidateMemberPlugins([]store.TeamworkMember{{Role: "exec", Plugins: []string{"nope"}}}, 3, definedFn)
+	err := ValidateMemberPlugins([]storeteamwork.Member{{Role: "exec", Plugins: []string{"nope"}}}, 3, definedFn)
 	if err == nil || !strings.Contains(err.Error(), "未定义") {
 		t.Fatalf("未知名必须点名：%v", err)
 	}
 
-	inherit := []store.TeamworkMember{{Role: "exec"}}
+	inherit := []storeteamwork.Member{{Role: "exec"}}
 	if err := ValidateMemberPlugins(inherit, 3, definedFn); err != nil || inherit[0].Plugins != nil {
 		t.Fatalf("空/缺失 = 不覆盖（nil）：%v %#v", err, inherit[0].Plugins)
 	}
 	// 没有目录判据（defined = nil）时只做语法与数量校验。
-	if err := ValidateMemberPlugins([]store.TeamworkMember{{Role: "exec", Plugins: []string{"who"}}}, 3, nil); err != nil {
+	if err := ValidateMemberPlugins([]storeteamwork.Member{{Role: "exec", Plugins: []string{"who"}}}, 3, nil); err != nil {
 		t.Fatalf("没有目录面时不该做名字校验：%v", err)
 	}
 }

@@ -28,27 +28,27 @@ func boardFixture(t *testing.T) (*jsonRepository, Key) {
 	return repository, key
 }
 
-func sampleGoalBoard() GoalBoardMeta {
-	return GoalBoardMeta{
-		BoardLifecycle: BoardLifecycle{
-			Kind: BoardKindGoal, State: BoardStateActive, Seq: 3,
+func sampleGoalBoard() dto.GoalBoardMeta {
+	return dto.GoalBoardMeta{
+		BoardLifecycle: dto.BoardLifecycle{
+			Kind: dto.BoardKindGoal, State: dto.BoardStateActive, Seq: 3,
 			OpenedAt: 1000, UpdatedAt: 1200, Fingerprint: "sha256:active",
 		},
-		Active: &GoalBoardActive{
+		Active: &dto.GoalBoardActive{
 			GoalID: "g-7", Title: "团队看板接线", Status: "active",
 			Statement:  "把看板接进活体 GUI",
 			Acceptance: []string{"面板出现", "TUI 同源"},
 			Progress:   []dto.BoardGoalProgress{{At: 1100, Kind: "result", Content: "接线完成"}},
 			CreatedAt:  1000, UpdatedAt: 1200,
 		},
-		History: []GoalBoardHistory{
-			{GoalID: "g-6", Title: "评审过程退场", Status: "completed", ClosedAt: 900, ClosedReason: BoardCloseGoalFinish, ProgressCount: 5},
-			{GoalID: "g-5", Title: "旧目标", Status: "aborted", ClosedAt: 800, ClosedReason: BoardCloseGoalAbort, ProgressCount: 2},
+		History: []dto.GoalBoardHistory{
+			{GoalID: "g-6", Title: "评审过程退场", Status: "completed", ClosedAt: 900, ClosedReason: dto.BoardCloseGoalFinish, ProgressCount: 5},
+			{GoalID: "g-5", Title: "旧目标", Status: "aborted", ClosedAt: 800, ClosedReason: dto.BoardCloseGoalAbort, ProgressCount: 2},
 		},
 	}
 }
 
-func sampleTeamBoard(t *testing.T) TeamBoardMeta {
+func sampleTeamBoard(t *testing.T) dto.TeamBoardMeta {
 	t.Helper()
 	snapshot, err := json.Marshal(map[string]any{
 		"team_id":    "v-model",
@@ -59,9 +59,9 @@ func sampleTeamBoard(t *testing.T) TeamBoardMeta {
 	if err != nil {
 		t.Fatalf("marshal snapshot: %v", err)
 	}
-	return TeamBoardMeta{
-		BoardLifecycle: BoardLifecycle{
-			Kind: BoardKindTeam, State: BoardStateActive, Seq: 2,
+	return dto.TeamBoardMeta{
+		BoardLifecycle: dto.BoardLifecycle{
+			Kind: dto.BoardKindTeam, State: dto.BoardStateActive, Seq: 2,
 			OpenedAt: 2000, UpdatedAt: 2100, Fingerprint: "sha256:team",
 		},
 		TeamID: "v-model", Version: 2, Snapshot: snapshot,
@@ -82,10 +82,10 @@ func TestGoalBoardRoundTrip(t *testing.T) {
 	if loaded.Active == nil || loaded.Active.GoalID != "g-7" {
 		t.Fatalf("active seq 的 goal 丢了：%+v", loaded.Active)
 	}
-	if len(loaded.History) != 2 || loaded.History[0].GoalID != "g-6" || loaded.History[1].ClosedReason != BoardCloseGoalAbort {
+	if len(loaded.History) != 2 || loaded.History[0].GoalID != "g-6" || loaded.History[1].ClosedReason != dto.BoardCloseGoalAbort {
 		t.Fatalf("history goals 丢了或次序变了：%+v", loaded.History)
 	}
-	if loaded.Seq != 3 || loaded.State != BoardStateActive {
+	if loaded.Seq != 3 || loaded.State != dto.BoardStateActive {
 		t.Fatalf("生命周期头丢了：%+v", loaded.BoardLifecycle)
 	}
 }
@@ -220,21 +220,21 @@ func TestGoalBoardRejectsMalformedLifecycle(t *testing.T) {
 	repository, key := boardFixture(t)
 	cases := []struct {
 		name   string
-		mutate func(*GoalBoardMeta)
+		mutate func(*dto.GoalBoardMeta)
 	}{
-		{"kind 不匹配", func(m *GoalBoardMeta) { m.Kind = BoardKindTeam }},
-		{"seq 为 0", func(m *GoalBoardMeta) { m.Seq = 0 }},
-		{"state 非法", func(m *GoalBoardMeta) { m.State = "paused" }},
-		{"closed 无原因", func(m *GoalBoardMeta) {
-			m.State, m.Active, m.ClosedAt, m.ClosedReason = BoardStateClosed, nil, 5000, ""
+		{"kind 不匹配", func(m *dto.GoalBoardMeta) { m.Kind = dto.BoardKindTeam }},
+		{"seq 为 0", func(m *dto.GoalBoardMeta) { m.Seq = 0 }},
+		{"state 非法", func(m *dto.GoalBoardMeta) { m.State = "paused" }},
+		{"closed 无原因", func(m *dto.GoalBoardMeta) {
+			m.State, m.Active, m.ClosedAt, m.ClosedReason = dto.BoardStateClosed, nil, 5000, ""
 		}},
-		{"closed 无时间", func(m *GoalBoardMeta) {
-			m.State, m.Active, m.ClosedReason = BoardStateClosed, nil, BoardCloseGoalFinish
+		{"closed 无时间", func(m *dto.GoalBoardMeta) {
+			m.State, m.Active, m.ClosedReason = dto.BoardStateClosed, nil, dto.BoardCloseGoalFinish
 		}},
-		{"未关闭却带 closed_at", func(m *GoalBoardMeta) { m.ClosedAt = 999 }},
-		{"active 缺 id", func(m *GoalBoardMeta) { m.Active.GoalID = "" }},
-		{"history 缺 id", func(m *GoalBoardMeta) { m.History[0].GoalID = "" }},
-		{"history 重复 id", func(m *GoalBoardMeta) { m.History[1].GoalID = "g-6" }},
+		{"未关闭却带 closed_at", func(m *dto.GoalBoardMeta) { m.ClosedAt = 999 }},
+		{"active 缺 id", func(m *dto.GoalBoardMeta) { m.Active.GoalID = "" }},
+		{"history 缺 id", func(m *dto.GoalBoardMeta) { m.History[0].GoalID = "" }},
+		{"history 重复 id", func(m *dto.GoalBoardMeta) { m.History[1].GoalID = "g-6" }},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -262,11 +262,11 @@ func TestTeamBoardRejectsActiveWithoutSnapshot(t *testing.T) {
 func TestBoardClosedKeepsClosedFacts(t *testing.T) {
 	repository, key := boardFixture(t)
 	meta := sampleGoalBoard()
-	meta.State = BoardStateClosed
+	meta.State = dto.BoardStateClosed
 	meta.Active = nil
 	meta.Seq = 4
 	meta.ClosedAt = 5000
-	meta.ClosedReason = BoardCloseGoalFinish
+	meta.ClosedReason = dto.BoardCloseGoalFinish
 	if err := repository.layout.boards.WriteGoalBoard(context.Background(), key, meta); err != nil {
 		t.Fatalf("WriteGoalBoard(closed): %v", err)
 	}
@@ -277,7 +277,7 @@ func TestBoardClosedKeepsClosedFacts(t *testing.T) {
 	if !loaded.Closed() {
 		t.Fatalf("闭态没读回来：%+v", loaded.BoardLifecycle)
 	}
-	if loaded.ClosedReason != BoardCloseGoalFinish || loaded.ClosedAt != 5000 {
+	if loaded.ClosedReason != dto.BoardCloseGoalFinish || loaded.ClosedAt != 5000 {
 		t.Fatalf("关闭事实丢了：%+v", loaded.BoardLifecycle)
 	}
 	if len(loaded.History) != 2 {
@@ -294,7 +294,7 @@ func TestBoardsNotInRepositoryMainInterface(t *testing.T) {
 		t.Fatal("JSON 后端必须实现 BoardRepository")
 	}
 	if _, ok := any(repository).(interface {
-		WriteGoalBoard(context.Context, Key, GoalBoardMeta) error
+		WriteGoalBoard(context.Context, Key, dto.GoalBoardMeta) error
 	}); !ok {
 		t.Fatal("类型断言面必须成立")
 	}

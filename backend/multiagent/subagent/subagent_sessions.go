@@ -15,7 +15,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/actor"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // ─── 子代理会话注册表 actor（Runtime 装配件拆分 Step 1）───
@@ -32,11 +32,10 @@ type SubagentSessions struct {
 	trace provider.TraceSource // 结束快照导出时提取 Findings/Decisions（nil 降级）
 
 	// 节点会话记录持久化的**写入链**（用户约定：<mainSessionID>-<subSessionID>.json，
-	// 见 store.NodeSessionRecord / NodeSessionRecordWriter）。写走链、读走链末端：
-	// 链上第一环是"子代理这一层的身份"（每条记录都写明自己属于哪一层），teammate 那一层
-	// 在同一条链上**再加一环**（add but not modify，见 workunit_team_records.go）。
+	// 见 storeworkunit.Record / Writer）。写走链、读走链末端：
+	// 链上第一环是子代理身份，teammate 在同一条链上再加一环。
 	// nil → 保持纯内存态（测试/未装配）。
-	writer        *store.NodeSessionRecordWriter
+	writer        *storeworkunit.Writer
 	mainSessionID func() string
 	// projectID 解析记录归属项目（稳定于主会话绑定，不读 Router active
 	// workspace）。nil → 回退 nodeStore.ProjectID()（测试/旧装配兼容）。
@@ -46,7 +45,7 @@ type SubagentSessions struct {
 	mainSessionIDs map[string]string
 	// conclusionSink 在节点结束（done/failed）时把最终结论交给主会话侧
 	// 持久化（"最后的结论跟随 mainagent"）；随后本节点记录文件被删除。
-	conclusionSink func(string, store.NodeSessionRecord)
+	conclusionSink func(string, storeworkunit.Record)
 
 	// 以下字段仅在 actor goroutine 内访问。
 	sessions   map[string]*frameworkSession.Session
@@ -62,7 +61,7 @@ type SubagentSessions struct {
 	stages           map[string][]model.NodeStageLog
 	results          map[string]*model.NodeSemanticResult
 	resultQueue      []*model.NodeSemanticResult
-	worktrees        map[string]store.NodeWorktreeRecord
+	worktrees        map[string]storeworkunit.WorktreeRecord
 	outcomes         map[string]subagentOutcome
 	events           chan model.NodeStageLog
 	droppedEvents    atomic.Int64
@@ -109,16 +108,16 @@ type subagentSessionCmd struct {
 	stage         model.NodeStageLog
 	res           *model.NodeSemanticResult
 	reply         chan subagentSessionReply
-	wt            store.NodeWorktreeRecord
+	wt            storeworkunit.WorktreeRecord
 	out           subagentOutcome
-	recs          []store.NodeSessionRecord
+	recs          []storeworkunit.Record
 	// configure 装配（AttachSubSessionStore 注入；nil 字段保持现状）。
-	writer *store.NodeSessionRecordWriter
+	writer *storeworkunit.Writer
 	mainID func() string
 	// projectID 解析记录归属项目（稳定于主会话绑定，不读 Router active
 	// workspace；否则 fork 期间 Router 作用域漂移会把记录写到另一个项目）。
 	projectID func() string
-	sink      func(string, store.NodeSessionRecord)
+	sink      func(string, storeworkunit.Record)
 }
 
 type subagentSessionReply struct {
@@ -147,7 +146,7 @@ type SubagentSessionsOption func(*SubagentSessions)
 // SubagentUnitRecordLink 是记录写入链上**子代理那一层**的一环：给还没有身份的记录写上
 // "我属于子代理层"。**只填空、不覆盖**——teammate 那一层在同一条链上把自己的身份写在前面，
 // 这一环看到身份已经有了就不再动它（这就是"teammate = 子代理链 + 一环"能成立的原因）。
-func SubagentUnitRecordLink(record store.NodeSessionRecord) store.NodeSessionRecord {
+func SubagentUnitRecordLink(record storeworkunit.Record) storeworkunit.Record {
 	if strings.TrimSpace(record.Unit.Kind) == "" {
 		record.Unit.Kind = string(workunit.KindSubagent)
 	}
@@ -156,9 +155,9 @@ func SubagentUnitRecordLink(record store.NodeSessionRecord) store.NodeSessionRec
 
 // WithNodeSessionStore 装配节点会话记录持久化（nil = 纯内存态）：装配的是一个"以该存储为
 // 末端、链上带子代理身份那一环"的写入链。
-func WithNodeSessionStore(st *store.NodeSessionStore) SubagentSessionsOption {
+func WithNodeSessionStore(st storeworkunit.Recorder) SubagentSessionsOption {
 	return func(s *SubagentSessions) {
-		s.writer = store.NewNodeSessionRecordWriter(st).With(SubagentUnitRecordLink)
+		s.writer = storeworkunit.NewWriter(st).With(SubagentUnitRecordLink)
 	}
 }
 
@@ -168,7 +167,7 @@ func WithMainSessionID(fn func() string) SubagentSessionsOption {
 }
 
 // WithConclusionSink 装配节点结束时的结论回传（mainagent 侧持久化；nil = 只删不传）。
-func WithConclusionSink(fn func(string, store.NodeSessionRecord)) SubagentSessionsOption {
+func WithConclusionSink(fn func(string, storeworkunit.Record)) SubagentSessionsOption {
 	return func(s *SubagentSessions) { s.conclusionSink = fn }
 }
 
@@ -184,7 +183,7 @@ func NewSubagentSessions(trace provider.TraceSource, opts ...SubagentSessionsOpt
 		toolArchivers:    make(map[string]*seelexctx.InMemoryToolResultArchiver),
 		stages:           make(map[string][]model.NodeStageLog),
 		results:          make(map[string]*model.NodeSemanticResult),
-		worktrees:        make(map[string]store.NodeWorktreeRecord),
+		worktrees:        make(map[string]storeworkunit.WorktreeRecord),
 		outcomes:         make(map[string]subagentOutcome),
 		mainSessionIDs:   make(map[string]string),
 		events:           make(chan model.NodeStageLog, subagentStageEventCap),
@@ -408,7 +407,7 @@ func (s *SubagentSessions) finalizeLocked(nodeID string) {
 // restoreLocked 从持久化记录重建节点的详情数据面（actor goroutine 内调用）：
 // 会话 ID/goal/History 快照/上下文快照/阶段日志/语义结果/终态/worktree。
 // 无运行中会话：Conversation 读历史快照，ContextSnapshot 读留存快照。
-func (s *SubagentSessions) restoreLocked(record store.NodeSessionRecord) {
+func (s *SubagentSessions) restoreLocked(record storeworkunit.Record) {
 	if record.NodeID == "" || record.SessionID == "" {
 		return
 	}
@@ -444,7 +443,7 @@ func (s *SubagentSessions) restoreLocked(record store.NodeSessionRecord) {
 	}
 }
 
-// persistLocked 把节点的当前内存态投影为 NodeSessionRecord 并落盘
+// persistLocked 把节点的当前内存态投影为 Record 并落盘
 // （actor goroutine 内调用；best-effort，失败只记日志，不影响执行路径）。
 func (s *SubagentSessions) persistLocked(nodeID string) {
 	if s.writer == nil || nodeID == "" {
@@ -488,10 +487,10 @@ func (s *SubagentSessions) refreshLiveHistoryLocked(nodeID string, sess *framewo
 	return s.liveHistories[nodeID]
 }
 
-// buildRecordLocked 把节点当前内存态投影为 NodeSessionRecord（actor goroutine 内调用）。
-func (s *SubagentSessions) buildRecordLocked(nodeID string) store.NodeSessionRecord {
-	record := store.NodeSessionRecord{
-		SchemaVersion: store.NodeSessionSchemaVersion,
+// buildRecordLocked 把节点当前内存态投影为 Record（actor goroutine 内调用）。
+func (s *SubagentSessions) buildRecordLocked(nodeID string) storeworkunit.Record {
+	record := storeworkunit.Record{
+		SchemaVersion: storeworkunit.SchemaVersion,
 		NodeID:        nodeID,
 		SessionID:     s.sessionIDs[nodeID],
 		Goal:          s.goals[nodeID],
@@ -820,7 +819,7 @@ func (s *SubagentSessions) DrainResults() []*model.NodeSemanticResult {
 
 // NoteWorktree 记录节点 worktree 现场（持久化恢复数据面：重启后可重建
 // nodeID → path/branch/baseCommit 索引）。
-func (s *SubagentSessions) NoteWorktree(nodeID string, wt store.NodeWorktreeRecord) {
+func (s *SubagentSessions) NoteWorktree(nodeID string, wt storeworkunit.WorktreeRecord) {
 	if s == nil || nodeID == "" {
 		return
 	}
@@ -841,7 +840,7 @@ func (s *SubagentSessions) NoteOutcome(nodeID, status, summary, errMsg string) {
 
 // Restore 从持久化记录重建节点会话的详情数据面（重启/恢复锚点；
 // 无运行中会话，详情读取走留存快照与历史）。
-func (s *SubagentSessions) Restore(records []store.NodeSessionRecord) {
+func (s *SubagentSessions) Restore(records []storeworkunit.Record) {
 	if s == nil || len(records) == 0 {
 		return
 	}
@@ -852,8 +851,8 @@ func (s *SubagentSessions) Restore(records []store.NodeSessionRecord) {
 // writer/mainID/sink 任一为 nil 表示保持现状；显式关闭需分别传 nil 包装。
 //
 // 要求传链而不是裸存储：链上第一环是"子代理这一层的身份"，teammate 那一层在同一条链上
-// 再加一环（见 store.NodeSessionRecordWriter 与 workunit_team_records.go）。
-func (s *SubagentSessions) Configure(writer *store.NodeSessionRecordWriter, mainID, projectID func() string, sink func(string, store.NodeSessionRecord)) {
+// 再加一环（见 storeworkunit.RecordWriter 与 workunit_team_records.go）。
+func (s *SubagentSessions) Configure(writer *storeworkunit.Writer, mainID, projectID func() string, sink func(string, storeworkunit.Record)) {
 	if s == nil {
 		return
 	}

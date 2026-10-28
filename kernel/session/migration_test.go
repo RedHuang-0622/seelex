@@ -91,7 +91,7 @@ func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 		t.Fatalf("granular history len=%d err=%v", len(history), err)
 	}
 
-	transcript, err := st.Transcript(projectID, sessionID)
+	transcript, err := st.EventRange(projectID, sessionID, 1, 0)
 	if err != nil || len(transcript) != 1 || transcript[0].Seq != 1 {
 		t.Fatalf("granular transcript = %+v err=%v", transcript, err)
 	}

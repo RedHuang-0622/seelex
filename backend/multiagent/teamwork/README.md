@@ -266,11 +266,11 @@ go test ./backend/multiagent/... -count=1
 
 ### board_archive_test.go
 
-- `func (s *stubBoardRepository) ReadTeamBoard(context.Context, store.Key) (store.TeamBoardMeta, error)`
-- `func (s *stubBoardRepository) WriteTeamBoard(_ context.Context, _ store.Key, meta store.TeamBoardMeta) error`
-- `func (s *stubBoardRepository) WriteGoalBoard(context.Context, store.Key, store.GoalBoardMeta) error` — 目标看板那一半在本用例里不被触达，但接口是完整的（不做"只实现一半"的替身）。
-- `func (s *stubBoardRepository) ReadGoalBoard(context.Context, store.Key) (store.GoalBoardMeta, error)`
-- `func archivePlanFixture(version int) store.TeamworkPlan`
+- `func (s *stubBoardRepository) ReadTeamBoard(context.Context, dto.SessionKey) (dto.TeamBoardMeta, error)`
+- `func (s *stubBoardRepository) WriteTeamBoard(_ context.Context, _ dto.SessionKey, meta dto.TeamBoardMeta) error`
+- `func (s *stubBoardRepository) WriteGoalBoard(context.Context, dto.SessionKey, dto.GoalBoardMeta) error` — 目标看板那一半在本用例里不被触达，但接口是完整的（不做"只实现一半"的替身）。
+- `func (s *stubBoardRepository) ReadGoalBoard(context.Context, dto.SessionKey) (dto.GoalBoardMeta, error)`
+- `func archivePlanFixture(version int) storeteamwork.Plan`
 - `func TestNextBoardMetaOpensNewVersionAndClosesOld(t *testing.T)` — TestNextBoardMetaOpensNewVersionAndClosesOld：三条生命周期规则——无存档新开一版、
 - `func TestBoardFingerprintIsStable(t *testing.T)` — TestBoardFingerprintIsStable：同一份载荷 → 同一个值；不同载荷 → 不同值。
 - `func TestReadBoardArchiveOnlyRestoresActive(t *testing.T)` — TestReadBoardArchiveOnlyRestoresActive：只有 active 且快照可解、且有里程碑时才恢复；
@@ -289,22 +289,22 @@ go test ./backend/multiagent/... -count=1
 ### board_view.go
 
 - `func SubjectPrefix() string` — SubjectPrefix 与 `SubjectForRole` 同源（`emp_<role>`）：装配层用它把作业行的作用域主体
-- `func BuildBoardView( plan store.TeamworkPlan, events []store.TeamworkEvent, bindings []store.TeamworkBinding, records []jobs.Record, maxMembers int, assemblies []dto.PluginAssemblyView, ) dto.TeamworkBoardView` — BuildBoardView 是把（计划 + 审计 + 作业行 + 装配读数）组装成下发前端的
-- `func BuildBoardViewWithLimits( plan store.TeamworkPlan, events []store.TeamworkEvent, bindings []store.TeamworkBinding, records []jobs.Record, maxMembers, maxJobs int, assemblies []dto.PluginAssemblyView, ) dto.TeamworkBoardView` — BuildBoardViewWithLimits adds the independent role/job limit readings to
-- `func PlanHasOrchestration(plan store.TeamworkPlan) bool` — PlanHasOrchestration 报告一份计划有没有**可看的编排**。
-- `func MemberViews(plan store.TeamworkPlan, events []store.TeamworkEvent, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView` — MemberViews 搬运在编成员。Permission 格子**不下发**：它是权责分配的实现细节，
-- `func MemberStatus(plan store.TeamworkPlan, member store.TeamworkMember) string` — MemberStatus 把一个人名下工作项的状态折算成人的状态，**只有两个值**（2026-10-04 用户口径）：
-- `func MemberCurrent(plan store.TeamworkPlan, role string) (sessionID, workItem string)` — MemberCurrent 反解"这个人此刻那件事的会话"：优先在跑的工作项，其次等验收的，
-- `func WorkItemViews(plan store.TeamworkPlan, bindings []store.TeamworkBinding, records []jobs.Record) []dto.TeamworkWorkItemView` — WorkItemViews 搬运工作项（甘特图的扁平数据面）。
-- `func MilestoneViews(milestones []store.TeamworkMilestone) []dto.TeamworkMilestoneView` — MilestoneViews 搬运里程碑（after 是判据边，原样搬；status 空 = pending）。
+- `func BuildBoardView( plan storeteamwork.Plan, events []storeteamwork.Event, bindings []storeteamwork.Binding, records []jobs.Record, maxMembers int, assemblies []dto.PluginAssemblyView, ) dto.TeamworkBoardView` — BuildBoardView 是把（计划 + 审计 + 作业行 + 装配读数）组装成下发前端的
+- `func BuildBoardViewWithLimits( plan storeteamwork.Plan, events []storeteamwork.Event, bindings []storeteamwork.Binding, records []jobs.Record, maxMembers, maxJobs int, assemblies []dto.PluginAssemblyView, ) dto.TeamworkBoardView` — BuildBoardViewWithLimits adds the independent role/job limit readings to
+- `func PlanHasOrchestration(plan storeteamwork.Plan) bool` — PlanHasOrchestration 报告一份计划有没有**可看的编排**。
+- `func MemberViews(plan storeteamwork.Plan, events []storeteamwork.Event, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView` — MemberViews 搬运在编成员。Permission 格子**不下发**：它是权责分配的实现细节，
+- `func MemberStatus(plan storeteamwork.Plan, member storeteamwork.Member) string` — MemberStatus 把一个人名下工作项的状态折算成人的状态，**只有两个值**（2026-10-04 用户口径）：
+- `func MemberCurrent(plan storeteamwork.Plan, role string) (sessionID, workItem string)` — MemberCurrent 反解"这个人此刻那件事的会话"：优先在跑的工作项，其次等验收的，
+- `func WorkItemViews(plan storeteamwork.Plan, bindings []storeteamwork.Binding, records []jobs.Record) []dto.TeamworkWorkItemView` — WorkItemViews 搬运工作项（甘特图的扁平数据面）。
+- `func MilestoneViews(milestones []storeteamwork.Milestone) []dto.TeamworkMilestoneView` — MilestoneViews 搬运里程碑（after 是判据边，原样搬；status 空 = pending）。
 - `func JobViews(records []jobs.Record) []dto.TeamworkJobView` — JobViews 搬运作业行，并给出**权威归属**：Node = record.Node（派发时写的是
 - `func RoleFromSubject(subject string) string` — RoleFromSubject 把 emp_<role> 反解成角色名；不是这个前缀就原样返回（不猜）。
-- `func EventViews(events []store.TeamworkEvent) []dto.TeamworkEventView` — EventViews 搬运审计流水；只取**最近** `BoardEventLimit` 条（保持文件顺序 = 发生顺序）。
-- `func ProjectionStale(state store.TeamworkState, views []dto.TeamworkJobView) bool` — ProjectionStale 判定"计划里的句柄投影是否已经过期"（jobs I-4 的显式化）：
+- `func EventViews(events []storeteamwork.Event) []dto.TeamworkEventView` — EventViews 搬运审计流水；只取**最近** `BoardEventLimit` 条（保持文件顺序 = 发生顺序）。
+- `func ProjectionStale(state storeteamwork.State, views []dto.TeamworkJobView) bool` — ProjectionStale 判定"计划里的句柄投影是否已经过期"（jobs I-4 的显式化）：
 
 ### board_view_test.go
 
-- `func boardPlanFixture() store.TeamworkPlan`
+- `func boardPlanFixture() storeteamwork.Plan`
 - `func TestBuildBoardViewCarriesFactsNotJudgments(t *testing.T)` — TestBuildBoardViewCarriesFactsNotJudgments：看板只搬事实——闭板三字段从**计划**搬、
 - `func TestMemberStatusHasOnlyTwoValues(t *testing.T)` — TestMemberStatusHasOnlyTwoValues：人的状态只有 running / free 两值（看板回答"此刻在不在干活"）。
 - `func TestMemberStatusSkipsDoneItemsInQueue(t *testing.T)` — TestMemberStatusSkipsDoneItemsInQueue：队列是"还没完成的工作项名称"（销项即出队）。
@@ -316,11 +316,11 @@ go test ./backend/multiagent/... -count=1
 
 ### context_view.go
 
-- `func BuildContextView(ctx context.Context, plan store.TeamworkPlan, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkContextView` — BuildContextView 把（计划 + 作业行 + 可选正文）组装成 `dto.TeamworkContextView`。
-- `func memberContext(ctx context.Context, plan store.TeamworkPlan, member store.TeamworkMember, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkMemberContextView` — memberContext 组装一个成员的工作上下文：先找它名下**最新**的作业行，再按需取正文。
+- `func BuildContextView(ctx context.Context, plan storeteamwork.Plan, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkContextView` — BuildContextView 把（计划 + 作业行 + 可选正文）组装成 `dto.TeamworkContextView`。
+- `func memberContext(ctx context.Context, plan storeteamwork.Plan, member storeteamwork.Member, records []jobs.Record, port MemberJobsPort, outputs MemberOutputsPort, options ContextOptions) dto.TeamworkMemberContextView` — memberContext 组装一个成员的工作上下文：先找它名下**最新**的作业行，再按需取正文。
 - `func attachEvictedBody(ctx context.Context, outputs MemberOutputsPort, role string, options ContextOptions, view *dto.TeamworkMemberContextView)` — attachEvictedBody 在"行不在册"时尝试从**产品自有文件**回读正文。
 - `func latestRecordFor(records []jobs.Record, subject string) (jobs.Record, bool)` — latestRecordFor 取某主体名下**最新**的那条作业行：优先在跑的，否则取登记序号
-- `func RoleMilestone(plan store.TeamworkPlan, role string) string` — RoleMilestone 反解角色**当前归属的里程碑**：这个角色在哪个里程碑的工作项里出现过
+- `func RoleMilestone(plan storeteamwork.Plan, role string) string` — RoleMilestone 反解角色**当前归属的里程碑**：这个角色在哪个里程碑的工作项里出现过
 - `func roleFilter(roles []string) map[string]struct` — roleFilter 归一 roles 过滤：空 / 全空白 = 不过滤（全员）。
 - `func ContextBodyBudget(requested int) int` — ContextBodyBudget 把调用方给的预算夹到 [1, ContextMaxBodyBytes]；
 - `func TruncateContextBody(body string, limit int) (string, bool)` — TruncateContextBody 按**字节**预算裁剪，并保证不切碎一个 UTF-8 字符（正文是中文的
@@ -331,7 +331,7 @@ go test ./backend/multiagent/... -count=1
 - `func (s *stubMemberJobs) Snapshot(jobs.Scope) []jobs.Record`
 - `func (s *stubMemberJobs) Observe(handle jobs.Handle) (jobs.Record, bool)`
 - `func (s *stubMemberJobs) Peek(_ context.Context, handle jobs.Handle, _ jobs.FetchBudget) (string, jobs.Record, error)`
-- `func contextPlanFixture() store.TeamworkPlan`
+- `func contextPlanFixture() storeteamwork.Plan`
 - `func TestContextViewTakesBodyOnlyWhenAsked(t *testing.T)` — TestContextViewTakesBodyOnlyWhenAsked：默认不取正文（看一眼成员状态不该把内容变成"已读"）——
 - `func TestContextBodyBudgetClamp(t *testing.T)` — TestContextBodyBudgetClamp：预算夹取——缺省 4KB、超过硬上限按 32KB。
 - `func TestTruncateContextBodyKeepsUTF8Intact(t *testing.T)` — TestTruncateContextBodyKeepsUTF8Intact：按字节裁但**不切碎**字符（切半字符是损坏，不是截断）。
@@ -342,23 +342,23 @@ go test ./backend/multiagent/... -count=1
 
 ### coordinator.go
 
-- `func (c *Coordinator) Plan(ctx context.Context) (store.TeamworkPlan, error)` — Plan 读回当前计划。
-- `func requireTeam(plan store.TeamworkPlan) error` — requireTeam 是"这次调用需要一个已声明的团队"的**唯一判据**（空计划 → errNoPlan）。
-- `func (c *Coordinator) Audit(ctx context.Context) ([]store.TeamworkEvent, error)` — Audit 读回审计流水（派发 / 里程碑 / 收口的事实顺序）。
-- `func (c *Coordinator) SetPlan(ctx context.Context, plan store.TeamworkPlan) error` — SetPlan 写入（整份替换）一份计划，并把这次改写记进审计面。
-- `func pluginAssemblySummary(members []store.TeamworkMember) string` — pluginAssemblySummary 把成员的插件装配压成一行**审计摘要**（与回执同一口径：
-- `func countItems(plan store.TeamworkPlan) int` — countItems 数一份计划里的工作项总数（审计行用）。
+- `func (c *Coordinator) Plan(ctx context.Context) (storeteamwork.Plan, error)` — Plan 读回当前计划。
+- `func requireTeam(plan storeteamwork.Plan) error` — requireTeam 是"这次调用需要一个已声明的团队"的**唯一判据**（空计划 → errNoPlan）。
+- `func (c *Coordinator) Audit(ctx context.Context) ([]storeteamwork.Event, error)` — Audit 读回审计流水（派发 / 里程碑 / 收口的事实顺序）。
+- `func (c *Coordinator) SetPlan(ctx context.Context, plan storeteamwork.Plan) error` — SetPlan 写入（整份替换）一份计划，并把这次改写记进审计面。
+- `func pluginAssemblySummary(members []storeteamwork.Member) string` — pluginAssemblySummary 把成员的插件装配压成一行**审计摘要**（与回执同一口径：
+- `func countItems(plan storeteamwork.Plan) int` — countItems 数一份计划里的工作项总数（审计行用）。
 - `func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Handle, error)` — Dispatch 派发一个 teammate 的作业：受理回执即 handle，调用方不等待。
 - `func (c *Coordinator) Join(ctx context.Context, handles []jobs.Handle, budget time.Duration) ([]jobs.Record, error)` — Join 是一次**有界**汇合等待：只在该汇合点真有依赖时用（§6.2 / §6.3 的 A 姿势）。
 - `func (c *Coordinator) Milestone(ctx context.Context, id, content string) error` — Milestone 声明一个里程碑并写入 leader 撰写的内容（§4.5）。
-- `func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (store.TeamworkPlan, error)` — closeStepsLocked 是**整队收口**里对单个在编成员做的四步（Close 的唯一实现），也是整个
+- `func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (storeteamwork.Plan, error)` — closeStepsLocked 是**整队收口**里对单个在编成员做的四步（Close 的唯一实现），也是整个
 - `func (c *Coordinator) Reclaim(ctx context.Context, role string) error` — Reclaim 回收**一个 teammate 单元**：步 1 回收它名下的作业 → 步 2 拆它的现场（角色级
-- `func (c *Coordinator) reclaimStepsLocked(ctx context.Context, plan store.TeamworkPlan, role string) error` — reclaimStepsLocked 是收口四步的**前三步**（步 1–3）的唯一实现。
+- `func (c *Coordinator) reclaimStepsLocked(ctx context.Context, plan storeteamwork.Plan, role string) error` — reclaimStepsLocked 是收口四步的**前三步**（步 1–3）的唯一实现。
 - `func (c *Coordinator) AliveSceneNodes(ctx context.Context) (map[string]bool, error)` — AliveSceneNodes 返回计划里"本进程还有执行面"的现场 nodeID 集合（契约命名：
 - `func (c *Coordinator) Close(ctx context.Context) (bool, error)` — Close 收口整支团队（team_close）：逐在编成员走同一套四步（这里 reclaim=true，回收
 - `func (c *Coordinator) observe(handles []jobs.Handle) ([]jobs.Record, int)` — observe 汇总一组句柄的只读读数，并返回仍在跑的条数。
 - `func (c *Coordinator) ensureCapacity(role string) error` — ensureCapacity 是**产品级 active worker job** 约束的闸门。
-- `func milestoneDone(plan store.TeamworkPlan, id string) bool` — milestoneDone 报告某个里程碑是否已 done（不在计划里 = 未完成，不静默放过）。
+- `func milestoneDone(plan storeteamwork.Plan, id string) bool` — milestoneDone 报告某个里程碑是否已 done（不在计划里 = 未完成，不静默放过）。
 - `func minDuration(left, right time.Duration) time.Duration`
 
 ### dispatch_scene_test.go
@@ -383,10 +383,10 @@ go test ./backend/multiagent/... -count=1
 - `func WorkItemWorktreeName(role, itemID string) string` — WorkItemWorktreeName 派生「一个 Work Item 一个 worktree」的指派名
 - `func TeammateWorktreeName(role string) string` — TeammateWorktreeName 派生 **teammate 级**（非 Work Item）现场的指派名。
 - `func SceneNodeID(role, itemID string) string` — SceneNodeID 返回一个 Work Item 的现场 **nodeID**（`<role>-<itemID>`）——契约
-- `func milestoneIndex(plan store.TeamworkPlan, id string) int` — milestoneIndex 返回里程碑在计划里的下标（不存在 = -1）。
-- `func findItem(plan *store.TeamworkPlan, id string) (*store.TeamworkMilestone, *store.TeamworkWorkItem, bool)` — findItem 定位一个工作项，返回它所属的里程碑与**可变指针**。
-- `func recomputeMilestones(plan *store.TeamworkPlan)` — recomputeMilestones 重算里程碑状态（屏障 + 收敛）。
-- `func resolveMilestoneStatus(plan *store.TeamworkPlan, index int, memo map[int]string, visiting map[int]bool) string`
+- `func milestoneIndex(plan storeteamwork.Plan, id string) int` — milestoneIndex 返回里程碑在计划里的下标（不存在 = -1）。
+- `func findItem(plan *storeteamwork.Plan, id string) (*storeteamwork.Milestone, *storeteamwork.WorkItem, bool)` — findItem 定位一个工作项，返回它所属的里程碑与**可变指针**。
+- `func recomputeMilestones(plan *storeteamwork.Plan)` — recomputeMilestones 重算里程碑状态（屏障 + 收敛）。
+- `func resolveMilestoneStatus(plan *storeteamwork.Plan, index int, memo map[int]string, visiting map[int]bool) string`
 - `func (c *Coordinator) PlanMilestone(ctx context.Context, milestoneID string, specs []WorkItemSpec) error` — PlanMilestone 给一个里程碑**安排工作**（分里程碑排活）。
 - `func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkItemSpec) error` — AdjustItem 调整一条**尚未开始**的工作项（人 / 名称 / 描述 / 达成目标 / 依赖）。
 - `func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Handle, error)` — DispatchItem 派发**一个工作项**。
@@ -399,30 +399,30 @@ go test ./backend/multiagent/... -count=1
 - `func (c *Coordinator) ItemSettled(ctx context.Context, itemID string) bool` — ItemSettled 报告这件事是不是已经收过尾（计划里已经不是 running）。
 - `func (c *Coordinator) MergeWorkItem(ctx context.Context, request WorkerRequest) error` — MergeWorkItem 是尾插程序的**合并半段**：只回答"改动并回主工作区了吗"，返回合并失败
 - `func (c *Coordinator) SettleWorkItemWith(ctx context.Context, request WorkerRequest, runErr, mergeErr error) (workunit.Outcome, error)` — SettleWorkItemWith 是尾插程序的**写态半段**：合并结果由调用方给（非空即采信，绝不
-- `func applySettleOutcome(plan *store.TeamworkPlan, item *store.TeamworkWorkItem, outcome workunit.Outcome, receipt string)` — applySettleOutcome 把收尾分类写到工作项上（**唯一**映射，写回与读侧都认这一张表）：
+- `func applySettleOutcome(plan *storeteamwork.Plan, item *storeteamwork.WorkItem, outcome workunit.Outcome, receipt string)` — applySettleOutcome 把收尾分类写到工作项上（**唯一**映射，写回与读侧都认这一张表）：
 - `func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error` — AcceptItem 是 leader 的**验收通过**：工作项 → done，销项。**不动现场与会话**——
-- `func (c *Coordinator) cleanupAcceptedItem(ctx context.Context, teamID string, item store.TeamworkWorkItem) error` — cleanupAcceptedItem 是 team_accept 的唯一清理段：只释放该 WorkItem 的
+- `func (c *Coordinator) cleanupAcceptedItem(ctx context.Context, teamID string, item storeteamwork.WorkItem) error` — cleanupAcceptedItem 是 team_accept 的唯一清理段：只释放该 WorkItem 的
 - `func (c *Coordinator) FailItem(ctx context.Context, itemID, note string) error` — FailItem 是 leader 的**判定不通过**：状态 → failed（现场与记忆都留着，可重派）。
 - `func (c *Coordinator) Items(ctx context.Context) ([]ItemView, error)` — Items 读回全部工作项（按里程碑顺序、里程碑内按排活顺序）。
 - `func (c *Coordinator) Recover(ctx context.Context) (RecoveryReport, error)` — Recover 做**中断恢复**：把计划与绑定账本读回来，把"句柄已作废"显式化。
-- `func (c *Coordinator) releaseBinding(ctx context.Context, binding store.TeamworkBinding, teamID, reason string) error` — releaseBinding 结束一份绑定的执行隔离：释放现场 → 清这件事的会话内容 → 追加释放
-- `func (c *Coordinator) releaseWorktree(ctx context.Context, binding store.TeamworkBinding, teamID string) error` — releaseWorktree 是「只释放 worktree」的单责动作。
-- `func (c *Coordinator) resetBindingSession(ctx context.Context, binding store.TeamworkBinding) error` — resetBindingSession 是「只清 WorkItem Session」的单责动作，仅用于 team_close。
-- `func (c *Coordinator) appendReleasedBinding(ctx context.Context, binding store.TeamworkBinding, reason string) error` — appendReleasedBinding 追加一行「这份绑定已释放」（账本 KV 语义：最后一行说了算）。
+- `func (c *Coordinator) releaseBinding(ctx context.Context, binding storeteamwork.Binding, teamID, reason string) error` — releaseBinding 结束一份绑定的执行隔离：释放现场 → 清这件事的会话内容 → 追加释放
+- `func (c *Coordinator) releaseWorktree(ctx context.Context, binding storeteamwork.Binding, teamID string) error` — releaseWorktree 是「只释放 worktree」的单责动作。
+- `func (c *Coordinator) resetBindingSession(ctx context.Context, binding storeteamwork.Binding) error` — resetBindingSession 是「只清 WorkItem Session」的单责动作，仅用于 team_close。
+- `func (c *Coordinator) appendReleasedBinding(ctx context.Context, binding storeteamwork.Binding, reason string) error` — appendReleasedBinding 追加一行「这份绑定已释放」（账本 KV 语义：最后一行说了算）。
 - `func (c *Coordinator) releaseRoleItemScenes(ctx context.Context, role, teamID, reason string) error` — releaseRoleItemScenes 释放某角色名下**每一个**已派发 Work Item 的现场（收口步 2
-- `func teammateLevelBinding(binding store.TeamworkBinding, role string) bool` — teammateLevelBinding 报告一行账本是不是**角色级**（teammate 级）现场：它的指派名
+- `func teammateLevelBinding(binding storeteamwork.Binding, role string) bool` — teammateLevelBinding 报告一行账本是不是**角色级**（teammate 级）现场：它的指派名
 - `func (c *Coordinator) markTeammateBindingReleased(ctx context.Context, role, reason string) error` — markTeammateBindingReleased 把角色级现场那一行账本记成已释放（现场已经由
 - `func (c *Coordinator) releaseTeammateScenes(ctx context.Context, teamID, role, reason string) error` — releaseTeammateScenes 释放一个 teammate 的**全部**现场：角色级 + 该角色名下每一个
 - `func (c *Coordinator) releaseAllItems(ctx context.Context, teamID string) error` — releaseAllItems 是整队收口时的**一并结束**：所有活绑定（会话 + 工作区）到此为止。
-- `func (c *Coordinator) workspaceBinding(binding store.TeamworkBinding, teamID string) WorkspaceBinding` — workspaceBinding 把账本里的一行绑定折成工作区端口认识的现场（补上会话作用域键与
+- `func (c *Coordinator) workspaceBinding(binding storeteamwork.Binding, teamID string) WorkspaceBinding` — workspaceBinding 把账本里的一行绑定折成工作区端口认识的现场（补上会话作用域键与
 - `func (c *Coordinator) AppendTeammateMessage(ctx context.Context, message TeammateMessage) error` — AppendTeammateMessage 把一条尾插消息记进 teammate 的**消息队列**（= 审计流里的一行
-- `func (c *Coordinator) TeammateMessages(ctx context.Context, roleSessionID string, limit int) ([]store.TeamworkEvent, error)` — TeammateMessages 读一个 teammate（按角色会话号）的消息队列，最近 limit 条
-- `func (c *Coordinator) milestoneOpen(plan store.TeamworkPlan, milestone store.TeamworkMilestone) error` — milestoneOpen 是屏障闸门：里程碑的依赖没完成，就不许给它排活、也不许派发它下面的
+- `func (c *Coordinator) TeammateMessages(ctx context.Context, roleSessionID string, limit int) ([]storeteamwork.Event, error)` — TeammateMessages 读一个 teammate（按角色会话号）的消息队列，最近 limit 条
+- `func (c *Coordinator) milestoneOpen(plan storeteamwork.Plan, milestone storeteamwork.Milestone) error` — milestoneOpen 是屏障闸门：里程碑的依赖没完成，就不许给它排活、也不许派发它下面的
 - `func (c *Coordinator) handleAlive(handle string) bool` — handleAlive 报告一个作业句柄在本进程的作业表里是否还在册。
 - `func (c *Coordinator) jobRunning(handle string) bool` — jobRunning 报告一个作业句柄此刻**是不是还在跑**（作业表里的状态读数）。
 - `func (c *Coordinator) retireSettledJob(ctx context.Context, handle string)` — retireSettledJob 结清一个已落定作业的**作业行**（销项）。幂等：句柄为空、不在册、
-- `func workItemGoal(item store.TeamworkWorkItem) string` — workItemGoal 把工作内容折成这一轮的正文（名称 / 描述 / 达成目标三件）。
-- `func settleMessage(item store.TeamworkWorkItem, milestone store.TeamworkMilestone, mergeErr, runErr error) string` — settleMessage 组装尾插正文（**有界**：看板与上下文都吃这一行）。
+- `func workItemGoal(item storeteamwork.WorkItem) string` — workItemGoal 把工作内容折成这一轮的正文（名称 / 描述 / 达成目标三件）。
+- `func settleMessage(item storeteamwork.WorkItem, milestone storeteamwork.Milestone, mergeErr, runErr error) string` — settleMessage 组装尾插正文（**有界**：看板与上下文都吃这一行）。
 - `func clipOneLine(text string) string` — clipOneLine 把错误正文压成一行（尾插是有界回执，不是日志搬运）。
 - `func trimmedList(values []string) []string` — trimmedList 去掉空项与重复项，保持顺序（依赖列表的输入卫生）。
 
@@ -450,7 +450,7 @@ go test ./backend/multiagent/... -count=1
 
 ### items_concurrent_test.go
 
-- `func clonePlan(plan store.TeamworkPlan) store.TeamworkPlan` — clonePlan 用 JSON 往返深拷贝一份计划。**这是生产持久面的语义**（store 把计划
+- `func clonePlan(plan storeteamwork.Plan) storeteamwork.Plan` — clonePlan 用 JSON 往返深拷贝一份计划。**这是生产持久面的语义**（store 把计划
 - `func newRendezvous(want int, auto bool) *rendezvous`
 - `func (r *rendezvous) arrive()` — arrive 到达会合点并阻塞，直到放行。
 - `func (r *rendezvous) open()` — open 显式放行全部到达者（幂等）。
@@ -466,12 +466,12 @@ go test ./backend/multiagent/... -count=1
 ### items_gate.go
 
 - `func (g ItemGate) Next() string` — Next 返回卡点对应的**下一步动作**（可直接照做的一句话）。
-- `func ItemGateOf(plan store.TeamworkPlan, item store.TeamworkWorkItem, job JobReading) ItemGate` — ItemGateOf 是"这件工作项此刻卡在哪"的**唯一判据**。
+- `func ItemGateOf(plan storeteamwork.Plan, item storeteamwork.WorkItem, job JobReading) ItemGate` — ItemGateOf 是"这件工作项此刻卡在哪"的**唯一判据**。
 - `func (c *Coordinator) jobReading(handle string) JobReading` — jobReading 把作业表读数折成判据需要的两个布尔（`ItemGateOf` 的输入）。
 - `func unsettledBySandboxGate(gate ItemGate) bool` — unsettledBySandboxGate 报告这个卡点是不是"收口会拆掉、因此必须先处置"的那几类现场。
-- `func (c *Coordinator) unsettledItemGates(plan store.TeamworkPlan) []UnsettledItem` — unsettledItemGates 列出收口闸门会拦下的工作项（卡点口径）：每件带它自己的卡点与下一步。
+- `func (c *Coordinator) unsettledItemGates(plan storeteamwork.Plan) []UnsettledItem` — unsettledItemGates 列出收口闸门会拦下的工作项（卡点口径）：每件带它自己的卡点与下一步。
 - `func FormatUnsettledItems(items []UnsettledItem) string` — FormatUnsettledItems 把没收干净的账渲染成**逐件**的一行（卡点 + 该照做的下一步）。
-- `func unmetDependencies(plan store.TeamworkPlan, item store.TeamworkWorkItem) []string` — unmetDependencies 返回这件工作项里**还没 done** 的依赖项 id。
+- `func unmetDependencies(plan storeteamwork.Plan, item storeteamwork.WorkItem) []string` — unmetDependencies 返回这件工作项里**还没 done** 的依赖项 id。
 
 ### items_gate_test.go
 
@@ -505,12 +505,12 @@ go test ./backend/multiagent/... -count=1
 - `func (h *settlerHolder) SettleWorkItem(ctx context.Context, request WorkerRequest, runErr error) error`
 - `func newItemFixture(t *testing.T, maxTeammates int) *itemFixture`
 - `func newItemFixtureWithJobs(t *testing.T, maxTeammates, maxJobs int) *itemFixture`
-- `func itemPlan() store.TeamworkPlan` — itemPlan 是里程碑 + Work Item 口径的 V 模型计划：
+- `func itemPlan() storeteamwork.Plan` — itemPlan 是里程碑 + Work Item 口径的 V 模型计划：
 - `func buildWork() []WorkItemSpec`
 - `func setupItemPlan(t *testing.T, fixture *itemFixture)` — setupItemPlan 建团队 + 给 m-build 排活。
-- `func itemState(t *testing.T, fixture *itemFixture, id string) store.TeamworkWorkItem`
+- `func itemState(t *testing.T, fixture *itemFixture, id string) storeteamwork.WorkItem`
 - `func waitRequests(t *testing.T, fixture *itemFixture, want int) []WorkerRequest` — waitRequests 等到执行体收下至少 want 次派发（派发是后台的，载荷到达有先后）。
-- `func waitItemStatus(t *testing.T, fixture *itemFixture, id, want string) store.TeamworkWorkItem`
+- `func waitItemStatus(t *testing.T, fixture *itemFixture, id, want string) storeteamwork.WorkItem`
 - `func TestPlanMilestoneRefusesMilestoneWhoseDependencyIsNotDone(t *testing.T)`
 - `func TestNextMilestoneOpensOnlyAfterEveryItemIsDone(t *testing.T)`
 - `func TestDispatchRefusesItemInMilestoneBehindTheBarrier(t *testing.T)`
@@ -544,7 +544,7 @@ go test ./backend/multiagent/... -count=1
 
 ### milestone_lifecycle.go
 
-- `func MilestoneClosed(plan store.TeamworkPlan, milestoneID string) bool` — MilestoneClosed 是「里程碑已收口」的唯一判据。done 是终态：允许只读查看，
+- `func MilestoneClosed(plan storeteamwork.Plan, milestoneID string) bool` — MilestoneClosed 是「里程碑已收口」的唯一判据。done 是终态：允许只读查看，
 - `func closedMilestoneError(milestoneID string) error`
 - `func (e *AcceptedWithCleanupPendingError) Error() string`
 - `func (e *AcceptedWithCleanupPendingError) Unwrap() error`
@@ -591,12 +591,12 @@ go test ./backend/multiagent/... -count=1
 
 ### plan_query.go
 
-- `func ItemRole(plan store.TeamworkPlan, itemID string) string` — ItemRole 返回计划里某工作项的执行角色（按 id 查；入参 trim 后比较）。
-- `func MemberOf(plan store.TeamworkPlan, role string) (store.TeamworkMember, bool)` — MemberOf 返回计划里某角色的在编成员（按角色名查；入参 trim 后比较）。
+- `func ItemRole(plan storeteamwork.Plan, itemID string) string` — ItemRole 返回计划里某工作项的执行角色（按 id 查；入参 trim 后比较）。
+- `func MemberOf(plan storeteamwork.Plan, role string) (storeteamwork.Member, bool)` — MemberOf 返回计划里某角色的在编成员（按角色名查；入参 trim 后比较）。
 
 ### plan_query_test.go
 
-- `func planQueryFixture() store.TeamworkPlan`
+- `func planQueryFixture() storeteamwork.Plan`
 - `func TestItemRoleFindsTheOwner(t *testing.T)` — TestItemRoleFindsTheOwner：按 id 找执行角色（入参 trim 后比较）；找不到 / 空 id 回空串。
 - `func TestMemberOfFindsTheMember(t *testing.T)` — TestMemberOfFindsTheMember：按角色名找在编成员（trim 后比较）；找不到 / 空角色回 false。
 
@@ -607,7 +607,7 @@ go test ./backend/multiagent/... -count=1
 
 ### planlock.go
 
-- `func planLockFor(key store.Key) *sync.Mutex` — planLockFor 返回（必要时建）某个会话作用域键的计划锁。
+- `func planLockFor(key dto.SessionKey) *sync.Mutex` — planLockFor 返回（必要时建）某个会话作用域键的计划锁。
 - `func (c *Coordinator) lockPlan()` — lockPlan / unlockPlan 成对使用，包住一段「读计划 → 改 → 写计划」的临界区。
 - `func (c *Coordinator) unlockPlan()`
 
@@ -618,14 +618,14 @@ go test ./backend/multiagent/... -count=1
 ### scene.go
 
 - `func NodeIDFromWorktreeName(worktreeName string) string` — NodeIDFromWorktreeName 把 worktree 指派名折成 worktree 管理器的节点 id（去 `seelex/` 前缀；
-- `func SceneIndex(plan store.TeamworkPlan, bindings []store.TeamworkBinding) []SceneEntry` — SceneIndex 返回团队现场的名单与归属（计划 + 账本原始行，按 nodeID 去重保序）。
+- `func SceneIndex(plan storeteamwork.Plan, bindings []storeteamwork.Binding) []SceneEntry` — SceneIndex 返回团队现场的名单与归属（计划 + 账本原始行，按 nodeID 去重保序）。
 - `func SceneNodeIDs(entries []SceneEntry) []string` — SceneNodeIDs 是 SceneIndex 的只取名字的投影（认领现场只用得上名字）。
 - `func SceneOwnsNode(entries []SceneEntry, nodeID string) bool` — SceneOwnsNode 报告一个 nodeID 是否在本会话团队的现场名单里（记录归属过滤的唯一判据）。
 
 ### scene_test.go
 
 - `func TestNodeIDFromWorktreeNameMatchesForwardNaming(t *testing.T)` — TestNodeIDFromWorktreeNameMatchesForwardNaming：反向换算（去前缀）与正向拼装**同一条**命名——
-- `func scenePlanFixture() store.TeamworkPlan`
+- `func scenePlanFixture() storeteamwork.Plan`
 - `func TestSceneIndexReadsPlanThenLedgerAndDedupes(t *testing.T)` — TestSceneIndexReadsPlanThenLedgerAndDedupes：名单 = 计划（成员 → 工作项）后账本（未释放的
 - `func TestSceneIndexEmptyInputs(t *testing.T)` — TestSceneIndexEmptyInputs：没有计划也没有账本 ⇒ 空名单（不猜、不扫目录）。
 - `func TestSceneOwnsNode(t *testing.T)` — TestSceneOwnsNode：记录归属过滤只认名单里的 nodeID（trim 后），空名字不归属任何人。
@@ -649,12 +649,12 @@ go test ./backend/multiagent/... -count=1
 - `func (m *recordingJobs) Dispatch(ctx context.Context, spec jobs.Spec) (jobs.Handle, error)`
 - `func (m *recordingJobs) Declare(ctx context.Context, spec jobs.Spec) (jobs.Handle, error)`
 - `func (m *recordingJobs) Start(ctx context.Context, handle jobs.Handle) error`
-- `func (s orderedPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error`
-- `func (s orderedPlanStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error`
-- `func (s orderedPlanStore) AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error`
+- `func (s orderedPlanStore) WritePlan(ctx context.Context, key dto.SessionKey, plan storeteamwork.Plan, maxTeammates int) error`
+- `func (s orderedPlanStore) AppendBinding(ctx context.Context, key dto.SessionKey, binding storeteamwork.Binding) error`
+- `func (s orderedPlanStore) AppendEvent(ctx context.Context, key dto.SessionKey, event storeteamwork.Event) error`
 - `func TestDispatchUsesDeclarePersistThenStart(t *testing.T)` — TestDispatchUsesDeclarePersistThenStart 钉住派发事务屏障：执行体启动时，
 - `func TestDispatchWorktreeFailureStopsBeforeDeclare(t *testing.T)` — TestDispatchWorktreeFailureStopsBeforeDeclare 钉住 strict worktree 失败的边界：
-- `func (s *failingPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error`
+- `func (s *failingPlanStore) WritePlan(ctx context.Context, key dto.SessionKey, plan storeteamwork.Plan, maxTeammates int) error`
 - `func TestDispatchPersistFailureDoesNotStartExecutor(t *testing.T)` — TestDispatchPersistFailureDoesNotStartExecutor 钉住 Start 提交屏障：running 计划
 - `func TestDispatchMainWorkspaceRequiresExplicitOption(t *testing.T)` — TestDispatchMainWorkspaceRequiresExplicitOption 钉住降级边界：默认仍建 worktree；
 - `func TestMaxJobsLimitsActiveJobsNotRoles(t *testing.T)` — TestMaxJobsLimitsActiveJobsNotRoles 钉住 max_teammates 与 max_jobs 的分离：
@@ -715,23 +715,23 @@ go test ./backend/multiagent/... -count=1
 - `func SubjectForRole(role string) string` — SubjectForRole 是 teammate 的主体名：既是权限主体，也是作业作用域的第二
 - `func DefaultRoleSessionID(mainSessionID, teamID, roleName string) string` — DefaultRoleSessionID 派生角色会话号：同一个 (主会话, team_id, role) 永远得到同一
 - `func New(options Options) (*Coordinator, error)` — New 装配一个 Coordinator。
-- `func (c *Coordinator) Key() store.Key` — Key 返回会话作用域。
-- `func (c *Coordinator) audit(ctx context.Context, event store.TeamworkEvent) error` — audit 追加一条审计行。审计失败**不吞**：它与计划是同一份事实的两个面。
-- `func memberFor(plan store.TeamworkPlan, role string) (store.TeamworkMember, bool)` — memberFor 返回在编成员。
-- `func maxTurnsFor(member store.TeamworkMember, fallback int) int` — maxTurnsFor 返回一个 teammate 生效的角色回合上限：成员条目自带的 max_turns
-- `func memberPermissionGroups(member store.TeamworkMember) (map[string]uint8, error)` — memberPermissionGroups 把计划里的权限格子（组 → 位）折成框架的 uint8 位图。
-- `func MemberPermissionGroups(member store.TeamworkMember) (map[string]uint8, error)` — MemberPermissionGroups exposes the existing permission-bit folding rule to
+- `func (c *Coordinator) Key() dto.SessionKey` — Key 返回会话作用域。
+- `func (c *Coordinator) audit(ctx context.Context, event storeteamwork.Event) error` — audit 追加一条审计行。审计失败**不吞**：它与计划是同一份事实的两个面。
+- `func memberFor(plan storeteamwork.Plan, role string) (storeteamwork.Member, bool)` — memberFor 返回在编成员。
+- `func maxTurnsFor(member storeteamwork.Member, fallback int) int` — maxTurnsFor 返回一个 teammate 生效的角色回合上限：成员条目自带的 max_turns
+- `func memberPermissionGroups(member storeteamwork.Member) (map[string]uint8, error)` — memberPermissionGroups 把计划里的权限格子（组 → 位）折成框架的 uint8 位图。
+- `func MemberPermissionGroups(member storeteamwork.Member) (map[string]uint8, error)` — MemberPermissionGroups exposes the existing permission-bit folding rule to
 - `func describeHandle(handle jobs.Handle) string`
 - `func summarize(records []jobs.Record) string`
 
 ### teamwork_test.go
 
-- `func (s *memoryPlanStore) WritePlan(_ context.Context, _ store.Key, plan store.TeamworkPlan, maxTeammates int) error`
-- `func (s *memoryPlanStore) ReadPlan(context.Context, store.Key) (store.TeamworkPlan, error)`
-- `func (s *memoryPlanStore) AppendEvent(_ context.Context, _ store.Key, event store.TeamworkEvent) error`
-- `func (s *memoryPlanStore) ReadEvents(context.Context, store.Key) ([]store.TeamworkEvent, error)`
-- `func (s *memoryPlanStore) AppendBinding(_ context.Context, _ store.Key, binding store.TeamworkBinding) error`
-- `func (s *memoryPlanStore) ReadBindings(context.Context, store.Key) ([]store.TeamworkBinding, error)`
+- `func (s *memoryPlanStore) WritePlan(_ context.Context, _ dto.SessionKey, plan storeteamwork.Plan, maxTeammates int) error`
+- `func (s *memoryPlanStore) ReadPlan(context.Context, dto.SessionKey) (storeteamwork.Plan, error)`
+- `func (s *memoryPlanStore) AppendEvent(_ context.Context, _ dto.SessionKey, event storeteamwork.Event) error`
+- `func (s *memoryPlanStore) ReadEvents(context.Context, dto.SessionKey) ([]storeteamwork.Event, error)`
+- `func (s *memoryPlanStore) AppendBinding(_ context.Context, _ dto.SessionKey, binding storeteamwork.Binding) error`
+- `func (s *memoryPlanStore) ReadBindings(context.Context, dto.SessionKey) ([]storeteamwork.Binding, error)`
 - `func (s *memoryPlanStore) kinds() []string`
 - `func (r *fakeRunner) RunWorker(ctx context.Context, request WorkerRequest, sink jobs.Sink) error`
 - `func (r *fakeRunner) requestsSnapshot() []WorkerRequest`
@@ -741,7 +741,7 @@ go test ./backend/multiagent/... -count=1
 - `func (b fakeBoards) CloseTeamBoard(context.Context) error`
 - `func (s fakeSessions) ResetSession(_ context.Context, roleSessionID string) error`
 - `func newFixture(t *testing.T, maxTeammates int) *fixture`
-- `func vmodelPlan() store.TeamworkPlan` — vmodelPlan 是 V 模型口径的计划：**里程碑屏障**（m-req → m-impl）+ 里程碑内的工作项。
+- `func vmodelPlan() storeteamwork.Plan` — vmodelPlan 是 V 模型口径的计划：**里程碑屏障**（m-req → m-impl）+ 里程碑内的工作项。
 - `func waitTerminal(t *testing.T, manager jobs.Manager, handle jobs.Handle) jobs.Record` — waitTerminal 轮询到作业终态（测试里用真实时钟，只等一个短窗口）。
 - `func TestSetPlanDerivesRoleSessionIDsAndAudits(t *testing.T)`
 - `func TestDispatchJoinMilestoneLifecycle(t *testing.T)`
@@ -782,7 +782,7 @@ go test ./backend/multiagent/... -count=1
 
 ### tool_requests.go
 
-- `func DecodePlanRequest(argsJSON string) (store.TeamworkPlan, error)` — DecodePlanRequest 解析 `team_plan` 入参并补默认值（version 缺省 1；其余字段原样）。
+- `func DecodePlanRequest(argsJSON string) (storeteamwork.Plan, error)` — DecodePlanRequest 解析 `team_plan` 入参并补默认值（version 缺省 1；其余字段原样）。
 - `func DecodeDispatchRequest(argsJSON string) (DispatchRequest, error)` — DecodeDispatchRequest 解析 `team_dispatch` 入参：role / item trim；goal **原样**
 - `func (e *UnknownWorkspaceError) Error() string`
 - `func DecodeWorkRequest(argsJSON string) (string, []WorkItemSpec, error)` — DecodeWorkRequest 解析 `team_work` 入参：里程碑 trim，工作项原样搬成规格。
@@ -842,8 +842,8 @@ go test ./backend/multiagent/... -count=1
 - `func UnitStatusFor(kind workunit.OutcomeKind) string` — UnitStatusFor 把收尾分类折成记录的终态：**不判死的那两类（未提交 / 主工作区挡路）记 done**
 - `func UnitNodeID(request WorkerRequest) string` — UnitNodeID 把一轮 teammate 作业的现场折成契约的 nodeID（`<role>-<itemID>` / `<role>`）：
 - `func UnitRecordKeyFor(request WorkerRequest) UnitRecordKey` — UnitRecordKeyFor 从一轮作业的载荷取出记录身份（NodeID 口径见 `UnitNodeID`）。
-- `func UnitRecord(key UnitRecordKey, mainSessionID, status, summary, stage string, worktree store.NodeWorktreeRecord) store.NodeSessionRecord` — UnitRecord 把一条 teammate 单元记录的形状收在本域：记录身份、摘要裁剪与阶段编码
-- `func TeammateUnitRecordLink(key UnitRecordKey) store.NodeSessionRecordLink` — TeammateUnitRecordLink 是写链上 teammate 那一环：把**这一层的身份**写进记录
+- `func UnitRecord(key UnitRecordKey, mainSessionID, status, summary, stage string, worktree storeworkunit.WorktreeRecord) storeworkunit.Record` — UnitRecord 把一条 teammate 单元记录的形状收在本域：记录身份、摘要裁剪与阶段编码
+- `func TeammateUnitRecordLink(key UnitRecordKey) storeworkunit.Link` — TeammateUnitRecordLink 是写链上 teammate 那一环：把**这一层的身份**写进记录
 
 ### unit_record_test.go
 
@@ -856,11 +856,11 @@ go test ./backend/multiagent/... -count=1
 
 ### unit_recovery.go
 
-- `func InterruptedUnits( index []SceneEntry, progress map[string]workunit.Progress, stored map[string]store.NodeSessionRecord, ledgerInterrupted []string, surfaceAlive func(entry SceneEntry, roleSessionID string) bool, ) UnitRecovery` — InterruptedUnits 判定中断单元并生成恢复说明。
+- `func InterruptedUnits( index []SceneEntry, progress map[string]workunit.Progress, stored map[string]storeworkunit.Record, ledgerInterrupted []string, surfaceAlive func(entry SceneEntry, roleSessionID string) bool, ) UnitRecovery` — InterruptedUnits 判定中断单元并生成恢复说明。
 
 ### unit_recovery_test.go
 
-- `func recoveryRecord(status string) store.NodeSessionRecord`
+- `func recoveryRecord(status string) storeworkunit.Record`
 - `func TestInterruptedUnitsJudgesInFlightWithoutSurface(t *testing.T)` — TestInterruptedUnitsJudgesInFlightWithoutSurface：记录说在跑 + 执行面不在 ⇒ 中断并生成恢复说明；
 - `func TestInterruptedUnitsCoversLedgerSideWithoutRecord(t *testing.T)` — TestInterruptedUnitsCoversLedgerSideWithoutRecord：账本报"状态说在跑、句柄不在册"的工作项，
 - `func TestInterruptedUnitsDedupesAcrossSources(t *testing.T)` — TestInterruptedUnitsDedupesAcrossSources：记录侧与账本侧指向同一个单元 ⇒ 只列一次（保序：

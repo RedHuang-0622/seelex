@@ -24,7 +24,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // 同值常量别名（事实源在域包，既有调用点与用例零改动）。
@@ -56,9 +56,9 @@ var (
 // 不缓存"没有计划"就等于每次快照都去 stat 一个不存在的文件。失效同样由
 // invalidateTeamworkBoard 负责，因此 team_plan 之后的第一次采集立刻能看到新计划。
 type teamworkBoardSnapshotCache struct {
-	plan        store.TeamworkPlan
-	events      []store.TeamworkEvent
-	bindings    []store.TeamworkBinding
+	plan        storeteamwork.Plan
+	events      []storeteamwork.Event
+	bindings    []storeteamwork.Binding
 	planMissing bool
 	// archive 是活体给不出看板时的**存档兜底**（§6 重启恢复）：nil = 无可用存档
 	// （没写过 / state=closed / 快照坏了）。它随同一份缓存条目一起取，而不是每次
@@ -72,7 +72,7 @@ type teamworkBoardSnapshotCache struct {
 // 读数走**已经存在的那一条判据**（r.assemblyViews → 装配面裁决）：看板不另写
 // 一份"收窄算法"——另写一份就是第二个事实源，回执与看板迟早对同一个人给出两个工具面。
 // nil Runtime（未装配桥）→ nil：成员行的 Assembly 留 nil，前端据此不显示装配格。
-func (r *Runtime) teamBoardAssemblies(plan store.TeamworkPlan) []dto.PluginAssemblyView {
+func (r *Runtime) teamBoardAssemblies(plan storeteamwork.Plan) []dto.PluginAssemblyView {
 	if r == nil || len(plan.Members) == 0 {
 		return nil
 	}
@@ -103,8 +103,8 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 		// 读失败**不上抛**：快照路径上的错误没有消费者（面板该做的是退场，
 		// 而不是把存储错误渗进会话快照）。缺计划与读失败在这里同解，并**进负缓存**。
 		missing := err != nil
-		var events []store.TeamworkEvent
-		var bindings []store.TeamworkBinding
+		var events []storeteamwork.Event
+		var bindings []storeteamwork.Binding
 		if !missing {
 			events, err = backend.Store.ReadEvents(context.Background(), key)
 			if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -125,7 +125,7 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 		}
 		r.teamworkMu.Lock()
 		if r.teamworkBoardCache == nil {
-			r.teamworkBoardCache = map[store.Key]teamworkBoardSnapshotCache{}
+			r.teamworkBoardCache = map[dto.SessionKey]teamworkBoardSnapshotCache{}
 		}
 		r.teamworkBoardCache[key] = cached
 		r.teamworkMu.Unlock()
@@ -139,7 +139,7 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 	// 域内 closed 事实归计划（plan.State），它管的是"还在不在册"；投影这一侧只回答
 	// "有没有在册编排可看"。存档侧本来就是同一口径（readTeamBoardArchive 只恢复 active），
 	// 这里改完，活体与存档不再自相矛盾。
-	if cached.plan.State.State == store.TeamworkStateClosed {
+	if cached.plan.State.State == storeteamwork.StateClosed {
 		return nil
 	}
 

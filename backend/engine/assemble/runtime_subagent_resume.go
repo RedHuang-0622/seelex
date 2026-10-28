@@ -14,7 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // 子代理中断恢复：subagent 是劳务派遣式 tool calling 能力（不是 AgentTeam
@@ -274,7 +274,7 @@ func (r *Runtime) newSubagentResumePort(sessionID string) (*subagentResumePort, 
 		runtime:       r,
 		mainSessionID: sessionID,
 		projectID:     projectID,
-		records:       map[string]store.NodeSessionRecord{},
+		records:       map[string]storeworkunit.Record{},
 		conclusions:   map[string]struct{}{},
 	}, nil
 }
@@ -286,7 +286,7 @@ type subagentResumePort struct {
 	projectID     string
 
 	// Locate 的产物（同一次恢复轮次内复用）。
-	records     map[string]store.NodeSessionRecord
+	records     map[string]storeworkunit.Record
 	conclusions map[string]struct{}
 }
 
@@ -310,7 +310,7 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 		return nil, err
 	}
 	p.conclusions = conclusions
-	p.records = make(map[string]store.NodeSessionRecord, len(records))
+	p.records = make(map[string]storeworkunit.Record, len(records))
 	for _, record := range records {
 		progress := workunit.ProgressOf(workunit.KindSubagent, record)
 		key := subagentsession.ResumeUnitKey(progress)

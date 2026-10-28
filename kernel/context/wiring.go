@@ -23,7 +23,7 @@ import (
 
 	seelexctx "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
-	"github.com/RedHuang-0622/seelex/store"
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
@@ -98,7 +98,7 @@ func WindowTailBudget(contextWindow int, policy seelexctx.WindowPolicy) (tokenBu
 // GapCoverageDeps 是真空区补压要做的那一跳需要的读数（值语义）。
 type GapCoverageDeps struct {
 	// AllEvents 是会话完整事件流（append-only 真相源，含已压缩轮次）。
-	AllEvents []store.Event
+	AllEvents []protocol.TranscriptEvent
 	// TailStartUnit 是尾窗第一个单元在单元空间里的下标（由存储层选窗时回报）。
 	TailStartUnit int
 	// Stacks 是压缩栈（读帧 + 推帧）。nil = 没有栈可读，直接无事返回。
@@ -152,7 +152,7 @@ func CoverHistoryGap(ctx context.Context, deps GapCoverageDeps) error {
 // RelatedMemoryBlocks 按当前查询从 CompactStack 全部帧选取相关记忆块
 // （不止栈顶：超长会话的久远相关段经 seelexctx/memory 词法选取器召回）。
 // 空记录 / 空查询 / 无命中 → 不注入（请求内容不变）。
-func RelatedMemoryBlocks(frames []store.CompactFrame, query string) []seelectx.PromptBlock {
+func RelatedMemoryBlocks(frames []storecontext.CompactFrame, query string) []seelectx.PromptBlock {
 	if len(frames) == 0 {
 		return nil
 	}

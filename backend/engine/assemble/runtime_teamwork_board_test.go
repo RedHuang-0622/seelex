@@ -19,7 +19,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // countingPlanStore 记读写次数：性能口径（§4）要靠计数验证，不能靠"看起来很快"。
@@ -35,22 +35,22 @@ func newCountingPlanStore() *countingPlanStore {
 	return &countingPlanStore{inner: &memPlanStore{}}
 }
 
-func (s *countingPlanStore) WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, max int) error {
+func (s *countingPlanStore) WritePlan(ctx context.Context, key dto.SessionKey, plan storeteamwork.Plan, max int) error {
 	return s.inner.WritePlan(ctx, key, plan, max)
 }
 
-func (s *countingPlanStore) ReadPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error) {
+func (s *countingPlanStore) ReadPlan(ctx context.Context, key dto.SessionKey) (storeteamwork.Plan, error) {
 	s.mu.Lock()
 	s.planReads++
 	s.mu.Unlock()
 	return s.inner.ReadPlan(ctx, key)
 }
 
-func (s *countingPlanStore) AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error {
+func (s *countingPlanStore) AppendEvent(ctx context.Context, key dto.SessionKey, event storeteamwork.Event) error {
 	return s.inner.AppendEvent(ctx, key, event)
 }
 
-func (s *countingPlanStore) ReadEvents(ctx context.Context, key store.Key) ([]store.TeamworkEvent, error) {
+func (s *countingPlanStore) ReadEvents(ctx context.Context, key dto.SessionKey) ([]storeteamwork.Event, error) {
 	s.mu.Lock()
 	s.evReads++
 	s.mu.Unlock()
@@ -63,47 +63,47 @@ func (s *countingPlanStore) reads() (int, int) {
 	return s.planReads, s.evReads
 }
 
-func (s *countingPlanStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error {
+func (s *countingPlanStore) AppendBinding(ctx context.Context, key dto.SessionKey, binding storeteamwork.Binding) error {
 	return s.inner.AppendBinding(ctx, key, binding)
 }
 
-func (s *countingPlanStore) ReadBindings(ctx context.Context, key store.Key) ([]store.TeamworkBinding, error) {
+func (s *countingPlanStore) ReadBindings(ctx context.Context, key dto.SessionKey) ([]storeteamwork.Binding, error) {
 	return s.inner.ReadBindings(ctx, key)
 }
 
 func countingBackend(st *countingPlanStore, sessionID string) TeamworkBackend {
 	return TeamworkBackend{
 		Store: st,
-		KeyFor: func(id string) (store.Key, bool) {
+		KeyFor: func(id string) (dto.SessionKey, bool) {
 			if id != sessionID {
-				return store.Key{}, false
+				return dto.SessionKey{}, false
 			}
-			return store.Key{ProjectID: "p-team", SessionID: sessionID}, true
+			return dto.SessionKey{ProjectID: "p-team", SessionID: sessionID}, true
 		},
 		MaxTeammates: 6,
 	}
 }
 
-func boardPlanFixture() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func boardPlanFixture() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID:  "team-board-gui-tui",
 		Version: 2,
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "arch", RoleSessionID: "s-team-arch", ToolsPolicy: "readwrite"},
 			{Role: "impl_ui", RoleSessionID: "s-team-impl_ui", ToolsPolicy: "readwrite", Worktree: "wt-ui"},
 		},
 		// 里程碑 = 屏障（depends_on）+ 里程碑内的工作项 DAG。**没有阶段**（2026-10-04
 		// 阶段口径整条退场）：一个角色归哪个里程碑，看它在哪个里程碑的工作项里出现。
-		Milestones: []store.TeamworkMilestone{
+		Milestones: []storeteamwork.Milestone{
 			{
 				ID: "m-design", Name: "设计", Content: "契约定稿", Required: []string{"arch"}, Status: "done",
-				Items: []store.TeamworkWorkItem{
+				Items: []storeteamwork.WorkItem{
 					{ID: "wi-design", Milestone: "m-design", Role: "arch", Name: "契约定稿"},
 				},
 			},
 			{
 				ID: "m-impl", Name: "实现", DependsOn: []string{"m-design"},
-				Items: []store.TeamworkWorkItem{
+				Items: []storeteamwork.WorkItem{
 					{ID: "wi-impl", Milestone: "m-impl", Role: "impl_ui", Name: "实现 UI"},
 				},
 			},
@@ -191,8 +191,8 @@ func TestTeamworkBoardSnapshotMarksStaleHandleProjection(t *testing.T) {
 	}
 	plan := boardPlanFixture()
 	// 计划里残留着上一个进程的句柄（jobs I-4：句柄只在内存）。
-	plan.State = store.TeamworkState{Jobs: map[string]string{"arch": "a9"}}
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	plan.State = storeteamwork.State{Jobs: map[string]string{"arch": "a9"}}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 	if err := st.WritePlan(context.Background(), key, plan, 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
@@ -273,10 +273,10 @@ func TestSettleWorkItemInvalidatesBoardCache(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 
 	plan := boardPlanFixture()
-	plan.Milestones[1].Items[0].Status = store.TeamworkItemRunning
+	plan.Milestones[1].Items[0].Status = storeteamwork.ItemRunning
 	plan.Milestones[1].Items[0].SessionID = "s-team-impl_ui-wi-wi-impl"
 	plan.Milestones[1].Items[0].Handle = "a1"
 	if err := st.WritePlan(ctx, key, plan, backend.MaxTeammates); err != nil {
@@ -285,7 +285,7 @@ func TestSettleWorkItemInvalidatesBoardCache(t *testing.T) {
 
 	// 先采一次：把「计划 + 审计」两份文件读灌进缓存（会话快照是高频路径，这是常态）。
 	board := r.TeamworkBoardSnapshot("s-team")
-	if board == nil || boardWorkItemStatus(board, "wi-impl") != store.TeamworkItemRunning {
+	if board == nil || boardWorkItemStatus(board, "wi-impl") != storeteamwork.ItemRunning {
 		t.Fatalf("前置：看板应显示这件事在跑：%+v", board)
 	}
 
@@ -300,7 +300,7 @@ func TestSettleWorkItemInvalidatesBoardCache(t *testing.T) {
 	if board == nil {
 		t.Fatal("尾插之后看板不该消失")
 	}
-	if status := boardWorkItemStatus(board, "wi-impl"); status != store.TeamworkItemReview {
+	if status := boardWorkItemStatus(board, "wi-impl"); status != storeteamwork.ItemReview {
 		t.Fatalf("尾插之后看板应显示待验收（缓存没失效就会停在 running）：%q", status)
 	}
 }
@@ -374,7 +374,7 @@ func TestTeamworkBoardCarriesWorkItemsAndTeammateQueue(t *testing.T) {
 	if !strings.Contains(impl.Goal, "有回归") {
 		t.Fatalf("调整后的目标必须下发：%q", impl.Goal)
 	}
-	if impl.Status != store.TeamworkItemPending {
+	if impl.Status != storeteamwork.ItemPending {
 		t.Fatalf("未派发的工作项状态是 pending：%q", impl.Status)
 	}
 	if len(board.Milestones) != 2 || len(board.Milestones[1].DependsOn) != 1 {
@@ -409,19 +409,19 @@ func TestTeamworkBoardCarriesMemberCurrentSession(t *testing.T) {
 	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
-	plan := store.TeamworkPlan{
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
+	plan := storeteamwork.Plan{
 		TeamID: "t-current", Version: 1,
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "exec", RoleSessionID: "s-team-exec"},
 			{Role: "verify", RoleSessionID: "s-team-verify"},
 			{Role: "fresh", RoleSessionID: "s-team-fresh"},
 		},
-		Milestones: []store.TeamworkMilestone{{
+		Milestones: []storeteamwork.Milestone{{
 			ID: "m-impl",
-			Items: []store.TeamworkWorkItem{
-				{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现", Status: store.TeamworkItemRunning, SessionID: "s-team-exec-wi-wi-impl"},
-				{ID: "wi-verify", Milestone: "m-impl", Role: "verify", Name: "复核", Status: store.TeamworkItemReview, SessionID: "s-team-verify-wi-wi-verify"},
+			Items: []storeteamwork.WorkItem{
+				{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现", Status: storeteamwork.ItemRunning, SessionID: "s-team-exec-wi-wi-impl"},
+				{ID: "wi-verify", Milestone: "m-impl", Role: "verify", Name: "复核", Status: storeteamwork.ItemReview, SessionID: "s-team-verify-wi-wi-verify"},
 			},
 		}},
 	}
@@ -464,12 +464,12 @@ func TestTeamworkBoardSnapshotCapsAuditWindow(t *testing.T) {
 	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 	if err := st.WritePlan(context.Background(), key, boardPlanFixture(), 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
 	for index := 0; index < teamworkBoardEventLimit+8; index++ {
-		if err := st.AppendEvent(context.Background(), key, store.TeamworkEvent{
+		if err := st.AppendEvent(context.Background(), key, storeteamwork.Event{
 			At: time.Unix(int64(index+1), 0), Kind: "dispatch", Detail: "x",
 		}); err != nil {
 			t.Fatalf("AppendEvent: %v", err)
@@ -542,12 +542,12 @@ func BenchmarkTeamworkBoardSnapshot(b *testing.B) {
 	if err := r.SetTeamworkBackend(countingBackend(st, "s-team")); err != nil {
 		b.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := dto.SessionKey{ProjectID: "p-team", SessionID: "s-team"}
 	if err := st.WritePlan(context.Background(), key, boardPlanFixture(), 6); err != nil {
 		b.Fatalf("WritePlan: %v", err)
 	}
 	for index := 0; index < teamworkBoardEventLimit; index++ {
-		if err := st.AppendEvent(context.Background(), key, store.TeamworkEvent{
+		if err := st.AppendEvent(context.Background(), key, storeteamwork.Event{
 			At: time.Unix(int64(index+1), 0), Kind: "dispatch", Detail: "x",
 		}); err != nil {
 			b.Fatalf("AppendEvent: %v", err)

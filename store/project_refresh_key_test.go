@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ func writeModuleDotting(t *testing.T, root string, relative ...string) {
 
 // TestProjectRefreshWriteReadSameKey 钉住「写入键 = 读取键 = 调用方给的工作区 ID」。
 //
-// 断点②现象（修复前）：RefreshProjectKnowledge 用 builder.Root()（绝对路径）当 projectID
+// 断点②现象（修复前）：storeproject.RefreshProjectKnowledge 用 builder.Root()（绝对路径）当 projectID
 // 读写，而项目级读面（wiring/bootstrap 的 RuntimeDeps.ProjectKnowledge）用
 // store.Workspace()（ws-<nano>）读 ⇒ 写进去的永远读不到，全仓 **/project-record.json 零命中。
 func TestProjectRefreshWriteReadSameKey(t *testing.T) {
@@ -34,9 +35,9 @@ func TestProjectRefreshWriteReadSameKey(t *testing.T) {
 	router.SetWorkspace(workspaceID)
 
 	root := newKnowledgeProject(t)
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
 
-	refreshed, err := RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
+	refreshed, err := storeproject.RefreshProjectKnowledge(context.Background(), router, workspaceID, builder, false)
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestProjectRefreshWriteReadSameKey(t *testing.T) {
 	}
 
 	// 空键必须显式报错（否则又会在一个谁也读不到的键下落盘）。
-	if _, err := RefreshProjectKnowledge(context.Background(), router, "  ", builder, false); err == nil {
+	if _, err := storeproject.RefreshProjectKnowledge(context.Background(), router, "  ", builder, false); err == nil {
 		t.Fatal("空 projectID 必须显式报错")
 	}
 
@@ -66,14 +67,14 @@ func TestProjectRefreshWriteReadSameKey(t *testing.T) {
 
 // TestProjectRefreshSourcesConfigurable 钉住来源口径：默认 MetadataPath 对齐真实路径
 // <root>/docs/gui/module_dotting.json（模块登记表在 docs/gui，见 docs/README.md）；
-// ProjectKnowledgeSources 三字段仍可覆盖；无来源时给出明确错误而不是静默空记录。
+// storeproject.ProjectKnowledgeSources 三字段仍可覆盖；无来源时给出明确错误而不是静默空记录。
 func TestProjectRefreshSourcesConfigurable(t *testing.T) {
 	root := t.TempDir()
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: root})
 	if got, want := builder.MetadataPath(), filepath.Join(absRoot, "docs", "gui", "module_dotting.json"); got != want {
 		t.Fatalf("默认 MetadataPath = %q, want %q", got, want)
 	}
@@ -87,7 +88,7 @@ func TestProjectRefreshSourcesConfigurable(t *testing.T) {
 	// 只有默认元数据来源（docs/gui/module_dotting.json）的项目也要能建出记录。
 	metadataOnly := t.TempDir()
 	writeModuleDotting(t, metadataOnly, "docs", "gui", "module_dotting.json")
-	metadataBuilder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: metadataOnly})
+	metadataBuilder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: metadataOnly})
 	record, err := metadataBuilder.Build()
 	if err != nil {
 		t.Fatalf("默认元数据来源未生效：%v", err)
@@ -99,7 +100,7 @@ func TestProjectRefreshSourcesConfigurable(t *testing.T) {
 	// 三字段仍可覆盖：显式来源指向非约定路径同样生效。
 	overrideRoot := t.TempDir()
 	writeModuleDotting(t, overrideRoot, "meta", "registry.json")
-	override := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{
+	override := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{
 		Root:         overrideRoot,
 		MetadataPath: filepath.Join(overrideRoot, "meta", "registry.json"),
 	})
@@ -108,7 +109,7 @@ func TestProjectRefreshSourcesConfigurable(t *testing.T) {
 	}
 
 	// 无来源 → 明确错误（不是「空记录」）。
-	empty := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: t.TempDir()})
+	empty := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: t.TempDir()})
 	emptyRecord, err := empty.Build()
 	if err == nil {
 		t.Fatalf("无来源必须显式报错，实际得到记录 %+v", emptyRecord)
@@ -126,8 +127,8 @@ func TestProjectRefreshRealRepositorySources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: repositoryRoot})
-	if !fileExists(builder.MetadataPath()) {
+	builder := storeproject.NewProjectKnowledgeBuilder(storeproject.ProjectKnowledgeSources{Root: repositoryRoot})
+	if !storeproject.FileExists(builder.MetadataPath()) {
 		t.Fatalf("默认 MetadataPath %q 未命中本仓库的模块登记表", builder.MetadataPath())
 	}
 	record, err := builder.Build()

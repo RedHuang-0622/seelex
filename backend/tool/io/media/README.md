@@ -26,7 +26,7 @@
 
 | 类型 / 方法 | 作用 |
 |---|---|
-| `Host` | 宿主端口，**只有两格**：`HistoryRouter() *store.Router`、`SessionProjectID(sessionID) string`。宿主是 `*assemble.Runtime`；本包不持宿主的任何写入口 |
+| `Host` | 宿主端口，只有媒体读写两格与 `SessionProjectID(sessionID) string`。宿主是 `*assemble.Runtime`；本包不持 `store.Router` |
 | `SessionMedia` | 本域唯一状态：`host` + 待随图队列 `pending *imageattach.Registry`。零值不可用，`New(host)` 构造 |
 | `Attach` / `AttachPending` / `PendingCount` | 入队与读数。`AttachPending` 是工具侧入口：缺会话上下文**显式报错**（截了却送不到模型必须让人知道），`Attach` 则按队列语义静默丢弃 |
 | `StoreMedia` / `LoadMedia` | 会话媒体分区的写/读。两处都先解析归属再做 IO，因此读写同域、不会把别的会话/项目的画面取过来 |
@@ -37,7 +37,7 @@
 
 ```text
 截屏工具（backend/tool/computer）
-  └─ Deps.StoreMedia(ctx, asset)  → SessionMedia.StoreMedia → router.WriteMediaWorkspace(归属项目, 执行会话)
+  └─ Deps.StoreMedia(ctx, asset)  → SessionMedia.StoreMedia → artifact.SessionStore.WriteMedia(归属项目, 执行会话)
   └─ Deps.AttachImage(ctx, image) → SessionMedia.AttachPending → pending.Add(执行会话)
 装配器（assemble.NewRuntime，拓扑序第 3.1 步）
   └─ SessionMedia.Wrap(completer, streamer) —— 挂在 request log 包装之内、agent.NewWithComponents 之前
@@ -49,15 +49,15 @@
 
 - 允许：标准库、Seele（`agent` / `types`）、[`backend/tool/io/imageattach`](../imageattach/README.md)、
   [`backend/tool/computer`](../../computer/README.md)（只取 `MediaAsset` / `StoredMedia` / `PendingImage` 三个形状）、
-  `internal/model`、`internal/telemetry`、`store`。
+  `internal/model`、`internal/telemetry`、`store/artifact` 的形状类型。
 - 禁止：`application/*`（上层）、`backend/engine/assemble`（装配器反过来 import 本包；
   宿主关系只能经 `Host` 端口表达），以及任何"再包一层会话状态"的重复实现。
 
 ## 并发、存储与错误语义
 
 - 队列由 `imageattach.Registry` 自锁；本类型自身**无锁**（没有可变字段），可并发调用。
-- 存储语义沿用 store：媒体按 `(归属项目, 执行会话)` 分片，未绑定 = 默认项目。
-- 错误语义：会话上下文缺失、宿主未装配（`HistoryRouter() == nil`）都是**显式错误**，不静默
+- 存储语义沿用 Artifact owner：媒体按 `(归属项目, 执行会话)` 分片，未绑定 = 默认项目。
+- 错误语义：会话上下文缺失、宿主未注入 `artifact.SessionStore` 都是**显式错误**，不静默
   落进默认项目；零值 `*SessionMedia` 上 `Attach`/`PendingCount` 是空操作，`StoreMedia`/`LoadMedia`
   返回"存储未装配"错误。
 
@@ -67,7 +67,7 @@
 - 新增随图形态（例如"只给引用"之外的载入方式）：改 `Wrap` 的 `Options`，不要另起一条入队路径
   （`Attach` 必须是唯一一处 `pending.Add`）。
 - 宿主需要更多事实时，先问"能不能由既有两格推出"；确需扩端口就在 `Host` 加一格并在装配处实现，
-  不要在本包 import `assemble` 或 `store.Router` 之外的具体宿主类型。
+不要在本包 import `assemble`、根 `store` 或具体 Router 类型。
 
 ## Review 指南
 
@@ -89,30 +89,25 @@ go test ./backend/engine/assemble/... ./backend/tool/computer/... -count=1
 
 ## 文件与函数索引
 
-> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_core_readme_index.py`。
-
 ### media.go
 
-- `func New(host Host) *SessionMedia` — New 构造媒体面。pending 队列由本包自建：它是进程内的一次性状态，没有第二个
-- `func (m *SessionMedia) Attach(ctx context.Context, attachment imageattach.Attachment)` — Attach 把一张画面挂进「下一次模型请求随图」队列。
-- `func (m *SessionMedia) PendingCount(ctx context.Context) int` — PendingCount 返回当前会话还有多少张待随图（诊断与断言用）。
-- `func (m *SessionMedia) StoreMedia(ctx context.Context, asset bridgecomputer.MediaAsset) (bridgecomputer.StoredMedia, error)` — StoreMedia 把截图落进**执行会话自己**的媒体分区（截屏工具经
-- `func (m *SessionMedia) AttachPending(ctx context.Context, image bridgecomputer.PendingImage) error` — AttachPending 把刚刚看到的画面挂进「下一次模型请求随图」队列
-- `func (m *SessionMedia) LoadMedia(ctx context.Context, ref string) (types.FilePart, error)` — LoadMedia 按 `media:<hash>` 从执行会话的媒体分区读回图片：imageattach
-- `func (m *SessionMedia) ProjectIDFor(ctx context.Context, sessionID string) string` — ProjectIDFor 解析媒体资产的归属项目（store 的 projectID 与
-- `func (m *SessionMedia) Wrap(next agent.Completer, streamer agent.StreamCompleter) (agent.Completer, agent.StreamCompleter)` — Wrap 把待随图包装挂到给定的一对 Completer 上，**返回**挂好的一对。
-- `func (m *SessionMedia) historyRouter() *store.Router` — historyRouter 是本包内部对 Host 的取值口：宿主未装配（nil）时返回 nil。
+| 函数 | 签名 | 摘要 |
+|---|---|---|
+| `New` | `func New(host Host) *SessionMedia` | 构造媒体面（待随图队列由本包自建） |
+| `Attach` | `func (m *SessionMedia) Attach(ctx context.Context, attachment imageattach.Attachment)` | 把一张画面挂进下一次请求随图队列 |
+| `PendingCount` | `func (m *SessionMedia) PendingCount(ctx context.Context) int` | 返回当前会话还有多少张待随图 |
+| `StoreMedia` | `func (m *SessionMedia) StoreMedia(ctx context.Context, asset bridgecomputer.MediaAsset) (bridgecomputer.StoredMedia, error)` | 把截图落进执行会话自己的媒体分区 |
+| `AttachPending` | `func (m *SessionMedia) AttachPending(ctx context.Context, image bridgecomputer.PendingImage) error` | 工具侧入队入口：缺会话上下文改为显式报错 |
+| `LoadMedia` | `func (m *SessionMedia) LoadMedia(ctx context.Context, ref string) (types.FilePart, error)` | 按 `media:<hash>` 从执行会话的媒体分区读回图片 |
+| `ProjectIDFor` | `func (m *SessionMedia) ProjectIDFor(ctx context.Context, sessionID string) string` | 解析媒体资产的归属项目（会话绑定 → 节点工作区 → 默认） |
+| `Wrap` | `func (m *SessionMedia) Wrap(next agent.Completer, streamer agent.StreamCompleter) (agent.Completer, agent.StreamCompleter)` | 把待随图包装挂到给定的一对 Completer 上并返回 |
 
 ### media_test.go
 
-- `func (h *stubHost) HistoryRouter() *store.Router`
-- `func (h *stubHost) SessionProjectID(sessionID string) string`
-- `func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T)` — TestStoreSessionMediaWritesIntoExecutingSessionPartition 验证截图落在**执行
-- `func TestMediaProjectIDForResolution(t *testing.T)` — TestMediaProjectIDForResolution 验证媒体归属项目的三级解析：执行会话自己的
-- `func TestAttachSessionImageQueuesForExecutingSession(t *testing.T)` — TestAttachSessionImageQueuesForExecutingSession 验证画面随图：入队到执行会话，
-- `func (streamEventStub) CompleteStream( context.Context, []types.Message, []types.Tool, func(string), ) (string, string, []types.ToolCall, error)`
-- `func (stubCompleter) Complete(context.Context, []types.Message, []types.Tool) (types.Message, error)`
-- `func (streamEventStub) CompleteStreamEvents( context.Context, []types.Message, []types.Tool, func(types.StreamEvent), ) (string, string, []types.ToolCall, error)`
-- `func TestWrapKeepsStreamChain(t *testing.T)` — TestWrapKeepsStreamChain 验证包装的链式接线：非 nil 的 streamer 进 wrapper.Stream
-- `func TestNilMediaIsInert(t *testing.T)` — TestNilMediaIsInert 验证未装配（零值）时四格读写都是空操作/显式错误，不 panic。
+| 测试 | 钉住什么 |
+|---|---|
+| `TestStoreSessionMediaWritesIntoExecutingSessionPartition` | 落在执行会话分区、ref 不跨会话、节点作用域归属、缺会话报错（随 M4-J2b 从 assemble 原样搬来） |
+| `TestMediaProjectIDForResolution` | 归属三级解析（含无宿主回落默认项目） |
+| `TestAttachSessionImageQueuesForExecutingSession` | 入队到执行会话、附件载体形状、不泄漏到别的会话 |
+| `TestWrapKeepsStreamChain` | 包装保留 Stream/StreamEvents 链、返回同一个包装、未装配不造包装 |
+| `TestNilMediaIsInert` | 零值上的四格行为（空操作 / 显式错误，不 panic） |

@@ -8,15 +8,14 @@ package teamwork
 //（派发那一份会 trim 入参），迟早漂移成"查得到与查不到"两套答案。现在查询只在这里。
 
 import (
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"strings"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ItemRole 返回计划里某工作项的执行角色（按 id 查；入参 trim 后比较）。
 //
 // 找不到 / id 为空 / 计划里没这个工作项 ⇒ 空串（调用方据此"不按角色算读数"，不猜）。
-func ItemRole(plan store.TeamworkPlan, itemID string) string {
+func ItemRole(plan storeteamwork.Plan, itemID string) string {
 	itemID = strings.TrimSpace(itemID)
 	if itemID == "" {
 		return ""
@@ -31,15 +30,15 @@ func ItemRole(plan store.TeamworkPlan, itemID string) string {
 // MemberOf 返回计划里某角色的在编成员（按角色名查；入参 trim 后比较）。
 //
 // 找不到 ⇒ ok=false（调用方据此让那一格读数留空，而不是对一个人给出别人的读数）。
-func MemberOf(plan store.TeamworkPlan, role string) (store.TeamworkMember, bool) {
+func MemberOf(plan storeteamwork.Plan, role string) (storeteamwork.Member, bool) {
 	role = strings.TrimSpace(role)
 	if role == "" {
-		return store.TeamworkMember{}, false
+		return storeteamwork.Member{}, false
 	}
 	for _, member := range plan.Members {
 		if member.Role == role {
 			return member, true
 		}
 	}
-	return store.TeamworkMember{}, false
+	return storeteamwork.Member{}, false
 }

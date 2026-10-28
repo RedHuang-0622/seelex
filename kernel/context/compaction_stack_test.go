@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
-	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
 // P21 域级用例：降级原因与探针的判据跟着域搬进本包，这里钉住它们的口径
 // （装配层的端到端探针仍在 `backend/engine/assemble`，经薄转发走同一条链）。
 
 func TestFrameLocalDegradeReadsCodeAndNote(t *testing.T) {
-	frame := store.CompactFrame{
-		Evidence: []store.EvidenceRef{
+	frame := storecontext.CompactFrame{
+		Evidence: []storecontext.EvidenceRef{
 			{Ref: "turn:abc", Summary: "原文归档"},
 			{Ref: seelexctx.LocalCompactEvidenceRefPrefix + seelexctx.LocalCompactReplayFailedCode,
 				Summary: "  HTTP 402 余额不足  "},
@@ -33,7 +33,7 @@ func TestFrameLocalDegradeReadsCodeAndNote(t *testing.T) {
 }
 
 func TestFrameLocalDegradeWithoutEvidenceKeepsSilence(t *testing.T) {
-	frame := store.CompactFrame{Evidence: []store.EvidenceRef{{Ref: "turn:abc", Summary: "原文归档"}}}
+	frame := storecontext.CompactFrame{Evidence: []storecontext.EvidenceRef{{Ref: "turn:abc", Summary: "原文归档"}}}
 	code, note := frameLocalDegrade(frame)
 	if code != "" || note != "" {
 		t.Fatalf("没有降级证据就不编原因：code=%q note=%q", code, note)
@@ -64,7 +64,7 @@ func TestCompactionStackSummaryAvailableFollowsSummarizer(t *testing.T) {
 // 报同一句装配缺口错误（文案是用户可见行为，逐字保留）。
 func TestCompactionStackWithoutStoreReportsUnbound(t *testing.T) {
 	stack := NewCompactionStack(CompactionStackDeps{
-		Store: func() *store.SessionContextStore { return nil },
+		Store: func() SessionContextPort { return nil },
 		DAG:   func() *seelexctx.CompactionDAG { return nil },
 	})
 	if _, err := stack.Push(nil, "session-a", CompactionFrameRequest{}); err == nil ||

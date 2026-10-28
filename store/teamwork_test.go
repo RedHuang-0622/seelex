@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 func teamworkFixture(t *testing.T) (*jsonRepository, Key) {
@@ -20,21 +23,21 @@ func teamworkFixture(t *testing.T) (*jsonRepository, Key) {
 	return repository, key
 }
 
-func samplePlan() TeamworkPlan {
-	return TeamworkPlan{
+func samplePlan() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID:  "v-model",
 		Version: 1,
-		Members: []TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "pm", RoleSessionID: "v-model-pm"},
 			{Role: "exec", RoleSessionID: "v-model-exec", Worktree: "seelex/exec"},
 			{Role: "test_case", RoleSessionID: "v-model-test_case"},
 			{Role: "tl", RoleSessionID: "v-model-tl"},
 		},
-		Milestones: []TeamworkMilestone{
+		Milestones: []storeteamwork.Milestone{
 			{ID: "m-req", Name: "需求", Required: []string{"pm"}, Status: "pending"},
 			{ID: "m-impl", Name: "实现", Required: []string{"exec"}, DependsOn: []string{"m-req"}, Status: "pending"},
 		},
-		State: TeamworkState{Jobs: map[string]string{"exec": "a12"}},
+		State: storeteamwork.State{Jobs: map[string]string{"exec": "a12"}},
 	}
 }
 
@@ -98,7 +101,7 @@ func TestReadTeamworkPlanMissingIsEmptyPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("缺少计划不是错误：%v", err)
 	}
-	if !TeamworkPlanIsEmpty(plan) {
+	if !storeteamwork.PlanIsEmpty(plan) {
 		t.Fatalf("缺失必须读成空计划（IsEmpty 为真）：%+v", plan)
 	}
 }
@@ -107,39 +110,39 @@ func TestTeamworkPlanRejectsDynamicViolations(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	cases := []struct {
 		name         string
-		mutate       func(*TeamworkPlan)
+		mutate       func(*storeteamwork.Plan)
 		maxTeammates int
 		wantContains string
 	}{
-		{"over limit", func(plan *TeamworkPlan) {}, 3, "max_teammates"},
-		{"duplicate role", func(plan *TeamworkPlan) {
+		{"over limit", func(plan *storeteamwork.Plan) {}, 3, "max_teammates"},
+		{"duplicate role", func(plan *storeteamwork.Plan) {
 			plan.Members[1].Role = "pm"
 		}, 6, "重复"},
-		{"builtin role", func(plan *TeamworkPlan) {
+		{"builtin role", func(plan *storeteamwork.Plan) {
 			plan.Members[0].Role = "main"
 		}, 6, "内置角色"},
-		{"duplicate session", func(plan *TeamworkPlan) {
+		{"duplicate session", func(plan *storeteamwork.Plan) {
 			plan.Members[1].RoleSessionID = plan.Members[0].RoleSessionID
 		}, 6, "role_session_id"},
-		{"missing session", func(plan *TeamworkPlan) {
+		{"missing session", func(plan *storeteamwork.Plan) {
 			plan.Members[0].RoleSessionID = ""
 		}, 6, "role_session_id"},
-		{"cyclic milestones", func(plan *TeamworkPlan) {
+		{"cyclic milestones", func(plan *storeteamwork.Plan) {
 			plan.Milestones[0].DependsOn = []string{"m-impl"}
 		}, 6, "环"},
-		{"unknown milestone dependency", func(plan *TeamworkPlan) {
+		{"unknown milestone dependency", func(plan *storeteamwork.Plan) {
 			plan.Milestones[1].DependsOn = []string{"nope"}
 		}, 6, "不存在的里程碑"},
-		{"self dependency", func(plan *TeamworkPlan) {
+		{"self dependency", func(plan *storeteamwork.Plan) {
 			plan.Milestones[1].DependsOn = []string{"m-impl"}
 		}, 6, "依赖自己"},
-		{"no milestones", func(plan *TeamworkPlan) {
+		{"no milestones", func(plan *storeteamwork.Plan) {
 			plan.Milestones = nil
 		}, 6, "milestones"},
-		{"milestone required unknown role", func(plan *TeamworkPlan) {
+		{"milestone required unknown role", func(plan *storeteamwork.Plan) {
 			plan.Milestones[0].Required = []string{"ghost"}
 		}, 6, "required"},
-		{"zero version", func(plan *TeamworkPlan) {
+		{"zero version", func(plan *storeteamwork.Plan) {
 			plan.Version = 0
 		}, 6, "version"},
 	}
@@ -163,7 +166,7 @@ func TestTeamworkMaxTeammatesDefaultsToSix(t *testing.T) {
 	plan := samplePlan()
 	for index := 0; index < 3; index++ {
 		role := []string{"a", "b", "c"}[index]
-		plan.Members = append(plan.Members, TeamworkMember{Role: role, RoleSessionID: "v-model-" + role})
+		plan.Members = append(plan.Members, storeteamwork.Member{Role: role, RoleSessionID: "v-model-" + role})
 	}
 	// 7 members vs the default ceiling of 6.
 	if err := repository.WriteTeamworkPlan(context.Background(), key, plan, 6); err == nil {
@@ -178,11 +181,11 @@ func TestTeamworkMaxTeammatesDefaultsToSix(t *testing.T) {
 func TestTeamworkAuditIsAppendOnly(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	ctx := context.Background()
-	rows := []TeamworkEvent{
-		{Kind: TeamworkEventPlan, TeamID: "v-model", Detail: "members=4 milestones=2"},
-		{Kind: TeamworkEventDispatch, TeamID: "v-model", Role: "exec", Handle: "a12", Node: "wi-impl"},
-		{Kind: TeamworkEventMilestone, TeamID: "v-model", Milestone: "m-impl", Detail: "impl 完成"},
-		{Kind: TeamworkEventRetire, TeamID: "v-model", Role: "exec"},
+	rows := []storeteamwork.Event{
+		{Kind: storeteamwork.EventPlan, TeamID: "v-model", Detail: "members=4 milestones=2"},
+		{Kind: storeteamwork.EventDispatch, TeamID: "v-model", Role: "exec", Handle: "a12", Node: "wi-impl"},
+		{Kind: storeteamwork.EventMilestone, TeamID: "v-model", Milestone: "m-impl", Detail: "impl 完成"},
+		{Kind: storeteamwork.EventRetire, TeamID: "v-model", Role: "exec"},
 	}
 	for _, row := range rows {
 		if err := repository.AppendTeamworkEvent(ctx, key, row); err != nil {
@@ -205,17 +208,17 @@ func TestTeamworkAuditIsAppendOnly(t *testing.T) {
 		}
 	}
 	// 追加不重写：再读一次仍是同样的前缀，且新行append在尾部。
-	if err := repository.AppendTeamworkEvent(ctx, key, TeamworkEvent{Kind: TeamworkEventJoin, Handle: "a12"}); err != nil {
+	if err := repository.AppendTeamworkEvent(ctx, key, storeteamwork.Event{Kind: storeteamwork.EventJoin, Handle: "a12"}); err != nil {
 		t.Fatalf("AppendTeamworkEvent: %v", err)
 	}
 	loaded, err = repository.ReadTeamworkEvents(ctx, key)
 	if err != nil {
 		t.Fatalf("ReadTeamworkEvents: %v", err)
 	}
-	if len(loaded) != len(rows)+1 || loaded[0].Kind != rows[0].Kind || loaded[len(loaded)-1].Kind != TeamworkEventJoin {
+	if len(loaded) != len(rows)+1 || loaded[0].Kind != rows[0].Kind || loaded[len(loaded)-1].Kind != storeteamwork.EventJoin {
 		t.Fatalf("append did not preserve order: %+v", loaded)
 	}
-	if err := repository.AppendTeamworkEvent(ctx, key, TeamworkEvent{}); err == nil {
+	if err := repository.AppendTeamworkEvent(ctx, key, storeteamwork.Event{}); err == nil {
 		t.Fatal("an audit row without a kind must be refused")
 	}
 }
@@ -223,7 +226,7 @@ func TestTeamworkAuditIsAppendOnly(t *testing.T) {
 func TestTeamworkAuditSkipsCrashTail(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	ctx := context.Background()
-	if err := repository.AppendTeamworkEvent(ctx, key, TeamworkEvent{Kind: TeamworkEventPlan}); err != nil {
+	if err := repository.AppendTeamworkEvent(ctx, key, storeteamwork.Event{Kind: storeteamwork.EventPlan}); err != nil {
 		t.Fatalf("AppendTeamworkEvent: %v", err)
 	}
 	path := repository.layout.teamwork.EventPath(key)
@@ -240,7 +243,7 @@ func TestTeamworkAuditSkipsCrashTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadTeamworkEvents must tolerate a crash tail: %v", err)
 	}
-	if len(loaded) != 1 || loaded[0].Kind != TeamworkEventPlan {
+	if len(loaded) != 1 || loaded[0].Kind != storeteamwork.EventPlan {
 		t.Fatalf("crash tail changed the readable audit: %+v", loaded)
 	}
 }
@@ -255,7 +258,7 @@ func TestTeamworkStorageKeepsPlanAndAuditSeparate(t *testing.T) {
 	if _, err := os.Stat(repository.layout.modulePath(key, moduleTeamwork)); err != nil {
 		t.Fatalf("plan head missing: %v", err)
 	}
-	if err := repository.AppendTeamworkEvent(ctx, key, TeamworkEvent{Kind: TeamworkEventPlan}); err != nil {
+	if err := repository.AppendTeamworkEvent(ctx, key, storeteamwork.Event{Kind: storeteamwork.EventPlan}); err != nil {
 		t.Fatalf("AppendTeamworkEvent: %v", err)
 	}
 	if _, err := os.Stat(repository.layout.teamwork.EventPath(key)); err != nil {
@@ -270,9 +273,9 @@ func TestTeamworkPlanClosedRoundTrip(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	ctx := context.Background()
 	closed := samplePlan()
-	closed.State.State = TeamworkStateClosed
+	closed.State.State = storeteamwork.StateClosed
 	closed.State.ClosedAt = 1760000000
-	closed.State.ClosedReason = BoardCloseTeamClose
+	closed.State.ClosedReason = dto.BoardCloseTeamClose
 	if err := repository.WriteTeamworkPlan(ctx, key, closed, 6); err != nil {
 		t.Fatalf("WriteTeamworkPlan(closed): %v", err)
 	}
@@ -280,10 +283,10 @@ func TestTeamworkPlanClosedRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadTeamworkPlan: %v", err)
 	}
-	if loaded.State.State != TeamworkStateClosed {
-		t.Fatalf("收口态未落盘：state=%q，want %q", loaded.State.State, TeamworkStateClosed)
+	if loaded.State.State != storeteamwork.StateClosed {
+		t.Fatalf("收口态未落盘：state=%q，want %q", loaded.State.State, storeteamwork.StateClosed)
 	}
-	if loaded.State.ClosedAt != closed.State.ClosedAt || loaded.State.ClosedReason != BoardCloseTeamClose {
+	if loaded.State.ClosedAt != closed.State.ClosedAt || loaded.State.ClosedReason != dto.BoardCloseTeamClose {
 		t.Fatalf("收口事实未落盘：%+v", loaded.State)
 	}
 	// 未收口的计划读出来仍是"没有闭板事实"。
@@ -364,7 +367,7 @@ func TestTeamworkPlanColdReadsLegacyStagesPayload(t *testing.T) {
 }
 
 // TestTeamworkAuditColdReadsLegacyRetireRow：旧口径 `team_retire` 留在审计流里的
-// 行必须还能被读回（`TeamworkEventRetire` 常量与解码保留的唯一理由），且审计是
+// 行必须还能被读回（`storeteamwork.EventRetire` 常量与解码保留的唯一理由），且审计是
 // **只追加不重写**——新写入不覆盖旧行（A10）。
 func TestTeamworkAuditColdReadsLegacyRetireRow(t *testing.T) {
 	repository, key := teamworkFixture(t)
@@ -383,11 +386,11 @@ func TestTeamworkAuditColdReadsLegacyRetireRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadTeamworkEvents: %v", err)
 	}
-	if len(events) != 1 || events[0].Kind != TeamworkEventRetire || events[0].Role != "exec" {
+	if len(events) != 1 || events[0].Kind != storeteamwork.EventRetire || events[0].Role != "exec" {
 		t.Fatalf("旧 retire 审计行必须解出：%+v", events)
 	}
 
-	if err := repository.AppendTeamworkEvent(ctx, key, TeamworkEvent{Kind: TeamworkEventClose, TeamID: "v-model"}); err != nil {
+	if err := repository.AppendTeamworkEvent(ctx, key, storeteamwork.Event{Kind: storeteamwork.EventClose, TeamID: "v-model"}); err != nil {
 		t.Fatalf("AppendTeamworkEvent: %v", err)
 	}
 	raw, err := storeroot.ReadSharedFile(path)

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"sync/atomic"
@@ -413,28 +412,27 @@ func TestResumeRecordUsesCompactPointerAndKeepsContextDigest(t *testing.T) {
 	var decodes atomic.Int64
 	shardDecodeHook = func() { decodes.Add(1) }
 	t.Cleanup(func() { shardDecodeHook = nil })
-	payload, total, err := repository.derivedResumeRecordPayload(key)
+	head, err := repository.layout.readCompactHead(key)
 	if err != nil {
 		t.Fatal(err)
 	}
+	fromSeq := uint64(1)
+	if head.LatestFrame != nil {
+		fromSeq = head.LatestFrame.MessageToSeq + 1
+	}
+	resumedRows, err := repository.layout.readRows(key, fromSeq, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := len(resumedRows) + int(fromSeq-1)
 	if total != 1000 {
-		t.Fatalf("resume record total = %d, want 1000", total)
+		t.Fatalf("resume message total = %d, want 1000", total)
 	}
 	if got := decodes.Load(); got != 1 {
 		t.Fatalf("压缩指针恢复解码了 %d 个分片，want 1（只读 compact 后缀）", got)
 	}
-	var resumed struct {
-		Conversation struct {
-			Messages      []ConversationMessage `json:"messages"`
-			TotalMessages int                   `json:"total_messages"`
-		} `json:"conversation"`
-	}
-	if err := json.Unmarshal(payload, &resumed); err != nil {
-		t.Fatal(err)
-	}
-	if len(resumed.Conversation.Messages) != 100 || resumed.Conversation.TotalMessages != 1000 {
-		t.Fatalf("resume suffix = %d/%d, want 100 messages with total 1000",
-			len(resumed.Conversation.Messages), resumed.Conversation.TotalMessages)
+	if len(resumedRows) != 100 {
+		t.Fatalf("resume suffix = %d, want 100 message rows", len(resumedRows))
 	}
 	if err := repository.Close(); err != nil {
 		t.Fatal(err)

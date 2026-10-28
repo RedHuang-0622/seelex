@@ -11,23 +11,23 @@ import (
 	"github.com/RedHuang-0622/Seele/jobs"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
-func boardPlanFixture() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func boardPlanFixture() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID: "team-1", Version: 3,
-		State: store.TeamworkState{State: "active"},
-		Members: []store.TeamworkMember{
+		State: storeteamwork.State{State: "active"},
+		Members: []storeteamwork.Member{
 			{Role: "exec", RoleSessionID: "role-exec", ToolsPolicy: "readwrite", Plugins: []string{"cad"}},
 			{Role: "pm", RoleSessionID: "role-pm", ToolsPolicy: "readonly"},
 		},
-		Milestones: []store.TeamworkMilestone{{
+		Milestones: []storeteamwork.Milestone{{
 			ID: "m1", Name: "实现", Required: []string{"exec"},
-			Items: []store.TeamworkWorkItem{
-				{ID: "wi-1", Milestone: "m1", Role: "exec", Name: "写解析", SessionID: "sess-wi-1", Status: store.TeamworkItemRunning, Handle: "bteam-1"},
-				{ID: "wi-2", Milestone: "m1", Role: "exec", Name: "写测试", SessionID: "sess-wi-2", Status: store.TeamworkItemDone},
-				{ID: "wi-3", Milestone: "m1", Role: "pm", Name: "需求", SessionID: "sess-wi-3", Status: store.TeamworkItemReview},
+			Items: []storeteamwork.WorkItem{
+				{ID: "wi-1", Milestone: "m1", Role: "exec", Name: "写解析", SessionID: "sess-wi-1", Status: storeteamwork.ItemRunning, Handle: "bteam-1"},
+				{ID: "wi-2", Milestone: "m1", Role: "exec", Name: "写测试", SessionID: "sess-wi-2", Status: storeteamwork.ItemDone},
+				{ID: "wi-3", Milestone: "m1", Role: "pm", Name: "需求", SessionID: "sess-wi-3", Status: storeteamwork.ItemReview},
 			},
 		}},
 	}
@@ -38,11 +38,11 @@ func boardPlanFixture() store.TeamworkPlan {
 func TestBuildBoardViewCarriesFactsNotJudgments(t *testing.T) {
 	plan := boardPlanFixture()
 	plan.State.ClosedAt = 1700000000
-	events := []store.TeamworkEvent{{
-		At: time.Unix(1700000000, 0), Kind: store.TeamworkEventMessage, Role: "exec",
+	events := []storeteamwork.Event{{
+		At: time.Unix(1700000000, 0), Kind: storeteamwork.EventMessage, Role: "exec",
 		WorkItem: "wi-1", Detail: "回执正文",
 	}}
-	bindings := []store.TeamworkBinding{{WorkItem: "wi-1"}}
+	bindings := []storeteamwork.Binding{{WorkItem: "wi-1"}}
 	records := []jobs.Record{{Handle: "bteam-1", Node: "wi-1", State: jobs.StateRunning, Scope: jobs.Scope{Subject: SubjectForRole("exec")}}}
 
 	view := BuildBoardView(plan, events, bindings, records, 6, nil)
@@ -72,13 +72,13 @@ func TestBuildBoardViewCarriesFactsNotJudgments(t *testing.T) {
 // TestMemberStatusHasOnlyTwoValues：人的状态只有 running / free 两值（看板回答"此刻在不在干活"）。
 func TestMemberStatusHasOnlyTwoValues(t *testing.T) {
 	plan := boardPlanFixture()
-	if got := MemberStatus(plan, store.TeamworkMember{Role: "exec"}); got != MemberRunning {
+	if got := MemberStatus(plan, storeteamwork.Member{Role: "exec"}); got != MemberRunning {
 		t.Fatalf("名下有在跑的工作项 ⇒ running，得到 %q", got)
 	}
-	if got := MemberStatus(plan, store.TeamworkMember{Role: "pm"}); got != MemberFree {
+	if got := MemberStatus(plan, storeteamwork.Member{Role: "pm"}); got != MemberFree {
 		t.Fatalf("只有等验收的工作项 ⇒ free（没有 review 这个值），得到 %q", got)
 	}
-	if got := MemberStatus(plan, store.TeamworkMember{Role: "ghost"}); got != MemberFree {
+	if got := MemberStatus(plan, storeteamwork.Member{Role: "ghost"}); got != MemberFree {
 		t.Fatalf("没派过活 ⇒ free，得到 %q", got)
 	}
 }
@@ -106,7 +106,7 @@ func TestMemberCurrentPrefersRunningThenReviewThenLast(t *testing.T) {
 	}
 	// 只剩终态时退到"最近开过工的那件事"，而不是回到 RoleSessionID。
 	done := boardPlanFixture()
-	done.Milestones[0].Items[0].Status = store.TeamworkItemDone
+	done.Milestones[0].Items[0].Status = storeteamwork.ItemDone
 	done.Milestones[0].Items[2].Role = "exec"
 	if sessionID, _ := MemberCurrent(done, "exec"); sessionID != "sess-wi-3" {
 		t.Fatalf("兜底取最后一个带会话号的工作项：%q", sessionID)
@@ -141,9 +141,9 @@ func TestJobViewsReverseSubjectBackToRole(t *testing.T) {
 // TestEventViewsKeepsOnlyRecent 钉住审计投影的有界性：只取最近 BoardEventLimit 条，
 // 且保持文件顺序（发生顺序），不重排。
 func TestEventViewsKeepsOnlyRecent(t *testing.T) {
-	events := make([]store.TeamworkEvent, 0, BoardEventLimit+5)
+	events := make([]storeteamwork.Event, 0, BoardEventLimit+5)
 	for index := 0; index < BoardEventLimit+5; index++ {
-		events = append(events, store.TeamworkEvent{At: time.Unix(int64(index), 0), Kind: "settle"})
+		events = append(events, storeteamwork.Event{At: time.Unix(int64(index), 0), Kind: "settle"})
 	}
 	views := EventViews(events)
 	if len(views) != BoardEventLimit {
@@ -160,14 +160,14 @@ func TestEventViewsKeepsOnlyRecent(t *testing.T) {
 // TestProjectionStaleIsOnlyAHint：句柄过期提示位——计划里记着句柄、本进程作业表一个都查不到
 // ⇒ true；计划里没记句柄、或至少有一个还活着 ⇒ false。它只是提示位，不阻止渲染。
 func TestProjectionStaleIsOnlyAHint(t *testing.T) {
-	state := store.TeamworkState{Jobs: map[string]string{"wi-1": "h1", "wi-2": "h2"}}
+	state := storeteamwork.State{Jobs: map[string]string{"wi-1": "h1", "wi-2": "h2"}}
 	if ProjectionStale(state, nil) != true {
 		t.Fatal("全部查不到 ⇒ 提示过期")
 	}
 	if ProjectionStale(state, []dto.TeamworkJobView{{Handle: "h2"}}) != false {
 		t.Fatal("至少一个还活着 ⇒ 不过期")
 	}
-	if ProjectionStale(store.TeamworkState{}, nil) != false {
+	if ProjectionStale(storeteamwork.State{}, nil) != false {
 		t.Fatal("计划里没记句柄 ⇒ 不过期")
 	}
 }
@@ -177,7 +177,7 @@ func TestPlanHasOrchestrationRequiresMilestones(t *testing.T) {
 	if !PlanHasOrchestration(boardPlanFixture()) {
 		t.Fatal("有里程碑 ⇒ 有编排")
 	}
-	if PlanHasOrchestration(store.TeamworkPlan{TeamID: "t"}) {
+	if PlanHasOrchestration(storeteamwork.Plan{TeamID: "t"}) {
 		t.Fatal("没有里程碑 ⇒ 没有编排")
 	}
 }

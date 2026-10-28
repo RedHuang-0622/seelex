@@ -1,7 +1,9 @@
 package store
 
 import (
+	"errors"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	"io/fs"
 	"testing"
 	"time"
 )
@@ -24,7 +26,11 @@ func queueFixture(t *testing.T) (*storeEngine, Key) {
 
 func publishTurnRow(t *testing.T, store *storeEngine, key Key, turnID string) {
 	t.Helper()
-	row := Event{Seq: 0, TaskID: turnID, Role: "user", Kind: EventKindUserInput, Content: "turn " + turnID, CreatedAt: time.Now().UTC()}
+	head, err := store.readMessageHead(key)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	row := Event{Seq: head.LastSeq + 1, TaskID: turnID, Role: "user", Kind: EventKindUserInput, Content: "turn " + turnID, CreatedAt: time.Now().UTC()}
 	if _, err := store.messageCommit(key, "commit-"+turnID, []Event{row}); err != nil {
 		t.Fatal(err)
 	}

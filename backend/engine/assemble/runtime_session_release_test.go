@@ -7,7 +7,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // hasBundle 读桥侧注册表里有没有该会话本体（包内用例直读，不为此export一个
@@ -32,8 +31,8 @@ func TestReleaseSessionBundleDropsBundleAndResidue(t *testing.T) {
 		servedRoute: account.NewServedRouteRegistry(account.ServedRouteDeps{
 			RecordSummary: func(event seeletelemetry.SummaryEvent) { recorded++ },
 		}),
-		teamworkCoords:     map[store.Key]*teamwork.Coordinator{},
-		teamworkBoardCache: map[store.Key]teamworkBoardSnapshotCache{},
+		teamworkCoords:     map[dto.SessionKey]*teamwork.Coordinator{},
+		teamworkBoardCache: map[dto.SessionKey]teamworkBoardSnapshotCache{},
 	}
 	runtime.bundleFor("sess-a")
 	runtime.bundleFor("sess-b")
@@ -49,8 +48,8 @@ func TestReleaseSessionBundleDropsBundleAndResidue(t *testing.T) {
 	if recorded != 2 {
 		t.Fatalf("unpinned 摘要应每个会话各记一次（同会话第二次被去重）：recorded = %d, want 2", recorded)
 	}
-	runtime.teamworkCoords[store.Key{ProjectID: "proj", SessionID: "sess-a"}] = nil
-	runtime.teamworkBoardCache[store.Key{ProjectID: "proj", SessionID: "sess-a"}] = teamworkBoardSnapshotCache{}
+	runtime.teamworkCoords[dto.SessionKey{ProjectID: "proj", SessionID: "sess-a"}] = nil
+	runtime.teamworkBoardCache[dto.SessionKey{ProjectID: "proj", SessionID: "sess-a"}] = teamworkBoardSnapshotCache{}
 
 	if !runtime.ReleaseSessionBundle("sess-a") {
 		t.Fatal("sess-a 应被释放（非活跃别名、无在飞 fork/后台命令）")

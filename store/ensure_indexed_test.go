@@ -48,11 +48,11 @@ func TestEnsureIndexedMakesRecordOnlySessionEnumerable(t *testing.T) {
 					wantStatus := StatusDraft
 					if backend == storageLayoutName {
 						// S20：草稿行判据 = input/draft.json 存在；仅写 record
-						// 不再产生 draft 状态。
-						wantStatus = StatusIdle
+						// 不再产生 draft 状态。Store 只报持久 active，不推测运行态。
+						wantStatus = StatusActive
 					}
 					if info.Status != wantStatus {
-						t.Fatalf("enumerated status = %q, want draft", info.Status)
+						t.Fatalf("enumerated status = %q, want %q", info.Status, wantStatus)
 					}
 				}
 			}

@@ -21,6 +21,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/startup"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
+	storeproject "github.com/RedHuang-0622/seelex/store/project"
 	storerecord "github.com/RedHuang-0622/seelex/store/record"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"github.com/RedHuang-0622/seelex/store/workspace"
@@ -114,7 +115,7 @@ type Store struct {
 func InitStore(storePath string) (*Store, error) {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
 	baseDir := filepath.Dir(storePath)
-	store.ApplyLimits(runtimeLimits.SummaryChars)
+	storeproject.ApplyLimits(runtimeLimits.SummaryChars)
 	stores, err := store.OpenStores(baseDir, sessionStorageLimits())
 	if err != nil {
 		return nil, fmt.Errorf("初始化嵌套存储失败: %w", err)

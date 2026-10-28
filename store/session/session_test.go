@@ -50,14 +50,14 @@ func TestShardNames(t *testing.T) {
 
 func TestAssignRowSeqs(t *testing.T) {
 	rows := []protocol.TranscriptEvent{
-		{Seq: 0, MessageID: "auto"},
-		{Seq: 5, MessageID: "explicit"},
+		{Seq: 3, MessageID: "first"},
+		{Seq: 4, MessageID: "explicit"},
 	}
 	assigned, err := AssignRowSeqs(rows, 2, "commit-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(assigned) != 2 || assigned[0].Seq != 3 || assigned[1].Seq != 5 ||
+	if len(assigned) != 2 || assigned[0].Seq != 3 || assigned[1].Seq != 4 ||
 		assigned[0].CommitID != "commit-1" || assigned[1].CommitID != "commit-1" {
 		t.Fatalf("assigned=%+v", assigned)
 	}
@@ -67,6 +67,12 @@ func TestAssignRowSeqs(t *testing.T) {
 	}
 	if _, err := AssignRowSeqs([]protocol.TranscriptEvent{{Seq: 5}, {Seq: 5}}, 2, "commit"); err == nil {
 		t.Fatal("non-increasing explicit seq must fail")
+	}
+	if _, err := AssignRowSeqs([]protocol.TranscriptEvent{{Seq: 0}}, 2, "commit"); err == nil {
+		t.Fatal("zero seq must be rejected instead of silently assigned")
+	}
+	if _, err := AssignRowSeqs([]protocol.TranscriptEvent{{Seq: 4}}, 2, "commit"); err == nil {
+		t.Fatal("seq gap after head must be rejected")
 	}
 }
 
@@ -193,7 +199,7 @@ func TestListAndDraftBaseSeq(t *testing.T) {
 }
 
 func TestSessionStateValidators(t *testing.T) {
-	items := []QueueItem{{State: QueueQueued}, {State: QueueSending}}
+	items := []QueueRow{{State: QueueQueued}, {State: QueueSending}}
 	if QueueHeadState(items) != QueueQueued || QueueHeadState(nil) != "" {
 		t.Fatal("queue head state mismatch")
 	}

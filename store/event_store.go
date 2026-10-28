@@ -8,15 +8,13 @@ import (
 	"sync"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // EventLogEntry 是执行事实事件库的持久化单元（追加顺序 = 落库顺序）。
 // Payload 是 frameworkevent.Event 的 JSON 形态；Seq 由 sink 侧写入方
 // （Recorder/planEventSink）保证严格递增，本库不解释其语义。
-type EventLogEntry struct {
-	Seq     uint64          `json:"seq"`
-	Payload json.RawMessage `json:"payload"`
-}
+type EventLogEntry = dto.EventLogEntry
 
 // EventStore 是 seelex 侧执行事实事件库（双轨事件的「事实轨」）：
 // 实现 frameworkevent.Sink（Append），把执行事实追加到会话级事件库。

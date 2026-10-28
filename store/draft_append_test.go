@@ -100,14 +100,14 @@ func physicalRows(t *testing.T, store *storeEngine, key Key, shard string) []Eve
 func TestDraftAppendInvisibleUntilPublished(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	assigned, err := store.appendDraftRows(key, "turn-2", []Event{
-		messageRow(0, "u2", "user", EventKindUserInput, "第二问"),
-		messageRow(0, "a2", "assistant", EventKindLLM, "第二答"),
+		messageRow(3, "u2", "user", EventKindUserInput, "第二问"),
+		messageRow(4, "a2", "assistant", EventKindLLM, "第二答"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -148,21 +148,21 @@ func TestDraftAppendInvisibleUntilPublished(t *testing.T) {
 func TestDraftAppendContinuesFromPhysicalTail(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	first, err := store.appendDraftRows(key, "turn-2", []Event{
-		messageRow(0, "u2", "user", EventKindUserInput, "第二问"),
-		messageRow(0, "a2", "assistant", EventKindLLM, "第二答"),
+		messageRow(3, "u2", "user", EventKindUserInput, "第二问"),
+		messageRow(4, "a2", "assistant", EventKindLLM, "第二答"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	second, err := store.appendDraftRows(key, "turn-3", []Event{
-		messageRow(0, "u3", "user", EventKindUserInput, "第三问"),
-		messageRow(0, "a3", "assistant", EventKindLLM, "第三答"),
+		messageRow(5, "u3", "user", EventKindUserInput, "第三问"),
+		messageRow(6, "a3", "assistant", EventKindLLM, "第三答"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -187,13 +187,13 @@ func TestDraftAppendContinuesFromPhysicalTail(t *testing.T) {
 func TestPublishDraftTailPromotesAllRows(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.appendDraftRows(key, "turn-2", []Event{
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
-		messageRow(0, "u2", "user", EventKindUserInput, "第二问"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(3, "u2", "user", EventKindUserInput, "第二问"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -238,12 +238,12 @@ func TestPublishDraftTailPromotesAllRows(t *testing.T) {
 func TestDiscardDraftTailKeepsPublishPointAndRows(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.appendDraftRows(key, "turn-2", []Event{
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -271,15 +271,15 @@ func TestDiscardDraftTailKeepsPublishPointAndRows(t *testing.T) {
 func TestDraftAppendRollsShardBeyondPublishedIndex(t *testing.T) {
 	store, key := messageFixture(t, 2) // 2 行/片：第二次写入必然滚动
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
-		messageRow(0, "a1", "assistant", EventKindLLM, "第一答"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "第一答"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.appendDraftRows(key, "turn-2", []Event{
-		messageRow(0, "u2", "user", EventKindUserInput, "第二问"),
-		messageRow(0, "a2", "assistant", EventKindLLM, "第二答"),
-		messageRow(0, "u3", "user", EventKindUserInput, "第三问"),
+		messageRow(3, "u2", "user", EventKindUserInput, "第二问"),
+		messageRow(4, "a2", "assistant", EventKindLLM, "第二答"),
+		messageRow(5, "u3", "user", EventKindUserInput, "第三问"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -322,18 +322,18 @@ func TestDraftAppendRollsShardBeyondPublishedIndex(t *testing.T) {
 func TestNormalCommitReapsDraftTail(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{
-		messageRow(0, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.appendDraftRows(key, "turn-2", []Event{
-		messageRow(0, "draft-1", "assistant", EventKindLLM, "草稿行"),
+		messageRow(2, "draft-1", "assistant", EventKindLLM, "草稿行"),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// 普通提交（重新从发布点续号）：草稿行被 reap 掉，seq 3 被本次提交重用。
 	if _, err := store.messageCommit(key, "c2", []Event{
-		messageRow(0, "a1", "assistant", EventKindLLM, "正式第一答"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "正式第一答"),
 	}); err != nil {
 		t.Fatal(err)
 	}

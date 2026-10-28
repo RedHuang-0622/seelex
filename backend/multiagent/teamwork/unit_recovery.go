@@ -15,7 +15,7 @@ package teamwork
 
 import (
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // UnitRecovery 是一次中断判定的结果。
@@ -34,7 +34,7 @@ type UnitRecovery struct {
 func InterruptedUnits(
 	index []SceneEntry,
 	progress map[string]workunit.Progress,
-	stored map[string]store.NodeSessionRecord,
+	stored map[string]storeworkunit.Record,
 	ledgerInterrupted []string,
 	surfaceAlive func(entry SceneEntry, roleSessionID string) bool,
 ) UnitRecovery {

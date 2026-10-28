@@ -23,7 +23,7 @@ func TestRoleSnapshotForTeammateCarriesMainRowsWithNoOwnRows(t *testing.T) {
 	store, mainKey := roleSessionFixture(t)
 	// 主会话里放入"主代理自己的回合"（GUI 的 main_rows 就是它）。
 	if _, err := store.messageCommit(mainKey, "main-round-1", []Event{
-		{Role: "assistant", Content: "主代理的结论", Kind: EventKindLLM},
+		{Seq: 2, Role: "assistant", Content: "主代理的结论", Kind: EventKindLLM},
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -11,28 +11,27 @@ package worktree
 
 import (
 	"fmt"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // sceneRecordsForBench 造 32 条"记录投影来源"的记录，每条都有真实存在的现场目录
 // （`Restore` 判"目录真的在"）。
-func sceneRecordsForBench(b *testing.B, dir string) []store.NodeSessionRecord {
+func sceneRecordsForBench(b *testing.B, dir string) []storeworkunit.Record {
 	b.Helper()
-	records := make([]store.NodeSessionRecord, 0, 32)
+	records := make([]storeworkunit.Record, 0, 32)
 	for index := 0; index < 32; index++ {
 		nodeID := fmt.Sprintf("exec-wi-%02d", index)
 		path := filepath.Join(dir, nodeID)
 		if err := os.Mkdir(path, 0o755); err != nil {
 			b.Fatal(err)
 		}
-		records = append(records, store.NodeSessionRecord{
-			SchemaVersion: store.NodeSessionSchemaVersion,
+		records = append(records, storeworkunit.Record{
+			SchemaVersion: storeworkunit.SchemaVersion,
 			NodeID:        nodeID,
-			Worktree: store.NodeWorktreeRecord{
+			Worktree: storeworkunit.WorktreeRecord{
 				Path: path, Branch: "seelex/" + nodeID, MainBranch: "main", BaseCommit: "0123456789",
 			},
 		})

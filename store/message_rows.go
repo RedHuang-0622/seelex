@@ -539,20 +539,14 @@ func decodeMessageRows(data []byte) []Event {
 	return storesession.DecodeMessageRows(data, shardDecodeHook)
 }
 
-// deltaRowsLocked 计算应 append 的行（提交路径）：基准 = 发布点。调用方已先
-// reap 未发布尾（reapUnpublishedLocked），因此发布点 == 物理末行——提交路径的
-// 续号基准与草稿路径（appendDraftRowsLocked，基准 = 物理末行）在各自的先决条件
-// 下等价，两处共用同一套分配规则 assignRowSeqs。
+// deltaRowsLocked 校验应 append 的行（提交路径）：基准 = 发布点。调用方已先
+// reap 未发布尾，因此新行必须从 head+1 连续推进。
 func (store *storeEngine) deltaRowsLocked(head messageHead, rows []Event, commitID string) ([]Event, error) {
 	return assignRowSeqs(rows, head.LastSeq, commitID)
 }
 
-// assignRowSeqs 是唯一的 seq 分配器：base = 该写入路径的续号基准（已落盘的
-// 物理末行 seq），Seq=0 → base 之后逐个续号；显式 Seq 必须严格递增且 > base
-// （≤ base 视为重复提交 = 幂等空操作，跳过）。返回行均已打上 commit_id。
-//
-// 「续号基准脱离发布点」的意义：逐步 append 的草稿行（seq > 发布点）已经是物理
-// 末行，后续写入必须从它们之后续号，否则草稿行与新一轮行会在同一 seq 上重叠。
+// assignRowSeqs 是唯一的持久 seq 校验入口：运行时必须显式提供 seq，Store
+// 只做幂等过滤（≤ base）和 head+1 连续性校验，并为本次提交打 commit_id。
 func assignRowSeqs(rows []Event, base uint64, commitID string) ([]Event, error) {
 	return storesession.AssignRowSeqs(rows, base, commitID)
 }

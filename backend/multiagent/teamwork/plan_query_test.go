@@ -4,19 +4,18 @@ package teamwork
 // `backend/engine/assemble/runtime_teamwork.go` 的两个遍历点搬进本域）。
 
 import (
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
-func planQueryFixture() store.TeamworkPlan {
-	return store.TeamworkPlan{
+func planQueryFixture() storeteamwork.Plan {
+	return storeteamwork.Plan{
 		TeamID: "team-1",
-		Members: []store.TeamworkMember{
+		Members: []storeteamwork.Member{
 			{Role: "pm", ToolsPolicy: "readonly"},
 			{Role: "exec", ToolsPolicy: "readwrite"},
 		},
-		Milestones: []store.TeamworkMilestone{{ID: "m1", Items: []store.TeamworkWorkItem{
+		Milestones: []storeteamwork.Milestone{{ID: "m1", Items: []storeteamwork.WorkItem{
 			{ID: "wi-1", Role: "exec"},
 			{ID: "wi-2", Role: "pm"},
 		}}},
@@ -38,7 +37,7 @@ func TestItemRoleFindsTheOwner(t *testing.T) {
 		}
 	}
 	// 空计划安全。
-	if got := ItemRole(store.TeamworkPlan{}, "wi-1"); got != "" {
+	if got := ItemRole(storeteamwork.Plan{}, "wi-1"); got != "" {
 		t.Fatalf("空计划应当回空串：%q", got)
 	}
 }

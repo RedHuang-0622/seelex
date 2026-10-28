@@ -18,9 +18,8 @@ package teamwork
 // 与 `TeammateWorktreeName`——两个方向现在同处一域）。
 
 import (
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"strings"
-
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // NodeIDFromWorktreeName 把 worktree 指派名折成 worktree 管理器的节点 id（去 `seelex/` 前缀；
@@ -43,12 +42,12 @@ type SceneEntry struct {
 //   - **计划**：`item.Worktree`（派发时写进计划，是账本之外唯一的线索）与 `member.Worktree`
 //     （teammate 级现场）；
 //   - **账本**：绑定流水。已释放（`Released`）的行表示这一份绑定已经结束，不再认领；这里刻意
-//     用**原始行**而不经 `store.TeamworkBindings` 的折叠结果——折叠以 work_item 为键，会把
+//     用**原始行**而不经 `storeteamwork.Bindings` 的折叠结果——折叠以 work_item 为键，会把
 //     WorkItem 留空的 teammate 级行整行丢掉。
 //
 // 次序 = 先计划（成员 → 工作项）后账本，去重保序：调用方的"先认领后清残留"依赖这份名单的
 // 稳定性而不是顺序本身，但顺序稳定让读数可复现。
-func SceneIndex(plan store.TeamworkPlan, bindings []store.TeamworkBinding) []SceneEntry {
+func SceneIndex(plan storeteamwork.Plan, bindings []storeteamwork.Binding) []SceneEntry {
 	seen := make(map[string]bool, 4)
 	entries := make([]SceneEntry, 0, 4)
 	add := func(assigned, role, itemID string) {

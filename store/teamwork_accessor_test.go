@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 	"testing"
 )
 
@@ -19,7 +20,7 @@ func TestTeamworkAccessorNarrowsRepository(t *testing.T) {
 	if err != nil || plan.TeamID != "v-model" {
 		t.Fatalf("ReadTeamworkPlan through the narrowed face: %+v / %v", plan, err)
 	}
-	if err := narrowed.AppendTeamworkEvent(ctx, key, TeamworkEvent{Kind: TeamworkEventPlan}); err != nil {
+	if err := narrowed.AppendTeamworkEvent(ctx, key, storeteamwork.Event{Kind: storeteamwork.EventPlan}); err != nil {
 		t.Fatalf("AppendTeamworkEvent through the narrowed face: %v", err)
 	}
 	events, err := narrowed.ReadTeamworkEvents(ctx, key)

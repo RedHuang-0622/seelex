@@ -24,7 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 // wantClipPreview 是**测试自己**的那份期望（不调用生产实现）：同一份正文按 rune 裁到契约
@@ -96,7 +96,7 @@ func TestStagePreviewBoundIsOneAcrossProducers(t *testing.T) {
 func TestResumeNotePreviewNeverSplitsARune(t *testing.T) {
 	// 301 字节：第 240 个字节落在第 80 个汉字中间（字节切法必然切出一个非法 UTF-8）。
 	long := "z" + strings.Repeat("汉", 100)
-	record := store.NodeSessionRecord{
+	record := storeworkunit.Record{
 		StagesJSON: workunit.EncodeStages([]workunit.Stage{{Stage: "round_output", Preview: long}}),
 	}
 	got := lastSubagentStagePreview(record)

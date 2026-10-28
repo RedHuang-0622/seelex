@@ -11,8 +11,7 @@ package assemble
 //     worker 执行体 = 角色会话里跑一轮有界回合；worktree = 释放 git worktree；
 //     session reset = 清角色会话的工作历史（保留在编）。
 //
-// 装配口径：backend（PlanStore + KeyFor）由**组合根**注入。未注入 = 不注册这族
-// 工具——"有就有、没有就是没装配"，而不是注册一堆永远报错的空壳。
+// 装配口径：backend（PlanStore + KeyFor）由组合根注入；未注入即不注册。
 //
 // 铁律（§6.1）：框架绝不把作业结果 push 进忙会话。作业完成经 jobs.Events() 的
 // 变更信号口与回合边界有界摘要浮现；本文件不引入任何唤醒路径。
@@ -39,6 +38,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
+	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
 // TeamworkBackend 是组合根注入的 teamwork 持久面与作用域解析。
@@ -335,7 +335,7 @@ func (r *Runtime) dispatchAssemblyReading(ctx context.Context, coordinator *team
 	if !ok {
 		return nil
 	}
-	views := r.assemblyViews([]store.TeamworkMember{member})
+	views := r.assemblyViews([]storeteamwork.Member{member})
 	if len(views) == 0 {
 		return nil
 	}
