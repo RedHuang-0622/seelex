@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -104,6 +105,18 @@ def main() -> None:
     path = root / "docs/2026-10-27-store-ddd-split/impact/M10-external-deps.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    patch = git(
+        "diff",
+        "--binary",
+        "--",
+        ".",
+        ":(exclude)e2e/store_ddd_m10_facade_gate_test.go",
+        ":(exclude)scripts/store-ddd/**",
+        ":(exclude)docs/2026-10-27-store-ddd-split/impact/**",
+    ).stdout
+    patch_path = root / "scripts/store-ddd/M10-external.patch.b64"
+    patch_path.write_text(base64.b64encode(patch).decode("ascii") + "\n", encoding="ascii")
 
 
 if __name__ == "__main__":

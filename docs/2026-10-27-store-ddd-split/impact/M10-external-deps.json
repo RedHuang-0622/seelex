@@ -3,7 +3,7 @@
   "milestone": "M10",
   "execution": {
     "worktree_branch": "codex/store-ddd-M8-to-M11",
-    "base_commit": "fb358073757d12704f50ea23bafecf62c3d02f63",
+    "base_commit": "4b425aae3b872832ad1f404732bf19f762abc304",
     "checkpoint_commit": "PENDING_CHECKPOINT"
   },
   "checkpoint": {
