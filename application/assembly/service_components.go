@@ -69,7 +69,7 @@ type serviceComponents struct {
 	conversationTurnState        *conversationTurnState
 	conversationStreamRuntime    *applicationconversation.StreamRuntime
 	sessionLifecycle             *applicationsession.LifecycleApplication
-	interactionApplication       *applicationsession.InteractionApplication
+	interactions                 *sessionInteractionComponents
 	forkApplication              *applicationsession.ForkApplication
 	submitApplication            *applicationsession.SubmitApplication
 	sessionArchive               *applicationsession.ArchiveApplication
@@ -125,6 +125,11 @@ type serviceComponents struct {
 }
 
 type chatTurnStartOptions = applicationconversation.StartOptions
+
+type sessionInteractionComponents struct {
+	resolve *applicationsession.InteractionApplication
+	observe *applicationsession.InteractionObserverApplication
+}
 
 // ProjectBoardSinkPort 是项目看板订阅口（board.ProjectBoardSink）的**可变槽位**：
 // 装配期交接一次、此后每回合读一份（读多写一，单独一把锁，不碰 Core.ViewMu）。

@@ -8,8 +8,8 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"testing"
 )
 
@@ -55,11 +55,11 @@ var permissionToolNames = []string{
 func mergedPermissionConfig(t *testing.T) toolspermission.PermissionConfig {
 	t.Helper()
 	base := policy.DefaultPermissionConfig()
-	fileCfg, err := bootstrap.LoadPermissionConfig("config/seele.yaml")
+	fileCfg, err := boot.LoadPermissionConfig("config/seele.yaml")
 	if err != nil {
-		t.Fatalf("bootstrap.LoadPermissionConfig: %v", err)
+		t.Fatalf("boot.LoadPermissionConfig: %v", err)
 	}
-	return bootstrap.MergePermissionConfig(base, fileCfg)
+	return boot.MergePermissionConfig(base, fileCfg)
 }
 
 // TestEveryRegisteredToolIsRouted 钉住"任一工具都能被机械归组"：没有未分封漏点，

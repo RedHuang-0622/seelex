@@ -106,7 +106,7 @@ func (service *Service) activateSkillAndSubmit(ctx context.Context, skill model.
 	if len(args) == 0 {
 		return nil
 	}
-	return service.submitConversation(ctx, input)
+	return service.components.conversationTurn.submission.Submit(ctx, input)
 }
 
 func (service *Service) prepareCompletedTaskBoundary() {

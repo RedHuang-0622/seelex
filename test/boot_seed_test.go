@@ -2,7 +2,7 @@ package test
 
 import (
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
-	"github.com/RedHuang-0622/seelex/wiring/config"
+	startup "github.com/RedHuang-0622/seelex/internal/startup"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +18,7 @@ import (
 )
 
 // executableDir 返回当前测试二进制的目录（等价于"包自己的目录"）：
-// config.EnsureConfigFile 的落盘根就取它。
+// startup.EnsureConfigFile 的落盘根就取它。
 func executableDir(t *testing.T) string {
 	t.Helper()
 	exe, err := os.Executable()
@@ -46,7 +46,7 @@ func TestEnsureConfigFileSeedsDefaultThenReadsIt(t *testing.T) {
 	_ = os.Remove(seededPath) // 上一次跑留下的不算现场
 	t.Cleanup(func() { _ = os.Remove(seededPath) })
 
-	got := config.EnsureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack())
+	got := startup.EnsureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack())
 	if got != seededPath {
 		t.Fatalf("候选链全缺时应初始化到二进制旁边的 config/：期望 %s，得到 %s", seededPath, got)
 	}
@@ -66,7 +66,7 @@ func TestEnsureConfigFileSeedsDefaultThenReadsIt(t *testing.T) {
 	if err := os.WriteFile(got, []byte("# 用户改过的\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if again := config.EnsureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack()); again != got {
+	if again := startup.EnsureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack()); again != got {
 		t.Fatalf("存在即读：路径要稳定，期望 %s，得到 %s", got, again)
 	}
 	kept, err := os.ReadFile(got)
@@ -85,7 +85,7 @@ func TestEnsureConfigFilePrefersCWDConfig(t *testing.T) {
 	if err := os.WriteFile(mine, []byte("# 我自己的运行参数\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := config.EnsureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack()); got != mine {
+	if got := startup.EnsureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack()); got != mine {
 		t.Fatalf("CWD 的 config/ 是链上第一候选：期望 %s，得到 %s", mine, got)
 	}
 }
@@ -97,7 +97,7 @@ func TestEnsureConfigFileKeepsLegacyRootFallback(t *testing.T) {
 	if err := os.WriteFile(legacy, []byte("permission:\n  rules: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := config.EnsureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack()); got != legacy {
+	if got := startup.EnsureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack()); got != legacy {
 		t.Fatalf("根目录回退是链上第二候选（历史兼容）：期望 %s，得到 %s", legacy, got)
 	}
 }
@@ -112,7 +112,7 @@ func TestResolveAutoGetJobsDirFollowsChain(t *testing.T) {
 	}
 	repoTool := filepath.Join(repo, "local", "tools", "auto_get_jobs")
 	_, repoErr := os.Stat(filepath.Join(repoTool, "main.py"))
-	dir, ok := config.ResolveAutoGetJobsDir()
+	dir, ok := startup.ResolveAutoGetJobsDir()
 	if repoErr == nil {
 		if !ok {
 			t.Fatal("仓库里放着 main.py，白名单命令脚本目录应当命中")
@@ -136,7 +136,7 @@ func TestResolveToolDirSeedsSkeletonWithoutRegistering(t *testing.T) {
 	relative := filepath.Join("local", "tools", "auto_get_jobs")
 	seededRoot := filepath.Join(exeDir, relative)
 
-	dir, ok := config.ResolveToolDir(relative, exeDir, bootseed.AutoGetJobsPack())
+	dir, ok := startup.ResolveToolDir(relative, exeDir, bootseed.AutoGetJobsPack())
 	if ok || dir != "" {
 		t.Fatalf("骨架里没有 main.py：不得返回可用目录（ok=%v dir=%q）", ok, dir)
 	}
@@ -160,7 +160,7 @@ func TestResolveToolDirSeedsSkeletonWithoutRegistering(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(seededRoot, "main.py"), []byte("print('ok')\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dir, ok = config.ResolveToolDir(relative, exeDir, bootseed.AutoGetJobsPack())
+	dir, ok = startup.ResolveToolDir(relative, exeDir, bootseed.AutoGetJobsPack())
 	if !ok || dir != seededRoot {
 		t.Fatalf("脚本放好之后应命中同一个目录：ok=%v dir=%q 期望 %q", ok, dir, seededRoot)
 	}
@@ -180,7 +180,7 @@ func TestResolveToolDirPrefersCWDCopy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	dir, ok := config.ResolveToolDir(relative, filepath.Dir(exeTool), bootseed.AutoGetJobsPack())
+	dir, ok := startup.ResolveToolDir(relative, filepath.Dir(exeTool), bootseed.AutoGetJobsPack())
 	if !ok || dir != cwdTool {
 		t.Fatalf("候选链第一个存在的胜出（CWD 那份）：期望 %s，得到 %q (ok=%v)", cwdTool, dir, ok)
 	}

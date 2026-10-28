@@ -23,6 +23,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
@@ -229,7 +230,7 @@ func gapEvidence(uncovered [][]store.Event) []store.EvidenceRef {
 			}
 			ref := event.ResultRef
 			if ref == "" && event.ToolCallID != "" {
-				ref = "result:" + event.ToolCallID
+				ref = model.WireToolResultRef(event.ToolCallID)
 			}
 			if ref != "" {
 				evidence = append(evidence, store.EvidenceRef{Ref: ref})

@@ -24,6 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -359,7 +360,7 @@ func recordFromEvent(event store.Event) ChatRecord {
 		record.ToolName = event.Name
 		record.ResultRef = event.ResultRef
 		if record.ResultRef == "" && event.ToolCallID != "" {
-			record.ResultRef = "result:" + event.ToolCallID
+			record.ResultRef = model.WireToolResultRef(event.ToolCallID)
 		}
 	}
 	return record

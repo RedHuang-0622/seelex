@@ -18,6 +18,8 @@ identity facade 与终态工具编排。它服务 core 的 Task execution、tran
 - `facade.go`：类型/常量 alias、NewCoordinator 与 helper forwarders。
 - `terminal_handler.go`：`TerminalHandlerApplication`，只编排宿主回调和
   `VerifyAndApply`，不复制 Task 状态机。
+- `plan_projection.go`：`PlanProjectionApplication`，唯一选择当前/后台 Plan 投影并在
+  Snapshot 中种基线；assembly 只注入 Task coordinator 的窄读面。
 - `facade_test.go`：Coordinator / ContextBudget 类型身份。
 
 ## 核心实现

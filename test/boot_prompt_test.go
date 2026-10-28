@@ -1,8 +1,8 @@
 package test
 
 import (
+	startup "github.com/RedHuang-0622/seelex/internal/startup"
 	"github.com/RedHuang-0622/seelex/kernel/prompt/assets"
-	"github.com/RedHuang-0622/seelex/wiring/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +22,7 @@ import (
 func TestPromptDirChainShape(t *testing.T) {
 	entry := filepath.FromSlash(promptassets.Entry)
 
-	candidates, seedRoot := config.PromptDirChainAt("")
+	candidates, seedRoot := startup.PromptDirChainAt("")
 	if len(candidates) != 1 || candidates[0] != filepath.Join("config", "prompt", entry) {
 		t.Fatalf("无 exe 路径时链上只该有 CWD 候选，得到 %v", candidates)
 	}
@@ -31,7 +31,7 @@ func TestPromptDirChainShape(t *testing.T) {
 	}
 
 	exePath := filepath.Join(string(filepath.Separator)+"opt", "seelex", "seelex.exe")
-	candidates, seedRoot = config.PromptDirChainAt(exePath)
+	candidates, seedRoot = startup.PromptDirChainAt(exePath)
 	if len(candidates) != 2 {
 		t.Fatalf("链上该有 CWD 与包内两份，得到 %v", candidates)
 	}
@@ -50,7 +50,7 @@ func TestResolvePromptDirSeedsDefaultsThenReadsThem(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "config", "prompt", entry) // 链上全缺
 	seedRoot := filepath.Join(t.TempDir(), "exe", "config", "prompt")
 
-	got := config.ResolvePromptDirAt([]string{missing}, seedRoot)
+	got := startup.ResolvePromptDirAt([]string{missing}, seedRoot)
 	if got != seedRoot {
 		t.Fatalf("候选链全缺时应初始化到落盘根：期望 %s，得到 %q", seedRoot, got)
 	}
@@ -86,7 +86,7 @@ func TestResolvePromptDirSeedsDefaultsThenReadsThem(t *testing.T) {
 	if err := os.Remove(sibling); err != nil {
 		t.Fatal(err)
 	}
-	if again := config.ResolvePromptDirAt([]string{missing, hit}, seedRoot); again != seedRoot {
+	if again := startup.ResolvePromptDirAt([]string{missing, hit}, seedRoot); again != seedRoot {
 		t.Fatalf("存在即读：路径要稳定，期望 %s，得到 %q", seedRoot, again)
 	}
 	kept, err := os.ReadFile(hit)
@@ -111,7 +111,7 @@ func TestResolvePromptDirPrefersCWDCopy(t *testing.T) {
 	}
 	seedRoot := filepath.Join(t.TempDir(), "config", "prompt")
 
-	got := config.ResolvePromptDirAt([]string{mine}, seedRoot)
+	got := startup.ResolvePromptDirAt([]string{mine}, seedRoot)
 	want := filepath.Join(dir, "config", "prompt")
 	if got != want {
 		t.Fatalf("候选链第一个存在的胜出（CWD 那份的提示词根）：期望 %s，得到 %q", want, got)
@@ -122,7 +122,7 @@ func TestResolvePromptDirPrefersCWDCopy(t *testing.T) {
 }
 
 func TestResolvePromptDirMissingWithoutSeedRoot(t *testing.T) {
-	if got := config.ResolvePromptDirAt([]string{filepath.Join(t.TempDir(), "nope.md")}, ""); got != "" {
+	if got := startup.ResolvePromptDirAt([]string{filepath.Join(t.TempDir(), "nope.md")}, ""); got != "" {
 		t.Fatalf("无处落盘应返回空目录（调用方回退内嵌词），得到 %q", got)
 	}
 }

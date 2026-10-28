@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/application/event"
 )
 
 // TestEventRecorderWaitForRevisionAcceptsOutOfOrderDelivery 回归 macOS CI
@@ -14,7 +14,7 @@ import (
 // publish 可能让低 Revision 事件最后到达，waitForRevision 必须接受任一
 // 事件达到目标 Revision，而不是只盯最后一条。
 func TestEventRecorderWaitForRevisionAcceptsOutOfOrderDelivery(t *testing.T) {
-	hub := wiring.NewEventHub()
+	hub := event.NewEventHub()
 	recorder := newEventRecorder(hub.Subscribe(8))
 	defer recorder.close()
 

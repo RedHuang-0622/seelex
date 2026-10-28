@@ -3,6 +3,7 @@ package application_test
 import (
 	"encoding/json"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
@@ -25,8 +26,11 @@ type applicationBudget struct {
 	AssemblyProductionFileLimit         int      `json:"assembly_production_file_limit"`
 	AssemblyProductionLineLimit         int      `json:"assembly_production_line_limit"`
 	AssemblyComponentFieldLimit         int      `json:"assembly_component_field_limit"`
+	AssemblyCapabilityAssertionLimit    int      `json:"assembly_capability_assertion_limit"`
 	AssemblyTestFileLimit               int      `json:"assembly_test_file_limit"`
 	AssemblyTestLineLimit               int      `json:"assembly_test_line_limit"`
+	AssemblyAllTestFileLimit            int      `json:"assembly_all_test_file_limit"`
+	AssemblyAllTestLineLimit            int      `json:"assembly_all_test_line_limit"`
 	AllowedAssemblyInternalDependencies []string `json:"allowed_assembly_internal_dependencies"`
 }
 
@@ -76,7 +80,19 @@ func TestApplicationArchitectureBudget(t *testing.T) {
 			componentFields, budget.AssemblyComponentFieldLimit)
 	}
 
+	assertions := capabilityAssertionLocations(t, filepath.Join(applicationDir, "assembly"))
+	if len(assertions) > budget.AssemblyCapabilityAssertionLimit {
+		t.Fatalf("application/assembly 类型断言 = %d，预算 = %d：可选断言把能力缺失降级成静默回退，只许下降:\n%s",
+			len(assertions), budget.AssemblyCapabilityAssertionLimit, strings.Join(assertions, "\n"))
+	}
+
 	testFiles, testLines := testSize(t, filepath.Join(applicationDir, "assembly"))
+	allTestFiles, allTestLines := allTestSize(t, filepath.Join(applicationDir, "assembly"))
+	t.Logf(
+		"assembly budget metrics: production=%d files/%d lines, default-tests=%d files/%d lines, all-tests=%d files/%d lines, components=%d, assertions=%d",
+		productionFiles, productionLines, testFiles, testLines,
+		allTestFiles, allTestLines, componentFields, len(assertions),
+	)
 	if testFiles > budget.AssemblyTestFileLimit {
 		t.Fatalf("application/assembly 测试 Go 文件 = %d，预算 = %d：测试应合并或迁 owner 包",
 			testFiles, budget.AssemblyTestFileLimit)
@@ -84,6 +100,14 @@ func TestApplicationArchitectureBudget(t *testing.T) {
 	if testLines > budget.AssemblyTestLineLimit {
 		t.Fatalf("application/assembly 测试代码 = %d 行，预算 = %d：测试规模只能保持或收紧",
 			testLines, budget.AssemblyTestLineLimit)
+	}
+	if allTestFiles > budget.AssemblyAllTestFileLimit {
+		t.Fatalf("application/assembly 全部测试 Go 文件（含 extended）= %d，预算 = %d：测试目录密度只能下降",
+			allTestFiles, budget.AssemblyAllTestFileLimit)
+	}
+	if allTestLines > budget.AssemblyAllTestLineLimit {
+		t.Fatalf("application/assembly 全部测试代码（含 extended）= %d 行，预算 = %d：测试目录密度只能下降",
+			allTestLines, budget.AssemblyAllTestLineLimit)
 	}
 }
 
@@ -214,6 +238,34 @@ func testSize(t *testing.T, packageDir string) (files, lines int) {
 		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
 			continue
 		}
+		matched, err := build.Default.MatchFile(packageDir, name)
+		if err != nil {
+			t.Fatalf("匹配默认测试构建约束 %s: %v", name, err)
+		}
+		if !matched {
+			continue
+		}
+		files++
+		raw, err := os.ReadFile(filepath.Join(packageDir, name))
+		if err != nil {
+			t.Fatalf("读取 %s: %v", name, err)
+		}
+		lines += sourceLineCount(raw)
+	}
+	return files, lines
+}
+
+func allTestSize(t *testing.T, packageDir string) (files, lines int) {
+	t.Helper()
+	entries, err := os.ReadDir(packageDir)
+	if err != nil {
+		t.Fatalf("读取 %s: %v", packageDir, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
+			continue
+		}
 		files++
 		raw, err := os.ReadFile(filepath.Join(packageDir, name))
 		if err != nil {
@@ -258,6 +310,37 @@ func serviceComponentFieldCount(t *testing.T, packageDir string) int {
 	}
 	t.Fatal("serviceComponents type not found")
 	return 0
+}
+
+// capabilityAssertionLocations 列出 application/assembly 生产代码里的全部类型断言
+// （file:line）。这类断言把"能力缺失"降级成静默回退，因此数量只允许下降。
+func capabilityAssertionLocations(t *testing.T, packageDir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(packageDir)
+	if err != nil {
+		t.Fatalf("读取 %s: %v", packageDir, err)
+	}
+	fileSet := token.NewFileSet()
+	locations := make([]string, 0, 8)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fileSet, filepath.Join(packageDir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("解析 %s: %v", name, err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			if _, ok := node.(*ast.TypeAssertExpr); !ok {
+				return true
+			}
+			locations = append(locations, name+":"+strconv.Itoa(fileSet.Position(node.Pos()).Line))
+			return true
+		})
+	}
+	sort.Strings(locations)
+	return locations
 }
 
 func sourceLineCount(raw []byte) int {

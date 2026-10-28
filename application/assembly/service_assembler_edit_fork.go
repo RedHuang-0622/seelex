@@ -1,6 +1,7 @@
 package assembly
 
 import (
+	"context"
 	"math"
 	"time"
 
@@ -63,8 +64,10 @@ func (service *Service) assembleEditForkComponents() {
 		Fork: func(parentID string, request model.ForkRequest) (string, error) {
 			return service.components.sessionForkRuntime.ForkSessionLocked(parentID, request)
 		},
-		Resume:   service.components.sessionResume.Resume,
-		Submit:   service.submitConversationFor,
+		Resume: service.components.sessionResume.Resume,
+		Submit: func(ctx context.Context, sessionID, text string) error {
+			return service.components.conversationTurn.submission.SubmitFor(ctx, sessionID, text)
+		},
 		Rollback: rollback.Rollback,
 	})
 

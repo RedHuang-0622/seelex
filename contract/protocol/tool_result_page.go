@@ -7,6 +7,29 @@ import (
 	"unicode/utf8"
 )
 
+// WireToolResultRefPrefix 是引擎 ToolResultProcessor 与模型自造引用共用的
+// wire 前缀：wire 引用形如 "result:<callID>"，而记录侧归档引用是 "tr-<digest>"。
+// 两者的唯一判据在 WireToolResultRef / WireToolResultCallID，禁止各处再写字面量。
+const WireToolResultRefPrefix = "result:"
+
+// WireToolResultRef 由工具调用 ID 构造 wire 结果引用。
+func WireToolResultRef(callID string) string {
+	return WireToolResultRefPrefix + callID
+}
+
+// WireToolResultCallID 解析 wire 结果引用；非 wire 形状或空调用 ID 一律返回 false，
+// 调用方据此原样保留引用，不得把「解析不出来」降级成空串。
+func WireToolResultCallID(ref string) (string, bool) {
+	if !strings.HasPrefix(ref, WireToolResultRefPrefix) {
+		return "", false
+	}
+	callID := strings.TrimPrefix(ref, WireToolResultRefPrefix)
+	if callID == "" {
+		return "", false
+	}
+	return callID, true
+}
+
 // NodeResultRef parses a `node:<nodeID>:...` subagent result reference.
 func NodeResultRef(ref string) (string, bool) {
 	const prefix = "node:"

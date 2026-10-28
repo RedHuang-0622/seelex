@@ -122,7 +122,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.components.contextCompactionGate = context_runtime.NewCompactionGate(context_runtime.CompactionGateDeps{
 		Core: kernel,
 		DeferredSubmit: func(ctx context.Context, sessionID, text string) error {
-			return service.submitConversationFor(ctx, sessionID, text)
+			return service.components.conversationTurn.submission.SubmitFor(ctx, sessionID, text)
 		},
 	})
 	service.assembleExecutionApplication(assembler.ports.TeamworkBoardReader(service.Deps.Runtime))
@@ -266,7 +266,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
 		ContentReferenceWarning:    context_runtime.ContentReferenceWarning,
 		Limits:                     applicationpolicy.Get,
-		DisplayUserInput:           displayUserInput,
+		DisplayUserInput:           DisplayUserInput,
 	})
 	service.components.view = view_state.NewCoordinator(view_state.Deps{
 		Core:                   kernel,
@@ -395,10 +395,64 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		SessionUnit:         service.sessionUnitLocked,
 		PublishEvent:        service.publishSessionEvent,
 		StoredTier:          service.readStoredPermissionTier,
-		DisplayInput:        displayUserInput,
+		DisplayInput:        DisplayUserInput,
 		ResetTurnState: func(unit *session.SessionUnit) {
 			service.components.conversationTurnState.ResetLocked(unit)
 		},
+		AttachHost: applicationsessionhistory.AttachHostDeps{
+			LookupSessionUnit: func(sessionID string) *session.SessionUnit {
+				return service.sessions.Unit(sessionID)
+			},
+			SetActive:                 service.sessions.SetActive,
+			BindProjectRootIfSafe:     service.bindProjectRootIfSafe,
+			SetWorkspaceWriteScope:    service.setWorkspaceWriteScope,
+			ApplyStoredPermissionTier: service.applyStoredPermissionTier,
+			VisibleTask:               service.components.tasks.VisibleTaskStateFor,
+			ActivePlan: func(sessionID string) *model.PlanState {
+				return task_context.ActivePlanFromStack(
+					service.components.tasks.PlanStackFor(sessionID),
+					service.components.tasks.ActivePlanIDFor(sessionID),
+				)
+			},
+			MirrorPlan: func(sessionID string, plan *model.PlanState) {
+				service.components.sessionHistoryRuntime.MirrorPlanWithFallbackLocked(sessionID, func() *model.PlanState { return plan })
+			},
+			MirrorApprovals: func(sessionID string) {
+				service.components.interactions.observe.MirrorLocked(sessionID)
+			},
+			ApplyWorkspace: func(_ *model.WorkspaceInfo, projection switchworkspace.Projection) {
+				service.applyWorkspaceProjectionLocked(projection)
+			},
+			SystemPrompt:       service.components.prompts.SystemPromptForActiveTaskLocked,
+			WriteSessionPrompt: service.writeSessionSystemPrompt,
+			WriteGlobalPrompt: func(prompt string) {
+				service.Deps.Engine.SetSystemPrompt(prompt)
+			},
+			PromptRoutesBySession: service.promptRoutesBySession(),
+			PublishSnapshot: func(sessionID string, revision uint64) {
+				service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+			},
+			PublishRuntimeProjections: service.publishRuntimeProjections,
+			RefreshCatalog: func() {
+				service.components.sessions.RequestCatalogRefresh()
+			},
+		},
+		PlanProjection: task_context.NewPlanProjection(task_context.PlanProjectionDeps{
+			CurrentSessionID: func() string { return service.Core.Snapshot.Session.ID },
+			CurrentPlan:      func() *model.PlanState { return service.Core.Snapshot.Runtime.Plan },
+			Fallback: func(sessionID string) *model.PlanState {
+				return task_context.ActivePlanFromStack(
+					service.components.tasks.PlanStackFor(sessionID),
+					service.components.tasks.ActivePlanIDFor(sessionID),
+				)
+			},
+			ProjectionFor:  service.components.tasks.PlanProjectionFor,
+			ProjectionCopy: service.components.tasks.PlanProjectionCopy,
+			Ensure:         service.components.tasks.EnsurePlanProjection,
+			Mirror: func(plan *model.PlanState) {
+				service.Core.Snapshot.Runtime.Plan = plan
+			},
+		}),
 	})
 	service.components.sessionForkRuntime = applicationsessionfork.NewRuntime(applicationsessionfork.RuntimeDeps{
 		Core:                kernel,
@@ -484,7 +538,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Skill:   service.submitSkill,
 		Conversation: func(ctx context.Context, input string) error {
 			service.prepareCompletedTaskBoundary()
-			return service.submitConversation(ctx, input)
+			return service.components.conversationTurn.submission.Submit(ctx, input)
 		},
 	})
 	service.assembleSubmissionApplication()
@@ -492,11 +546,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// latest-wins publication. Core only supplies the host state and narrow
 	// callbacks.
 	service.components.workTableRuntime = applicationtable.NewRuntime(applicationtable.RuntimeDeps{
-		Core:                  kernel,
-		Tasks:                 service.components.tasks,
-		View:                  service.components.view,
-		Limits:                workTableBounds,
-		TaskRecordsForSession: service.taskRecordsForSession,
+		Core:   kernel,
+		Tasks:  service.components.tasks,
+		View:   service.components.view,
+		Limits: workTableBounds,
 		CloseTerminalSubagentToolRecords: func(nodes []dto.SubAgentTreeNode) {
 			service.toolRecords.CloseTerminalSubagents(nodes)
 		},
@@ -583,7 +636,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.restoreInitialWorkspace()
 	service.components.prompts.BuildSystemPrompt()
 	service.Core.Snapshot.Revision = 1
-	service.Approval.SetObserver(service.observeInteraction)
+	service.Approval.SetObserver(service.components.interactions.observe.Observe)
 	service.components.sessions.StartCatalogRefresh()
 	service.publishRuntimeProjections()
 	return service, nil

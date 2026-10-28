@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
+	"github.com/RedHuang-0622/seelex/internal/host"
 )
 
 var repositoryModules = []string{
@@ -56,7 +56,10 @@ var repositoryModules = []string{
 	"backend/limit/overlay", "backend/limit/policy", "config", "docs",
 	"backend/tool/computer",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
-	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "headless", "internal", "wiring/adapters",
+	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "headless", "internal",
+	// 旧 wiring/** 已由用户物理删除：启动期 flag/路径/插件根归 internal/startup，
+	// 宿主侧端口实现归 internal/host，唯一组合根是 boot。
+	"boot", "internal/host", "internal/startup",
 	"internal/buildinfo", "internal/frontmatter", "plugins", "plugins/default",
 	"plugins/hardware", "plugins/impeccable", "scripts",
 	"backend/engine/assemble", "backend/engine/obs", "backend/tool/fork", "backend/tool/io/fs",
@@ -74,10 +77,7 @@ var repositoryModules = []string{
 	"backend/tool/reference",
 	"backend/engine/context/seelectx/merger", "backend/engine/context/seelectx/provider", "backend/engine/context/seelectx/search", "backend/engine/context/seelectx/snapshot",
 	"store", "store/root", "store/schedule", "store/workspace",
-	"tui", "tui/splash", "wiring",
-	"wiring/config",
-	"wiring/registry",
-	"wiring/bootstrap",
+	"tui", "tui/splash",
 	// M5-R9：skill 从仓库顶层归位到 engine 板块（plan §2.5）。
 	"backend/engine/skill",
 	// M5-R9：plugin 归位到 engine 板块；同一目录下的 visibility 子包承载
@@ -119,7 +119,7 @@ func TestModuleReadmesMermaidBlocksAreStructurallyValid(t *testing.T) {
 	blocks := 0
 	files := 0
 	skipped := map[string]bool{
-		".git": true, "dist": true, "_tmp": true, "tmp": true,
+		".git": true, ".tmp": true, "dist": true, "_tmp": true, "tmp": true,
 		"node_modules": true, ".gocache": true, ".venv": true,
 		// 本地草稿目录（`.gitignore` 已忽略：`_scratch/` 是补丁与提交信息的现场，
 		// `local/` 是个人工具目录）。它们里面的 .go 不是仓库模块，也不受 README
@@ -262,8 +262,8 @@ func TestApprovalAccepted(t *testing.T) {
 		"__CANCEL__": false,
 	}
 	for optionID, expected := range tests {
-		if actual := adapters.ApprovalAccepted(optionID); actual != expected {
-			t.Fatalf("adapters.ApprovalAccepted(%q) = %v, want %v", optionID, actual, expected)
+		if actual := host.ApprovalAccepted(optionID); actual != expected {
+			t.Fatalf("host.ApprovalAccepted(%q) = %v, want %v", optionID, actual, expected)
 		}
 	}
 }
@@ -301,7 +301,7 @@ func TestRepositoryModulesHaveReadmes(t *testing.T) {
 func TestEveryGoPackageDirectoryHasReadme(t *testing.T) {
 	root := repoRoot()
 	skipped := map[string]bool{
-		".git": true, "dist": true, "_tmp": true, "tmp": true,
+		".git": true, ".tmp": true, "dist": true, "_tmp": true, "tmp": true,
 		"node_modules": true, ".gocache": true, ".venv": true,
 		// 本地草稿目录（`.gitignore` 已忽略：`_scratch/` 是补丁与提交信息的现场，
 		// `local/` 是个人工具目录）。它们里面的 .go 不是仓库模块，也不受 README

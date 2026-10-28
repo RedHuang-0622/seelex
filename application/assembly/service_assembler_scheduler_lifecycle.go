@@ -103,8 +103,10 @@ func (service *Service) assembleSchedulerApplications() {
 		AssembleRun: func(ctx context.Context, sessionID string, task dto.ScheduledTaskSpec) (context.Context, error) {
 			return service.components.scheduledRunApplication.AssembleScheduledRun(ctx, sessionID, task)
 		},
-		SubmitConversation: service.submitConversationFor,
-		DrainingError:      ErrApplicationDraining,
+		SubmitConversation: func(ctx context.Context, sessionID, text string) error {
+			return service.components.conversationTurn.submission.SubmitFor(ctx, sessionID, text)
+		},
+		DrainingError: ErrApplicationDraining,
 	})
 }
 

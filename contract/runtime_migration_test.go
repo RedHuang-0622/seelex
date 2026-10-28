@@ -107,7 +107,7 @@ func TestBM005DomainPackagesDoNotImportRuntimeAssembly(t *testing.T) {
 	}
 }
 
-func TestBM005ReviewFilesRegistrationIsOwnedByWiring(t *testing.T) {
+func TestBM005ReviewFilesRegistrationIsOwnedByBoot(t *testing.T) {
 	root := repositoryRoot(t)
 	read := func(relative string) string {
 		t.Helper()
@@ -119,17 +119,17 @@ func TestBM005ReviewFilesRegistrationIsOwnedByWiring(t *testing.T) {
 	}
 
 	domain := read("backend/tool/review/show_files.go")
-	registry := read("wiring/registry/registry.go")
+	registry := read("boot/tools.go")
 	delegate := read("backend/engine/assemble/review_files.go")
 	if !strings.Contains(domain, "func RegisterShowFilesTool(") {
 		t.Error("backend/tool/review must own the single ToolRegistrar registration helper")
 	}
-	// 本用例锁的是「注册归 wiring、端口来自 owner 组件」。
+	// 本用例锁的是「注册归 boot、端口来自 owner 组件」。
 	if !strings.Contains(registry, "review.RegisterShowFilesTool(runtime, appassembly.ComponentsFor(app).Admin.Review)") {
-		t.Error("wiring/registry must call review.RegisterShowFilesTool with the review owner component")
+		t.Error("boot must call review.RegisterShowFilesTool with the review owner component")
 	}
 	if strings.Contains(registry, "assemble.RegisterReviewFilesTool(runtime, app)") {
-		t.Error("wiring/registry still routes show_files registration through the composition package")
+		t.Error("boot still routes show_files registration through the composition package")
 	}
 	if !strings.Contains(delegate, "review.RegisterShowFilesTool(runtime, port)") {
 		t.Error("the legacy assemble path must be a one-line forward to review.RegisterShowFilesTool")

@@ -26,11 +26,11 @@ import (
 	// 它是框架自己起的，验收由用例自己选时机驱动。
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	"github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -414,7 +414,7 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	var planStoreForProbe seeteamwork.PlanStore
 	var keyForForProbe func(string) (store.Key, bool)
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, tempDir, 60*time.Second, true, limits,
-		func(st *bootstrap.Store, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error {
+		func(st *boot.Store, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error {
 			repo := st.Teamwork
 			if repo == nil {
 				t.Fatal("真实 JSON 后端应提供 teamwork 读/写面")

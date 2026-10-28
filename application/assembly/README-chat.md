@@ -35,6 +35,13 @@ assembly 只保留一行 wrapper，Engine ReAct loop 仍归 Seele。
 `chat_turn_request.go` 集中构造 `chatRequest`、恢复队列 payload、合并提升批次、
 选择 Skill 层和提取排队引用。`chat.go` 与 `session_scope.go` 不再各自持有这些规则。
 
+## 提交与 turn 起点归属（A5.1）
+
+`application/conversation.SubmissionApplication` 统一 Request/Budget 构造和当前
+draft materialization；`TurnStartApplication` 唯一拥有 restoring/compacting
+延后、running 入队、恢复队列排空、标题/消息投影、revision 与启动发布顺序。
+assembly 的 `submitConversation*` 与 `startChat*` 只保留 host wrapper。
+
 ## ChatTurnProcess 起点事务（AP-014 首个切片）
 
 `ChatTurn process application` 的 `conversationTurnProcess.BeginLocked` 统一正常提交与队列
@@ -135,50 +142,16 @@ Session 的遗留执行开关。
 - `func runChatDebug(format string, args ...any)` — runChatDebug 是 SEELEX_TEST_DEBUG=1 门控的临时诊断日志（复跑噪音点时
 - `func (service *Service) isActiveSessionLocked(sessionID string) bool` — isActiveSessionLocked 判定指定会话是否为共享快照归属会话（锁内调用；
 - `func (service *Service) nextChatRequestIDLocked() string` — nextChatRequestIDLocked 生成跨会话唯一的聊天请求 ID（调用方持有
-- `func (service *Service) startChat(parent context.Context, request chatRequest) error` — startChat 在**当前视图会话**上启动 ReAct 对话。
-- `func (service *Service) startChatFor(sessionID string, parent context.Context, request chatRequest) error` — startChatFor 在指定会话启动 ReAct 对话（多会话并行：后台会话不写活跃
-- `func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error)` — runChat 在独立 goroutine 中执行一次会话提交：委托 Seele loop（9.2 边界，
-- `func (service *Service) finalizeReActBudget(ctx context.Context, requestID string) error` — finalizeReActBudget 在工具预算耗尽后保留一次纯文本交付回合。常规循环在
-- `func (service *Service) ensureViewPlanProjection(ctx context.Context)` — ensureViewPlanProjection 在进入终态工具前确保当前视图会话的协调器投影有
+- `func (service *Service) ensureViewPlanProjection(ctx context.Context)` — startChat 在**当前视图会话**上启动 ReAct 对话。
 - `func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context)` — mirrorActivePlanAfterTerminal 在 check/complete 终态把协调器投影的最新
 - `func (service *Service) mirrorActiveTaskAfterTerminal(ctx context.Context)` — mirrorActiveTaskAfterTerminal 在终态工具落地后把活跃会话的权威任务状态
 - `func (service *Service) finalizeTaskExecution(requestID string) error` — finalizeTaskExecution 把自然停止转换为可审计的完成/交接
-- `func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, requestID string, onChunk func(string)) error`
 - `func (service *Service) removeReActBudgetFinalizationInput(sessionID string) error`
 - `func closedSignal() chan struct`
 - `func (service *Service) markBusyLocked()`
 - `func (service *Service) markIdleLocked()`
 - `func (service *Service) appendHistoryLocked(history []contract.EngineMessage)`
 - `func (service *Service) appendHistoryLockedFor(sessionID string, history []contract.EngineMessage)` — appendHistoryLockedFor 把引擎历史追加为指定会话的可见消息（冷加载无
-
-### chat_cold_load_narration_repro_test.go
-
-- `func (s *coldNarrationStore) SaveSessionRecordWorkspace(_, _ string, record model.SessionRecord) error`
-- `func (s *coldNarrationStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (model.SessionRecord, error)`
-- `func TestColdLoadKeepsToolWheelNarration(t *testing.T)`
-
-### chat_delegation_test.go
-
-- `func (engine *singleLoopEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
-- `func (engine *singleLoopEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 显式转发到自身 ChatStream（会话路由面下仍单次提交）。
-- `func TestLoopDelegatedToSeele(t *testing.T)` — TestLoopDelegatedToSeele（UC6）：core 无自编 ReAct 循环——一次提交只
-
-### chat_error_surface_test.go
-
-- `func (failingSnapshotSessions) SaveSessionSnapshot(string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error`
-- `func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error`
-- `func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T)`
-- `func TestRunChatLogsRawUnclassifiedError(t *testing.T)`
-- `func TestPersistenceFailureDoesNotClaimProgressWasSaved(t *testing.T)`
-- `func conversationContains(conversation []model.Message, role, fragment string) bool`
-
-### chat_hot_attach_reasoning_repro_test.go
-
-- `func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T)`
-
-### chat_state_event_test.go
-
-- `func TestChatStateIsPublishedNotInferred(t *testing.T)`
 
 ### chat_turn_request.go
 
@@ -189,24 +162,3 @@ Session 的遗留执行开关。
 ### chat_turn_state.go
 
 - `func newConversationTurnState() *conversationTurnState`
-
-### conversation_turn_boundary_test.go
-
-- `func TestConversationTurnRuntimeHasNoAssemblyForwarder(t *testing.T)`
-- `func TestChatStateWritesUseTurnStateApplication(t *testing.T)`
-- `func TestChatTurnRequestConstructionIsCentralized(t *testing.T)`
-- `func scanAssemblySources(t *testing.T, excluded string, visit func(string, *ast.File))`
-
-### reasoning_visible_test.go
-
-- `func TestAttachLatestReasoningExposesThinkingToVisibleMessage(t *testing.T)` — TestAttachLatestReasoningExposesThinkingToVisibleMessage 验证回合结束后，
-
-### visible_output_test.go
-
-- `func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T)`
-
-### visible_role_attribution_test.go
-
-- `func TestVisibleConversationCarriesRoleAttribution(t *testing.T)` — TestVisibleConversationCarriesRoleAttribution 复现实时聊天载荷缺归属：
-- `func visibleMessage(t *testing.T, messages []model.Message, match func(model.Message) bool) model.Message` — visibleMessage 取第一条满足条件的可见消息（缺失即用例失败）。
-- `func visibleConversationFor(service *Service, sessionID string) []model.Message` — visibleConversationFor 读取指定会话的可见投影（非活跃会话也能读）。

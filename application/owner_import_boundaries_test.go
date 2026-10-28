@@ -24,7 +24,7 @@ func TestAssemblyOwnersDoNotImportStore(t *testing.T) {
 func TestProjectBoardReadDoesNotImportStore(t *testing.T) {
 	assertDoesNotImport(
 		t,
-		filepath.Join(sourceApplicationDir(t), "assembly", "project_board_read.go"),
+		filepath.Join(sourceApplicationDir(t), "execution", "project_board.go"),
 		"github.com/RedHuang-0622/seelex/store",
 	)
 }

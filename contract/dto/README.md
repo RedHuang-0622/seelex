@@ -228,6 +228,15 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 
 - `func NormalizePlugins(names []string, limit int) ([]string, error)` — NormalizePlugins 规整一份按会话装配的插件名清单：去首尾空白、丢弃空项（纯空白
 
+### project_board.go
+
+- `func (key SessionKey) Complete() bool` — Complete reports whether both project and session identity are present.
+- `func (key SessionKey) Validate() error` — Validate checks the minimum session identity required by persistence.
+
+### projection.go
+
+- `func TailGoalProgressViews(items []GoalProgressView, limit int) []GoalProgressView` — TailGoalProgressViews returns the newest limit progress entries.
+
 ### reasoning_effort.go
 
 - `func ValidReasoningEffort(value string) bool` — ValidReasoningEffort 判断一个配置值是否为本系统认识的思考强度值。
@@ -377,4 +386,3 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func (s UnitStatus) Active() bool` — Active 报告这一单元是否要续跑（唯一判据：`Unit.Active()` 转调它）。
 - `func (s UnitStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "active" 这样的词。
 - `func (s *UnitStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
-

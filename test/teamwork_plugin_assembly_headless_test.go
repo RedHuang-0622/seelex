@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	startup "github.com/RedHuang-0622/seelex/internal/startup"
 
 	// teamwork_plugin_assembly_headless_test.go — 「装配 plugin 的 teammate」在**组合根装配**上跑一遍。
 	//
@@ -12,7 +13,7 @@ import (
 	//   - `backend/engine/assemble/assembly_chain_real_partition_test.go`：用注入探针钉"这条链的函数对不对"
 	//     （不跑真回合、不开 worktree、不落计划）；
 	//   - 本文件：把同一件事放到**真实装配**上跑——真 store / 真 workspace / 真插件根
-	//     （`wiring/bootstrap` 里 InitPluginSystem 用 config.PluginRoots 解析到的那一份）/ 真计划落盘 /
+	//     （`wiring/bootstrap` 里 InitPluginSystem 用 startup.PluginRoots 解析到的那一份）/ 真计划落盘 /
 	//     真 role session / 真 worktree，模型侧用脚本化 provider（不真调模型）。
 	//
 	// 为什么非要这一层：装配的**落点**是"员工那一轮的 system prompt 里有没有装配进来的技能目录"
@@ -28,7 +29,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
-	"github.com/RedHuang-0622/seelex/wiring/config"
 	"strings"
 	"testing"
 	"time"
@@ -291,11 +291,11 @@ func assemblyDispatchHandles(t *testing.T, receipts []string) []string {
 // `ApplyDeps(RuntimeDeps{SkillRegistry: …})` 把它装上；全链路 harness 只把 registry 交给
 // 插件系统与应用，**没有装上 Runtime**。少了这一跳，装配进来的目录段会**静默为零**
 // （skill_count=0、system prompt 里没有目录段），本用例就会把"基座缺一跳"误判成
-// "装配没落到员工面"——所以这里按组合根那条路补上（同一条 `config.PluginRoots(launchFlags.PluginsPaths)` 责任链 +
+// "装配没落到员工面"——所以这里按组合根那条路补上（同一条 `startup.PluginRoots(launchFlags.PluginsPaths)` 责任链 +
 // 同一条启动基线 `default`），而不是去改公共 harness（那会改到别的全链路用例的提示词字节）。
 func attachRealSkills(t *testing.T, runtime *assemble.Runtime) {
 	t.Helper()
-	loaded, err := plugin.NewLoader(config.PluginRoots(launchFlags.PluginsPaths)...).LoadAll()
+	loaded, err := plugin.NewLoader(startup.PluginRoots(launchFlags.PluginsPaths)...).LoadAll()
 	if err != nil {
 		t.Fatalf("加载真插件根失败：%v", err)
 	}
@@ -308,7 +308,7 @@ func attachRealSkills(t *testing.T, runtime *assemble.Runtime) {
 			t.Fatalf("发布插件 %q 的技能失败：%v", item.Name, err)
 		}
 	}
-	// 启动基线的技能集（宿主面 = default 那一份，与 bootstrap.ActivateDefaultPlugin 同姿势）。
+	// 启动基线的技能集（宿主面 = default 那一份，与 boot.ActivateDefaultPlugin 同姿势）。
 	if err := registry.ActivatePluginSkills("default"); err != nil {
 		t.Fatalf("激活 default 的技能失败：%v", err)
 	}

@@ -18,7 +18,7 @@ type Deps struct {
 	ReferencePageSize    func() int
 	MaxReferencePageSize func() int
 	NodeResult           func(nodeID, ref string) (string, bool)
-	ResolveAlias         func(ref string) string
+	CallIDAlias          func(callID string) (string, bool)
 	ResolveResult        func(ref string) (model.StoredToolResult, bool, error)
 	ActivePlanID         func() string
 	PlanFrame            func(planRef string) (string, model.RuntimeState, bool)
@@ -92,7 +92,13 @@ func (application *Application) toolResultContent(resultRef string, offset, limi
 		return model.BuildPage(result, offset, limit, contains), nil
 	}
 
-	resultRef = application.deps.ResolveAlias(resultRef)
+	// wire 引用（result:<callID>）先换成记录侧归档引用再查存储；换不到就原样下传，
+	// 让存储面报「不可用」，不在这里改写引用形状。
+	if callID, ok := model.WireToolResultCallID(resultRef); ok {
+		if archivedRef, found := application.deps.CallIDAlias(callID); found {
+			resultRef = archivedRef
+		}
+	}
 	result, found, err := application.deps.ResolveResult(resultRef)
 	if err != nil {
 		return model.ToolResultPage{}, fmt.Errorf("read_tool_result: %w", err)

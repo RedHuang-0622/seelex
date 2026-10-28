@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/application/event"
 )
 
 // queueFakeApp 是队列编辑面的 TUI 假实现：装配 fakeApp 同款端口，外加
@@ -30,7 +30,7 @@ func newQueueFakeApp(queue []string) *queueFakeApp {
 			Runtime: application.RuntimeState{Model: "model"},
 			Chat:    application.ChatState{Running: true, RequestID: "chat-1", InputQueue: queue, QueuedCount: len(queue)},
 		},
-		hub: wiring.NewEventHub(),
+		hub: event.NewEventHub(),
 	}
 }
 

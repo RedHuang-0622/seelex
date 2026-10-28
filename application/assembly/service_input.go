@@ -2,8 +2,6 @@ package assembly
 
 import (
 	"context"
-	"errors"
-	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
 )
 
@@ -30,7 +28,7 @@ func (service *Service) discardPendingSubagentContextsFor(_ string) {
 // chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
 // 否则回退活跃引擎）。
 func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error) {
-	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+	if routed, ok := contract.RoutedSessionEngine(service.Deps.Engine); ok {
 		return routed.ChatStreamFor(sessionID, ctx, input, onChunk)
 	}
 	return service.Deps.Engine.ChatStream(ctx, input, onChunk)
@@ -39,7 +37,7 @@ func (service *Service) chatStream(ctx context.Context, sessionID, input string,
 // replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 // ReplaceHistoryFor，不切活跃；否则回退契约 ReplaceHistory）。
 func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error {
-	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+	if routed, ok := contract.RoutedSessionEngine(service.Deps.Engine); ok {
 		return routed.ReplaceHistoryFor(sessionID, history)
 	}
 	return service.Deps.Engine.ReplaceHistory(sessionID, history)
@@ -47,7 +45,7 @@ func (service *Service) replaceEngineHistory(sessionID string, history []contrac
 
 // engineHistoryFor 返回指定会话引擎历史（只读拷贝）。
 func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMessage {
-	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+	if routed, ok := contract.RoutedSessionEngine(service.Deps.Engine); ok {
 		return routed.HistoryFor(sessionID)
 	}
 	return service.Deps.Engine.History()
@@ -58,147 +56,15 @@ func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMess
 // 不可预期，可能是另一个正在运行的会话，其 framework Session 锁被 ChatStream
 // 全程持有——清空会排在它后面，并在它释放后清掉它的运行历史。
 func (service *Service) clearEngineHistoryFor(sessionID string) {
-	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+	if routed, ok := contract.RoutedSessionEngine(service.Deps.Engine); ok {
 		routed.ClearHistoryFor(sessionID)
 		return
 	}
 	service.Deps.Engine.ClearHistory()
 }
 
-func (service *Service) submitConversation(ctx context.Context, input string) error {
-	// fork 执行期**不再拒绝输入**（2026-10-05 退役 fork 门控）。fork_subagents 派发
-	// 即后台化之后，"父回合还在、子代理作业在跑"是常态，把用户挡在门外只是把
-	// "并发"换成"拒绝"——输入照样要发，只是发得晚一点。
-	//
-	// 现在走**既有那条链路**：本会话有回合在跑 → 入队（下面的 Enqueue 分支），
-	// 回合收尾整批提升为下一轮（chat_turn_request.go 的 QueuedRequests/Combine，
-	// durable queue 与调序/撤回同源）；没有回合在跑 → 照常开新回合。
-	//
-	// 并发写主工作区的风险改由合并侧收口，而不是靠拒绝输入回避：
-	// backend/tool/worktree 的收尾单写者 actor 把"可能的并行 merge"串行化，
-	// 主工作区脏/真冲突时落 ErrMergeBlockedByMain 待合并（保留现场 + 提示），
-	// 不再把一个子代理的产出判死。
-	request := service.components.conversationTurnState.NewRequest(input, service.promptStack.Layers())
-	effort := service.effortForSession(service.currentViewSessionID())
-	request.Budget = prompt.ReActBudgetFor(effort)
-	transition := service.transitionView()
-	transition.Lock()
-	defer transition.Unlock()
-	if err := service.components.sessionDrafts.materialization.Materialize(request.DisplayInput); err != nil {
-		return err
-	}
-	service.ViewMu.Lock()
-	if service.closed {
-		service.ViewMu.Unlock()
-		return errors.New("application is shut down")
-	}
-	if service.draining {
-		service.ViewMu.Unlock()
-		return ErrApplicationDraining
-	}
-	sessionID := service.Core.Snapshot.Session.ID
-	// 恢复门（延后语义）：restoring 期间视图指针已切到目标、内容尚未装载完成。
-	// 在此开新回合会让输入落在空壳上，并与随后安装的恢复基线争用同一份可见
-	// 会话（基线守卫「仍为空才安装」被破坏 → 静默丢历史）。这里既不拒绝也不
-	// 阻塞：把提交挂到装载完成点，装载完成后在**同一目标会话**上启动——既满足
-	// 不变式，也保证「消息最终发得出去」。前端 prompt 禁用只是呈现，后端才是
-	// 不变量。
-	if service.components.view.IsRestoringLocked(sessionID) {
-		service.ViewMu.Unlock()
-		service.deferSubmitUntilRestored(ctx, sessionID, input)
-		return nil
-	}
-	runtime := service.sessionUnitLocked(sessionID)
-	if runtime.ChatState().Running {
-		revision := service.components.conversationQueue.EnqueueLocked(sessionID, runtime, request, true)
-		service.ViewMu.Unlock()
-		service.components.conversationQueue.AfterEnqueue(sessionID, revision, request)
-		return nil
-	}
-	// 同会话压缩门（延后语义，判据与上面的 restoring 门同形）：一轮显式压缩可以
-	// 在**没有在飞回合**的会话上运行，而它刻意不写 ChatState.Running（伪造 Running
-	// 会把"有人在跑这个会话"漏进快照与停止按钮），所以这里的 busy 判据必须自己
-	// 看见它——否则新回合的装配与压缩读写同一份引擎历史，后写的那份把压缩丢掉。
-	// 不排队：显式压缩没有回合，队列的正常提升点（回合结束）永远不会到来。
-	if service.components.contextCompactionGate.IsCompactingLocked(sessionID) {
-		service.ViewMu.Unlock()
-		service.components.contextCompactionGate.DeferSubmitAfterCompaction(ctx, sessionID, input)
-		return nil
-	}
-	// 非运行分支：队列里可能遗留待发项（如重启回填的「已发送未确认」输入），
-	// 与本次提交合并为同一轮，否则它们永远等不到排空点。
-	merged, drained := service.components.conversationQueue.DrainLocked(runtime, request)
-	if drained {
-		request = merged
-		service.components.view.SetSessionChatLockedFor(sessionID, runtime.ChatState())
-	}
-	service.ViewMu.Unlock()
-	if drained {
-		service.publishChatStateFor(sessionID)
-	}
-	// 目标会话已在上面锁内确定（并通过 restoring/running/压缩门）：起跑必须用
-	// 这个会话号，不能回到 startChat 重新读视图指针——两次取锁之间若发生视图
-	// 切换，提交会落到另一个会话（快照上表现为"提交返回 nil 但目标会话没开跑、
-	// 队列也是空的"）。-race 下 TestBackgroundCompletionWhileSwitchingToC 命中过
-	// 这一格：hello C 跑到别的会话，hello C2 成了 C 的第一轮。
-	return service.startChatFor(sessionID, ctx, request)
-}
-
 // submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 // 到该会话自己的队列，否则在其上下文中后台启动（不切换活跃会话）。
-func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error {
-	// fork 执行期不再拒绝输入（同 submitConversation 的退役口径）：目标会话有回合
-	// 在跑 → 投进该会话自己的队列，回合收尾整批提升；没有回合在跑 → 在它的上下文
-	// 里后台启动。门控退役之后，teammate/fork 两条链在输入面上走的是同一条链路。
-	request := service.components.conversationTurnState.NewRequest(input, service.promptStack.Layers())
-	effort := service.effortForSession(sessionID)
-	request.Budget = prompt.ReActBudgetFor(effort)
-	service.ViewMu.Lock()
-	if service.closed {
-		service.ViewMu.Unlock()
-		return errors.New("application is shut down")
-	}
-	if service.draining {
-		service.ViewMu.Unlock()
-		return ErrApplicationDraining
-	}
-	// 恢复门（延后语义，按显式 sessionID）：与 submitConversation 同一条判据，
-	// 后台提交路径（SubmitToSession）也经此。restoring 期间不开新回合，改为挂到
-	// 装载完成点再启动。
-	if service.components.view.IsRestoringLocked(sessionID) {
-		service.ViewMu.Unlock()
-		service.deferSubmitUntilRestored(ctx, sessionID, input)
-		return nil
-	}
-	active := service.isActiveSessionLocked(sessionID)
-	runtime := service.sessionUnitLocked(sessionID)
-	if runtime.ChatState().Running {
-		revision := service.components.conversationQueue.EnqueueLocked(sessionID, runtime, request, active)
-		service.ViewMu.Unlock()
-		service.components.conversationQueue.AfterEnqueue(sessionID, revision, request)
-		return nil
-	}
-	// 同会话压缩门：与 submitConversation 同一条判据（见那里的注释），后台提交
-	// 路径也经此。挂起后在同一 sessionID 上重放，不改目标会话。
-	if service.components.contextCompactionGate.IsCompactingLocked(sessionID) {
-		service.ViewMu.Unlock()
-		service.components.contextCompactionGate.DeferSubmitAfterCompaction(ctx, sessionID, input)
-		return nil
-	}
-	// 非运行分支：与 submitConversation 同一条提升规则（队列遗留待发项并入
-	// 本轮），后台提交路径（SubmitToSession）也经此。
-	merged, drained := service.components.conversationQueue.DrainLocked(runtime, request)
-	if drained {
-		request = merged
-		service.components.view.SetSessionChatLockedFor(sessionID, runtime.ChatState())
-	}
-	service.ViewMu.Unlock()
-	if drained {
-		service.publishChatStateFor(sessionID)
-	}
-	return service.startChatFor(sessionID, ctx, request)
-}
-
 // BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
 // 自然完成。
 

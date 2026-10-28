@@ -9,7 +9,9 @@ import (
 	conversationsearch "github.com/RedHuang-0622/seelex/application/conversation/search"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
 	subagentview "github.com/RedHuang-0622/seelex/application/execution/subagentview"
+	applicationtable "github.com/RedHuang-0622/seelex/application/execution/table"
 	task_context "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
+	applicationtoolhooks "github.com/RedHuang-0622/seelex/application/execution/toolhooks"
 	applicationtoolrecord "github.com/RedHuang-0622/seelex/application/execution/toolrecord"
 	applicationgoal "github.com/RedHuang-0622/seelex/application/goal"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
@@ -21,19 +23,17 @@ import (
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
 	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
+	applicationsessionhistory "github.com/RedHuang-0622/seelex/application/session/history"
 	applicationsessionquery "github.com/RedHuang-0622/seelex/application/session/query"
+	sessionresidency "github.com/RedHuang-0622/seelex/application/session/residency"
+	sessionruntime "github.com/RedHuang-0622/seelex/application/session/runtime"
+	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
 	view_state "github.com/RedHuang-0622/seelex/application/session/viewstate"
 	applicationworkspace "github.com/RedHuang-0622/seelex/application/workspace"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
 	"github.com/RedHuang-0622/seelex/contract"
 )
 
-// Components 是组合根读取的只读装配快照：只有 owner 指针，按限界上下文分组。
-//
-// 为什么字段里不许出现 func：一份 `func(main, role string)` 闭包能在"纯数据"面里
-// 藏住判据（角色单元键怎么拼、投影发布的加锁顺序），那正是第二份实现的增长点。
-// 判据一律回到 owner 方法（如 toolrecord.Application.CloseRoleUnit）或 assembly
-// 自己的协调函数（PublishInitialRuntimeProjections）。
 type Components struct {
 	Admin        AdminComponents
 	Conversation ConversationComponents
@@ -43,128 +43,156 @@ type Components struct {
 	Policy       PolicyComponents
 	Runtime      RuntimeComponents
 }
-
-// AdminComponents 是跨会话的运营读数 owner（账号、目标、审阅、诊断）。
 type AdminComponents struct {
-	Account *applicationadmin.AccountApplication
-	Goal    *applicationgoal.Application
-	Review  *applicationreview.Application
-	Perf    *applicationobservability.PerfApplication
+	Account     *applicationadmin.AccountApplication
+	Goal        *applicationgoal.Application
+	GoalRuntime *applicationgoal.Coordinator
+	Review      *applicationreview.Application
+	Perf        *applicationobservability.PerfApplication
 }
-
-// ConversationComponents 是"一条会话内容"的 owner：回合、队列、输入、压缩、历史与检索。
 type ConversationComponents struct {
-	Unified        *applicationconversation.UnifiedApplication
-	Queue          *applicationconversation.QueueApplication
-	Submission     *applicationinput.SubmissionApplication
-	Completion     *applicationinput.Application
-	Compaction     *conversationcontext.Application
-	ContextHistory *conversationcontext.EngineHistoryCoordinator
-	History        *applicationhistory.Application
-	HistorySearch  *conversationsearch.Application
-	EditFork       *applicationedit.EditApplication
-	PromptStack    *applicationprompt.PromptStack
-	Reference      *applicationreference.Application
+	Unified          *applicationconversation.UnifiedApplication
+	Queue            *applicationconversation.QueueApplication
+	Stream           *applicationconversation.StreamRuntime
+	Input            contract.InputDispatcher
+	Submission       *applicationinput.SubmissionApplication
+	Completion       *applicationinput.Application
+	Context          *conversationcontext.EngineCoordinator
+	ProviderRecovery *conversationcontext.RecoveryApplication
+	Compaction       *conversationcontext.Application
+	CompactionGate   *conversationcontext.CompactionGate
+	ContextHistory   *conversationcontext.EngineHistoryCoordinator
+	History          *applicationhistory.Application
+	HistorySearch    *conversationsearch.Application
+	EditFork         *applicationedit.EditApplication
+	Annotation       *applicationedit.AnnotationApplication
+	TurnStart        *applicationconversation.TurnStartApplication
+	TurnBudget       *applicationconversation.TurnBudgetFinalizerApplication
+	PromptStack      *applicationprompt.PromptStack
+	Prompts          *applicationprompt.Coordinator
+	TurnProjection   *applicationtoolhooks.ProjectionApplication
+	Reference        *applicationreference.Application
 }
-
-// SessionComponents 是会话驻留与视图 owner：单个会话的生命周期动作加上视图会话读数。
 type SessionComponents struct {
-	Query       *applicationsessionquery.Application
-	Interaction *applicationsession.InteractionApplication
-	Fork        *applicationsession.ForkApplication
-	Submit      *applicationsession.SubmitApplication
-	Archive     *applicationsession.ArchiveApplication
-	Delete      *applicationsession.DeleteApplication
-	DraftEntry  *applicationsession.DraftEntryApplication
-	Lifecycle   *applicationsession.LifecycleApplication
-	Meta        *applicationsession.MetaApplication
-	Resume      *applicationsession.ResumeApplication
-	SSH         *applicationsession.SSHApplication
-	View        *view_state.Coordinator
-	Snapshot    *view_state.SnapshotApplication
+	Query                *applicationsessionquery.Application
+	Interaction          *applicationsession.InteractionApplication
+	InteractionObserver  *applicationsession.InteractionObserverApplication
+	Fork                 *applicationsession.ForkApplication
+	Submit               *applicationsession.SubmitApplication
+	Archive              *applicationsession.ArchiveApplication
+	Delete               *applicationsession.DeleteApplication
+	DraftEntry           *applicationsession.DraftEntryApplication
+	DraftSubmission      *applicationsession.DraftSubmissionApplication
+	DraftMaterialization *applicationsession.DraftMaterializationApplication
+	Lifecycle            *applicationsession.LifecycleApplication
+	Meta                 *applicationsession.MetaApplication
+	Resume               *applicationsession.ResumeApplication
+	SSH                  *applicationsession.SSHApplication
+	Release              *applicationsession.ReleaseApplication
+	HistoryRuntime       *applicationsessionhistory.Runtime
+	Domain               *sessionstate.Domain
+	Residency            *sessionresidency.Runtime
+	Runtime              *sessionruntime.Coordinator
+	View                 *view_state.Coordinator
+	Snapshot             *view_state.SnapshotApplication
 }
-
-// ExecutionComponents 是执行面 owner：工作项/角色/子代理投影、项目看板与工具台账。
 type ExecutionComponents struct {
 	WorkItem         *applicationexecution.WorkItemApplication
 	RoleActivity     *applicationexecution.RoleActivityApplication
 	ProjectBoard     *applicationexecution.ProjectBoardApplication
 	ProjectBoardSink *ProjectBoardSinkPort
+	WorkTable        *applicationtable.Runtime
 	Subagent         *applicationexecution.SubagentApplication
 	SubagentView     *subagentview.Coordinator
 	Tasks            *task_context.Coordinator
 	TerminalHandler  *task_context.TerminalHandlerApplication
 	ToolRecords      *applicationtoolrecord.Application
 }
-
-// WorkspaceComponents 是项目/工作区 owner：项目登记与工作区切换用例。
 type WorkspaceComponents struct {
 	Projects *applicationworkspace.Application
 	Switch   *switchworkspace.UseCase
 }
-
-// PolicyComponents 是策略 owner：技能/插件开关、角色档位与角色会话。
 type PolicyComponents struct {
-	Switch       *applicationpolicy.SwitchApplication
-	Role         *applicationpolicy.RoleApplication
-	RoleSessions contract.RoleSessionsPort
+	Switch        *applicationpolicy.SwitchApplication
+	Role          *applicationpolicy.RoleApplication
+	RoleSessions  contract.RoleSessionsPort
+	EffortManager *applicationprompt.EffortManager
+	Knobs         *applicationpolicy.Knobs
 }
-
-// RuntimeComponents 是运行时读数与排期 owner。
 type RuntimeComponents struct {
 	Runtime          *applicationadmin.RuntimeApplication
+	Commands         contract.CommandRegistryPort
 	Scheduler        *applicationscheduler.SchedulerApplication
 	ScheduledRun     *applicationscheduler.RunApplication
 	ScheduledSession *applicationscheduler.SessionApplication
 	Lifecycle        *applicationlifecycle.Application
+	FaultGuard       *applicationlifecycle.FaultGuardApplication
 }
 
-// ComponentsFor returns a read-only snapshot of assembled component owners.
-// It must not be used by core state machines.
 func ComponentsFor(service *Service) Components {
 	if service == nil {
 		return Components{}
 	}
 	return Components{
 		Admin: AdminComponents{
-			Account: service.components.adminApplication,
-			Goal:    service.components.goalApplication,
-			Review:  service.components.reviewApplication,
-			Perf:    service.components.perfStatsApplication,
+			Account:     service.components.adminApplication,
+			Goal:        service.components.goalApplication,
+			GoalRuntime: service.components.goal,
+			Review:      service.components.reviewApplication,
+			Perf:        service.components.perfStatsApplication,
 		},
 		Conversation: ConversationComponents{
-			Unified:        service.components.conversationSession,
-			Queue:          service.components.conversationQueue,
-			Submission:     service.components.submission,
-			Completion:     service.components.completionApplication,
-			Compaction:     service.components.contextCompactionApplication,
-			ContextHistory: service.components.history,
-			History:        service.components.conversationHistoryQuery,
-			HistorySearch:  service.components.historySearchApplication,
-			EditFork:       service.components.editFork.application,
-			PromptStack:    service.promptStack,
-			Reference:      service.components.referenceApplication,
+			Unified:          service.components.conversationSession,
+			Queue:            service.components.conversationQueue,
+			Stream:           service.components.conversationStreamRuntime,
+			Input:            service.components.input,
+			Submission:       service.components.submission,
+			Completion:       service.components.completionApplication,
+			Context:          service.components.context,
+			ProviderRecovery: service.components.providerRecovery,
+			Compaction:       service.components.contextCompactionApplication,
+			CompactionGate:   service.components.contextCompactionGate,
+			ContextHistory:   service.components.history,
+			History:          service.components.conversationHistoryQuery,
+			HistorySearch:    service.components.historySearchApplication,
+			EditFork:         service.components.editFork.application,
+			Annotation:       service.components.editFork.annotation,
+			TurnStart:        service.components.conversationTurn.start,
+			TurnBudget:       service.components.conversationTurn.budget,
+			PromptStack:      service.promptStack,
+			Prompts:          service.components.prompts,
+			TurnProjection:   service.components.conversationTurn.projection,
+			Reference:        service.components.referenceApplication,
 		},
 		Session: SessionComponents{
-			Query:       service.components.sessionQuery,
-			Interaction: service.components.interactionApplication,
-			Fork:        service.components.forkApplication,
-			Submit:      service.components.submitApplication,
-			Archive:     service.components.sessionArchive,
-			Delete:      service.components.sessionDelete,
-			DraftEntry:  service.components.sessionDrafts.entry,
-			Lifecycle:   service.components.sessionLifecycle,
-			Meta:        service.components.sessionMetaApplication,
-			Resume:      service.components.sessionResume,
-			SSH:         service.components.sessionSSHApplication,
-			View:        service.components.view,
-			Snapshot:    service.components.frontendSnapshot,
+			Query:                service.components.sessionQuery,
+			Interaction:          service.components.interactions.resolve,
+			InteractionObserver:  service.components.interactions.observe,
+			Fork:                 service.components.forkApplication,
+			Submit:               service.components.submitApplication,
+			Archive:              service.components.sessionArchive,
+			Delete:               service.components.sessionDelete,
+			DraftEntry:           service.components.sessionDrafts.entry,
+			DraftSubmission:      service.components.sessionDrafts.submission,
+			DraftMaterialization: service.components.sessionDrafts.materialization,
+			Lifecycle:            service.components.sessionLifecycle,
+			Meta:                 service.components.sessionMetaApplication,
+			Resume:               service.components.sessionResume,
+			SSH:                  service.components.sessionSSHApplication,
+			Release:              service.components.sessionReleaseApplication,
+			HistoryRuntime:       service.components.sessionHistoryRuntime,
+			Domain:               service.sessions,
+			Residency:            service.components.residencyRuntime,
+			Runtime:              service.components.sessions,
+			View:                 service.components.view,
+			Snapshot:             service.components.frontendSnapshot,
 		},
 		Execution: ExecutionComponents{
 			WorkItem:         service.components.executionApplication,
 			RoleActivity:     service.components.roleActivity,
 			ProjectBoard:     service.components.projectBoardQuery,
 			ProjectBoardSink: service.components.projectBoard,
+			WorkTable:        service.components.workTableRuntime,
 			Subagent:         service.components.subagentApplication,
 			SubagentView:     service.components.subagent,
 			Tasks:            service.components.tasks,
@@ -176,16 +204,20 @@ func ComponentsFor(service *Service) Components {
 			Switch:   service.components.workspace,
 		},
 		Policy: PolicyComponents{
-			Switch:       service.components.policyApplication,
-			Role:         service.components.roleApplication,
-			RoleSessions: service.components.roleSessions,
+			Switch:        service.components.policyApplication,
+			Role:          service.components.roleApplication,
+			RoleSessions:  service.components.roleSessions,
+			EffortManager: service.effortManager,
+			Knobs:         service.knobs,
 		},
 		Runtime: RuntimeComponents{
 			Runtime:          service.components.runtimeApplication,
+			Commands:         service.commands,
 			Scheduler:        service.components.schedulerApplication,
 			ScheduledRun:     service.components.scheduledRunApplication,
 			ScheduledSession: service.components.scheduledSessionApplication,
 			Lifecycle:        service.components.lifecycleApplication,
+			FaultGuard:       service.components.faultGuardApplication,
 		},
 	}
 }

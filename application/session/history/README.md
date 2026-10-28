@@ -23,6 +23,9 @@
 ## 文件结构
 
 - `runtime.go`：依赖图、Session unit/event 回调、message adapter 与 public entry；
+- `attach_host.go`：把既有 View/Session/Residency/Task/Prompt 机制实现成
+  `AttachPreparationPort`、`AttachCommitPort`、`AttachPublishPort`，不复制
+  `AttachApplication` 的顺序或判据；
 - `history_runtime.go`：resume/cold restore/history 编排；
 - `runtime_test.go`：可见性与消息投影 parity。
 

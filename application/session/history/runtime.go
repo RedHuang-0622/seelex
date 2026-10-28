@@ -5,6 +5,7 @@ package sessionhistory
 import (
 	appconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	"github.com/RedHuang-0622/seelex/application/event"
+	applicationtaskcontext "github.com/RedHuang-0622/seelex/application/execution/taskcontext"
 	applicationhistory "github.com/RedHuang-0622/seelex/application/history"
 	appsession "github.com/RedHuang-0622/seelex/application/session"
 	appsessioncold "github.com/RedHuang-0622/seelex/application/session/cold"
@@ -69,6 +70,8 @@ type RuntimeDeps struct {
 	StoredTier          func(string) string
 	DisplayInput        func(string) string
 	ResetTurnState      func(*sessionstate.SessionUnit)
+	AttachHost          AttachHostDeps
+	PlanProjection      *applicationtaskcontext.PlanProjectionApplication
 }
 
 // Runtime owns application-level session history and restore orchestration.
@@ -83,11 +86,13 @@ type Runtime struct {
 	storedTier     func(string) string
 	displayInput   func(string) string
 	resetTurnState func(*sessionstate.SessionUnit)
+	attach         *appsession.AttachApplication
+	planProjection *applicationtaskcontext.PlanProjectionApplication
 }
 
 // NewRuntime constructs the session history runtime.
 func NewRuntime(deps RuntimeDeps) *Runtime {
-	return &Runtime{
+	runtime := &Runtime{
 		Core: deps.Core,
 		Deps: deps.Deps,
 		components: historyComponents{
@@ -114,7 +119,17 @@ func NewRuntime(deps RuntimeDeps) *Runtime {
 		storedTier:     deps.StoredTier,
 		displayInput:   deps.DisplayInput,
 		resetTurnState: deps.ResetTurnState,
+		planProjection: deps.PlanProjection,
 	}
+	if deps.Core != nil {
+		runtime.attach = appsession.NewAttach(appsession.AttachDeps{
+			Lock:        &deps.Core.ViewMu,
+			Preparation: attachHost{runtime: runtime, deps: deps.AttachHost},
+			Commit:      attachHost{runtime: runtime, deps: deps.AttachHost},
+			Publish:     attachHost{runtime: runtime, deps: deps.AttachHost},
+		})
+	}
+	return runtime
 }
 
 func (runtime *Runtime) closed() bool {
@@ -153,6 +168,29 @@ func (runtime *Runtime) ResetTurnState(unit *sessionstate.SessionUnit) {
 	if runtime != nil && runtime.resetTurnState != nil {
 		runtime.resetTurnState(unit)
 	}
+}
+
+// AttachSession points the shared snapshot at one resident session.
+func (runtime *Runtime) AttachSession(sessionID string, snapshot *protocol.Snapshot) (uint64, error) {
+	return runtime.attach.Attach(sessionID, snapshot)
+}
+
+// PlanLocked returns the Plan projection selected by the snapshot owner.
+func (runtime *Runtime) PlanLocked(sessionID string) *protocol.PlanState {
+	return runtime.planProjection.PlanLocked(sessionID)
+}
+
+// MirrorPlanLocked refreshes and seeds the active Plan projection.
+func (runtime *Runtime) MirrorPlanLocked(sessionID string) {
+	runtime.planProjection.MirrorLocked(sessionID)
+}
+
+// MirrorPlanWithFallbackLocked refreshes a Plan using a caller-owned baseline.
+func (runtime *Runtime) MirrorPlanWithFallbackLocked(
+	sessionID string,
+	fallback func() *protocol.PlanState,
+) {
+	runtime.planProjection.MirrorWithFallbackLocked(sessionID, fallback)
 }
 
 func (runtime *Runtime) BeginAsyncRestore(sessionID string) (uint64, error) {

@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 
 	// project_board_e2e_test.go — M6 端到端：模型**真的**通过工具面把投影读回来。
 	//
 	// 这条用例走的链子：模型发起 project_board_read → 框架分发 → 权限面放行（ro 簇）→
-	// handler（registry.RegisterProjectBoardReadTool）→ 存储面折叠读 → 投影行回到模型可见的
+	// handler（boot.RegisterProjectBoardReadTool）→ 存储面折叠读 → 投影行回到模型可见的
 	// 工具结果里。它证明的是"读面端到端可用"，而不是只证明某个 Go 函数返回值正确。
 	//
 	// 写侧为什么不在这一条里（分段各有更准的用例，硬凑只会得到假绿）：
@@ -22,7 +23,6 @@ import (
 	// 写侧的活体取数要求会话在**活体工作表格**里真有行；全链路 harness 的 task 注册表分区
 	// 口径与生产不同（同一次 todo 落在会话分区，视图分区为空），现场造不出来——把写侧搬进
 	// 这条用例只会得到"因为现场不存在所以什么都没发生"的假绿。故写侧分开钉，见上。
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -169,7 +169,7 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	}
 	harness.workspaces.BindSession(viewSession, workspace.ID)
 	// 按生产装配挂读取面（本用例要打的正是这把工具）。
-	registry.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
+	boot.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
 
 	// 落一份**真**投影（走存储面，不是内存替身）：读面要读的就是它。
 	//

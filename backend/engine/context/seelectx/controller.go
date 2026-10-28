@@ -27,6 +27,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
@@ -325,7 +326,7 @@ func overflowEvidence(overflow []historyUnit, record storecontext.PromptStackSna
 	for _, unit := range overflow {
 		for _, message := range unit.messages {
 			if message.Role == "tool" && message.ToolCallID != "" {
-				evidence = append(evidence, store.EvidenceRef{Ref: "result:" + message.ToolCallID})
+				evidence = append(evidence, store.EvidenceRef{Ref: model.WireToolResultRef(message.ToolCallID)})
 			}
 		}
 	}

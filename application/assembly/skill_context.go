@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"strings"
 
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	context_runtime "github.com/RedHuang-0622/seelex/application/conversation/context"
-	"github.com/RedHuang-0622/seelex/application/prompt"
 	session_runtime "github.com/RedHuang-0622/seelex/application/session/runtime"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
@@ -15,24 +15,20 @@ const (
 	skillContextEnvelopeSuffix = " -->"
 )
 
-func formatSkillUserInput(layers []prompt.PromptLayer, input string) string {
-	_ = layers
-	return input
-}
-
-func wrapModelInput(displayInput, body string) string {
+func WrapModelInput(displayInput, body string) string {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(displayInput))
 	return skillContextEnvelopePrefix + encoded + skillContextEnvelopeSuffix + "\n" + body
 }
 
-func displayUserInput(modelInput string) string {
+func DisplayUserInput(modelInput string) string {
 	if strings.HasPrefix(modelInput, context_runtime.ContextRecoveryPrefix) || strings.HasPrefix(modelInput, context_runtime.ProviderRecoveryPrefix) {
 		if _, original, ok := strings.Cut(modelInput, context_runtime.ContextRecoveryRequestDelimiter); ok {
-			return displayUserInput(original)
+			return DisplayUserInput(original)
 		}
 		return ""
 	}
-	if context_runtime.IsTaskContextCheckpoint(modelInput) || modelInput == reactBudgetFinalizationInput {
+	if context_runtime.IsTaskContextCheckpoint(modelInput) ||
+		modelInput == applicationconversation.ReactBudgetFinalizationInput {
 		return ""
 	}
 	display, _, ok := parseModelEnvelope(modelInput)
@@ -71,5 +67,5 @@ func inputIndexUserText(message model.Message) string {
 	if context_runtime.IsProviderOnlyHistoryContent(message.Content) {
 		return ""
 	}
-	return strings.TrimSpace(displayUserInput(message.Content))
+	return strings.TrimSpace(DisplayUserInput(message.Content))
 }

@@ -8,6 +8,7 @@ import (
 	applicationsession "github.com/RedHuang-0622/seelex/application/session"
 	sessionstate "github.com/RedHuang-0622/seelex/application/session/state"
 	switchworkspace "github.com/RedHuang-0622/seelex/application/workspace/switch"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
@@ -84,15 +85,13 @@ func (service *Service) assembleSessionReleaseApplication() {
 			service.toolRecords.Flush(sessionID)
 		},
 		UnloadEngine: func(sessionID string) error {
-			if engine, ok := service.Deps.Engine.(residentEngine); ok {
-				return engine.UnloadSession(sessionID)
+			if supported, err := contract.UnloadSession(service.Deps.Engine, sessionID); supported {
+				return err
 			}
 			return nil
 		},
 		ReleaseBundle: func(sessionID string) {
-			if releaser, ok := service.Deps.Engine.(interface{ ReleaseSessionBundle(string) bool }); ok {
-				releaser.ReleaseSessionBundle(sessionID)
-			}
+			contract.ReleaseSessionBundle(service.Deps.Engine, sessionID)
 		},
 		ForgetGoal: func(sessionID string) {
 			service.components.goal.ForgetSession(sessionID)
@@ -170,7 +169,7 @@ func (service *Service) assembleSessionUseCaseApplications(restore sessionRestor
 		},
 	})
 
-	engine, routed := service.Deps.Engine.(residentEngine)
+	engine, routed := contract.ResidentSessionEngineFor(service.Deps.Engine)
 	service.components.sessionArchive = applicationsession.NewArchive(applicationsession.ArchiveDeps{
 		Residency:  service.components.residency,
 		Transition: service.transitionForKey,

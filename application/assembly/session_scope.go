@@ -17,24 +17,22 @@ import (
 	"time"
 )
 
-// transitionView 返回视图过渡锁（G5）：影响视图指针/当前视图会话生命周期
-// 的命令共用视图 key（同会话串行、不同会话并行目前只适用于不触碰视图的
-// 生命周期段；视图命令保持单例过渡，见 transitionForKey 注释）。
+// transitionView 返回视图命令共用的单例过渡锁。
 func (service *Service) transitionView() sync.Locker {
 	return service.transitionForKey("")
 }
 
-// perSessionExecution 报告宿主是否具备逐会话执行能力（生产 seelebridge
-// Runtime.PerSessionExecution=true；测试桩缺省 false 走旧语义）。
+// perSessionExecution 报告宿主是否具备逐会话执行能力。
 func (service *Service) perSessionExecution() bool {
-	if provider, ok := service.Deps.Runtime.(interface{ PerSessionExecution() bool }); ok {
-		return provider.PerSessionExecution()
-	}
-	return false
+	return contract.PerSessionExecution(service.Deps.Runtime)
 }
 
-// transitionForSession 返回目标会话生命周期的过渡锁：逐会话宿主按会话 key
-// 串行（不同会话并行），其余宿主回退视图 key。
+func (service *Service) promptRoutesBySession() bool {
+	_, routed := contract.RoutedSessionEngine(service.Deps.Engine)
+	return routed
+}
+
+// transitionForSession 按宿主能力选择会话 key 或视图 key。
 func (service *Service) transitionForSession(sessionID string) sync.Locker {
 	if !service.perSessionExecution() {
 		return service.transitionView()
@@ -42,22 +40,18 @@ func (service *Service) transitionForSession(sessionID string) sync.Locker {
 	return service.transitionForKey(sessionID)
 }
 
-// newGeneratedSessionID 生成显式会话 ID（逐会话宿主 fork/切项目新建用；
-// 原子序号防跨会话碰撞，不依赖引擎 StartSession 活跃别名）。
+// newGeneratedSessionID 生成显式会话 ID。
 func (service *Service) newGeneratedSessionID(prefix string) string {
 	seq := service.SessionIDSeq.Add(1)
 	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UnixNano(), seq)
 }
 
-// setWorkspaceWriteScope 设置 legacy Router 写作用域。逐会话工具根能力
-// （per-session project root）实现前，不得因 PerSessionExecution 跳过：
-// 工具/工作树仍读进程级 projectScope，跳过会导致工作区绑定不生效。
+// setWorkspaceWriteScope 设置 legacy Router 写作用域。
 func (service *Service) setWorkspaceWriteScope(workspaceID string) {
 	service.Deps.Sessions.SetWorkspace(workspaceID)
 }
 
-// bindGlobalProjectRoot 设置进程级项目根。同上：per-session root 未实现前
-// 必须绑定全局根，否则工作区会话的路径类工具失效。
+// bindGlobalProjectRoot 设置进程级项目根。
 func (service *Service) bindGlobalProjectRoot(rootPath string) error {
 	return service.Deps.Runtime.BindProjectRoot(rootPath)
 }
@@ -67,12 +61,7 @@ func (service *Service) unbindGlobalProjectRoot() {
 	service.Deps.Runtime.UnbindProjectRoot()
 }
 
-// bindSessionProjectRoot 把指定会话自己的项目根绑到工具面（按会话分格）。
-// runChat 起点调用：多项目并行时，后台会话的 read_file/write_file/bash 只解析
-// 自己的项目根，而不是视图会话的根（工作区污染回归）。
-//
-// 未绑定工作区的会话保持旧语义（工具面回退进程默认根）；绑定失败只记日志，
-// 不阻塞回合——失败时该会话解析回退默认根，与修复前行为一致。
+// bindSessionProjectRoot 把指定会话自己的项目根绑到工具面。
 func (service *Service) bindSessionProjectRoot(sessionID string) {
 	if service == nil || service.Deps.Runtime == nil || service.Deps.Workspace == nil {
 		return
@@ -90,20 +79,13 @@ func (service *Service) bindSessionProjectRoot(sessionID string) {
 	}
 }
 
-// writeSessionSystemPrompt 把当前 prompt 栈写入**目标会话**的引擎：会话路由
-// 宿主走 SetSystemPromptFor，绝不触碰全局活跃别名——运行中会话的引擎锁可能
-// 被 ChatStream 全程持有，写全局别名会排队到那个会话跑完（用户视角的应用冻结）。
-//
-// 新会话的引擎实例是**新建**的，必须显式写一次：ApplyActiveTaskSystemPromptFor
-// 的"文本没变就不写"缓存会跳过写入，空 prompt 就此留在新引擎上。切换/冷恢复
-// 路径与新建路径共用这一份判据（此前三处各写一遍）。
+// writeSessionSystemPrompt 把当前 prompt 栈显式写入目标会话。
 func (service *Service) writeSessionSystemPrompt(sessionID string) {
 	if service == nil || service.Deps.Engine == nil || service.promptStack == nil {
 		return
 	}
 	promptText := service.promptStack.Render()
-	if routed, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); ok {
-		routed.SetSystemPromptFor(sessionID, promptText)
+	if contract.SetSystemPromptFor(service.Deps.Engine, sessionID, promptText) {
 		return
 	}
 	service.Deps.Engine.SetSystemPrompt(promptText)
@@ -122,10 +104,10 @@ func (service *Service) writeSessionSystemPrompt(sessionID string) {
 // 那个 ID"与"要不要顺带换视图指针"，不在这几行装配本身。
 func (service *Service) openSessionEngine(sessionID string, workspace *model.WorkspaceInfo) (string, error) {
 	newID := strings.TrimSpace(sessionID)
-	if activator, ok := service.Deps.Engine.(interface{ ActivateSession(string) error }); ok {
+	if supported, err := contract.ActivateSession(service.Deps.Engine, newID); supported {
 		// 会话路由宿主：按早分配 SID 显式创建引擎 bundle（草稿阶段
 		// HasSession=false，此刻才建）。
-		if err := activator.ActivateSession(newID); err != nil {
+		if err != nil {
 			return "", fmt.Errorf("create engine session %q: %w", newID, err)
 		}
 	} else {
@@ -159,7 +141,7 @@ func (service *Service) openSessionEngine(sessionID string, workspace *model.Wor
 // 串行、不同会话可并行；非路由单会话引擎一律归一到视图 key——该宿主没有
 // 跨会话并行面，任何 per-session 拆分都会重新引入进程级引擎串写。
 func (service *Service) transitionForKey(key string) sync.Locker {
-	if _, routed := service.Deps.Engine.(contract.SessionChatEngine); !routed {
+	if _, routed := contract.RoutedSessionEngine(service.Deps.Engine); !routed {
 		return service.components.sessions.TransitionLock("")
 	}
 	return service.components.sessions.TransitionLock(key)
@@ -459,7 +441,7 @@ func (service *Service) deferSubmitUntilRestored(ctx context.Context, sessionID,
 		if err := service.awaitRestore(ctx, sessionID); err != nil {
 			return
 		}
-		if err := service.submitConversationFor(ctx, sessionID, text); err != nil {
+		if err := service.components.conversationTurn.submission.SubmitFor(ctx, sessionID, text); err != nil {
 			log.Printf("[submit] deferred submit to %q after restore: %v", sessionID, err)
 		}
 	}()
@@ -467,7 +449,7 @@ func (service *Service) deferSubmitUntilRestored(ctx context.Context, sessionID,
 
 // sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。
 func (service *Service) sessionLoaded(sessionID string) bool {
-	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+	if routed, ok := contract.RoutedSessionEngine(service.Deps.Engine); ok {
 		return routed.HasSession(sessionID)
 	}
 	return sessionID == service.Core.Snapshot.Session.ID
@@ -504,7 +486,7 @@ func (service *Service) sessionResidentLocked(unit *session.SessionUnit, session
 	if unit == nil {
 		return false
 	}
-	if routed, ok := service.Deps.Engine.(interface{ HasSession(string) bool }); ok {
+	if routed, ok := contract.RoutedSessionEngine(service.Deps.Engine); ok {
 		if routed.HasSession(sessionID) {
 			// 引擎 bundle 在内存 = 驻留（驱逐/归档先 UnloadSession，
 			// HasSession 随即为 false → 冷读）。Unit.Resident 只用于 LRU
@@ -563,7 +545,7 @@ func (service *Service) snapshotOfResident(sessionID string) (model.SessionSnaps
 		ReadFiles:            view.ReadFiles,
 		ReviewRequest:        view.ReviewRequest,
 		Approvals:            approvals,
-		Plan:                 service.planProjectionLocked(sessionID),
+		Plan:                 service.components.sessionHistoryRuntime.PlanLocked(sessionID),
 		Task:                 service.components.tasks.VisibleTaskStateFor(sessionID),
 		TaskRecords:          taskRecords,
 		AsyncRuns:            asyncRuns,

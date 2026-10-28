@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/application/assembly"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 
 	// project_board_i7_test.go — I7 回归：项目看板**不进模型上下文**（M4，T4.1/T4.2）。
@@ -19,7 +20,6 @@ import (
 	// 为什么要有 T4.2 这一半：只看前缀会漏掉"装配层把投影塞进请求尾部"这条路径——而尾部
 	// 同样是缓存前缀的一部分（前后两轮之间尾部一变，缓存就整段作废）。
 	"github.com/RedHuang-0622/seelex/store"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,18 +121,18 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	onLimits.ProjectBoard.FlushIdleMS = 20
 	on := newFullChainHarnessWithLimits(t, AccountsPath, onRoot, 30*time.Second, true, onLimits)
 	// 能力开的这一臂按生产装配补齐两件事：注入订阅口 + 注册读取面。
-	sink, closeSink, err := registry.ProjectBoardSinkFor(
+	sink, closeSink, err := boot.ProjectBoardSinkFor(
 		onLimits.ProjectBoard, on.st,
 		on.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(on.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
 		assembly.ComponentsFor(on.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, on.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
-		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
+		t.Fatalf("boot.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
 	on.components.Execution.ProjectBoardSink.Store(sink)
-	registry.RegisterProjectBoardReadTool(on.runtime, on.st, on.app)
+	boot.RegisterProjectBoardReadTool(on.runtime, on.st, on.app)
 	writeMarkedProjectBoardProjection(t, on, onRoot)
 
 	onPrefix := promptLayerBytes(t, on.components)
@@ -161,18 +161,18 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	limits := limit.Limits{}
 	limits.ProjectBoard.Enabled = true
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
-	sink, closeSink, err := registry.ProjectBoardSinkFor(
+	sink, closeSink, err := boot.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
 		harness.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
 		assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, harness.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
-		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
+		t.Fatalf("boot.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
 	harness.components.Execution.ProjectBoardSink.Store(sink)
-	registry.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
+	boot.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
 	writeMarkedProjectBoardProjection(t, harness, projectRoot)
 
 	if err := harness.components.Conversation.Submission.Submit(ctx, "只回复『收到』两个字，不要调用任何工具。"); err != nil {

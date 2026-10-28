@@ -103,8 +103,10 @@ Wiring 注入 Middle `Assembler`，assembly 不再 import `middle/switch/history
 | `application/core` 生产文件 / 代码 | 0 / 0 行 |
 | `application/assembly` 直接内部依赖 | 0 |
 | `application/**` 具体 Backend/Middle/Store 依赖包 | 0 |
-| `application/assembly` 生产文件 | 54 |
-| `application/assembly` 生产代码 | 7,092 行 |
+| `application/assembly` 生产文件 | 49 |
+| `application/assembly` 生产代码 | 6,468 行 |
+| `application/assembly` 默认测试文件 / 代码 | 175 / 34,152 行 |
+| `application/assembly` 全部测试文件 / 代码 | 179 / 35,928 行 |
 
 已落地领域包：
 
@@ -114,6 +116,8 @@ Wiring 注入 Middle `Assembler`，assembly 不再 import `middle/switch/history
 | [`admin/scheduler/`](admin/scheduler/README.md) | 定时任务 CRUD、运行装配与后台会话 |
 | [`execution/`](execution/README.md) | 项目看板与 WorkTable 活体查询 |
 | [`execution/toolhooks/`](execution/toolhooks/README.md) | Seele Tool Hook 适配、并发工具 ID 配对与诊断 |
+| [`assembly/architecture/`](assembly/architecture/README.md) | assembly AST 结构门禁与边界 ratchet |
+| [`assemblytest/`](assemblytest/README.md) | 只消费 assembly 公开 API 的外部边界测试 |
 | [`execution/toolrecord/`](execution/toolrecord/README.md) | 工具记录累计、失败原因、暂存与批量落盘 |
 | [`execution/table/`](execution/table/README.md) | WorkTable publisher、latest-wins 汇聚与 payload 去重 |
 | [`execution/taskcontext/`](execution/taskcontext/README.md) | Engine Task Coordinator/helper identity facade |

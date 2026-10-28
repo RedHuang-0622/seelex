@@ -3,7 +3,6 @@ package assembly
 import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	switching "github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
-	"strings"
 	"time"
 )
 
@@ -70,70 +69,9 @@ func (service *Service) reapplyEffortAfterPluginSwitch() {
 // Snapshot.Interaction 只镜像当前视图会话（或进程级空归属）的审批——
 // 后台会话的待批不进视图单格，由目录行 awaiting_approval 状态与跨会话
 // 待批计数承载。
-func (service *Service) observeInteraction(sessionID, requestID string, interaction *model.Interaction) {
-	sessionID = strings.TrimSpace(sessionID)
-	viewSessionID := service.currentViewSessionID()
-	service.ViewMu.Lock()
-	if interaction == nil {
-		// 结案：摘除会话归属（幂等），并只清与本次结案同归属的视图单格。
-		if sessionID != "" {
-			if unit := service.sessions.Unit(sessionID); unit != nil {
-				unit.RemoveApproval(requestID)
-			}
-		}
-		slot := service.Core.Snapshot.Interaction
-		if slot != nil && (sessionID == "" || (slot.SessionID == sessionID && slot.ID == requestID)) {
-			service.Core.Snapshot.Interaction = nil
-			// 同会话仍有多笔待批时，把下一笔镜像进单格（后开覆盖先开
-			// 的进程级语义在会话格内退化为「同会话首笔」）。
-			service.mirrorPendingApprovalsLocked(viewSessionID)
-		}
-	} else {
-		copied := *interaction
-		copied.SessionID = sessionID
-		copied.Options = append([]model.InteractionOption(nil), interaction.Options...)
-		if sessionID != "" {
-			if unit := service.sessions.Unit(sessionID); unit != nil {
-				unit.AddApproval(requestID)
-			}
-		}
-		if sessionID == "" || sessionID == viewSessionID {
-			service.Core.Snapshot.Interaction = &copied
-		}
-	}
-	revision := service.components.view.BumpLocked()
-	service.ViewMu.Unlock()
-	publishSID := sessionID
-	if publishSID == "" {
-		publishSID = viewSessionID
-	}
-	if interaction == nil {
-		service.publishSessionEvent(EventInteractionClosed, revision, requestID, publishSID, nil)
-		service.publishSessionStateChanged(publishSID)
-		return
-	}
-	service.publishSessionEvent(EventInteractionOpened, revision, requestID, publishSID, interaction)
-	service.publishSessionStateChanged(publishSID)
-}
-
 // mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到
 // Snapshot.Interaction（调用方持有 Core.ViewMu；hotAttach 切换会话/结案
 // 后调用——单格交互只表达当前视图会话的审批；无待批时清空）。
-func (service *Service) mirrorPendingApprovalsLocked(sessionID string) {
-	if service.Approval == nil {
-		service.Core.Snapshot.Interaction = nil
-		return
-	}
-	pending := service.Approval.PendingBySession(sessionID)
-	if len(pending) == 0 {
-		service.Core.Snapshot.Interaction = nil
-		return
-	}
-	copied := pending[0]
-	copied.Options = append([]model.InteractionOption(nil), pending[0].Options...)
-	service.Core.Snapshot.Interaction = &copied
-}
-
 func (service *Service) openInteraction(interaction *model.Interaction) {
 	if interaction == nil {
 		return

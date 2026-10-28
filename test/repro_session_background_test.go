@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/RedHuang-0622/seelex/application"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/store"
 
 	// 阶段 0 后台会话收尾测试集（test-cases.md 第 2/3 节）：
 	// TC-A1-02 后台完成落盘后 record 全域只属 A；
 	// TC-A1-03 后台完成不影响活跃会话 B 的队列与运行态；
 	// TC-A2-01 收尾时再次切换 C，A 收尾不清 C 的引擎工作历史。
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -103,7 +103,7 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 		t.Fatalf("wait idle after release: %v", err)
 	}
 
-	st, err := bootstrap.InitStore(launchFlags.StorePath)
+	st, err := boot.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 	}
 	// A 后台完成。
 	close(provider.release[2])
-	st, err := bootstrap.InitStore(launchFlags.StorePath)
+	st, err := boot.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +449,7 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 		t.Fatal("C second turn did not block")
 	}
 	close(provider.release[2])
-	st, err := bootstrap.InitStore(launchFlags.StorePath)
+	st, err := boot.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}

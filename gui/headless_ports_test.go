@@ -17,8 +17,8 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/headless"
-	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 // fakeSubmission 是 Submitter 端口（owner：application/input 的提交用例）。
@@ -166,7 +166,7 @@ type headlessTestOwners struct {
 
 func newHeadlessTestOwners() *headlessTestOwners {
 	owners := &headlessTestOwners{
-		hub:        wiring.NewEventHub(),
+		hub:        event.NewEventHub(),
 		submission: &fakeSubmission{},
 		draft:      &fakeDraft{},
 		resume:     &fakeResume{},

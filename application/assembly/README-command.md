@@ -18,20 +18,3 @@ AP-115D1/D2 起，基础命令与 mutation 命令的注册、参数和结果适�
 ### command.go
 
 - `func (service *Service) registerBuiltinCommands() error` — registerBuiltinCommands installs the extracted command application with the
-
-### command_registry_test.go
-
-- `func TestCommandRegistry_RegisterAndGet(t *testing.T)`
-- `func TestCommandRegistry_RegisterDuplicate(t *testing.T)`
-- `func TestCommandRegistry_RegisterEmptyName(t *testing.T)`
-- `func TestCommandRegistry_GetNotFound(t *testing.T)`
-- `func TestCommandRegistry_All(t *testing.T)`
-- `func TestCommandRegistry_AllEmpty(t *testing.T)`
-- `func lastNotice(t *testing.T, svc *Service) string`
-
-### permission_command_test.go
-
-- `func permissionCommandFor(t *testing.T, service *Service) interface`
-- `func TestPermissionCommandRegisteredInHelp(t *testing.T)` — TestPermissionCommandRegisteredInHelp：命令在册，且 /help 能列出来。
-- `func TestPermissionCommandWithoutArgsShowsCurrentAndCatalog(t *testing.T)` — TestPermissionCommandWithoutArgsShowsCurrentAndCatalog：无参回显当前档位 + 档位目录
-- `func TestPermissionCommandSwitchesTier(t *testing.T)` — TestPermissionCommandSwitchesTier：带参切档走 SetPermissionTier（会话槽 + 快照），

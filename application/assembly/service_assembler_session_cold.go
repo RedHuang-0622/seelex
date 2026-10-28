@@ -126,7 +126,7 @@ func (service *Service) assembleSessionColdComponents() sessionColdComponents {
 			return service.components.view.SessionViewIntentLocked(sessionID)
 		},
 		TitleFromHistory: func(history []contract.EngineMessage) string {
-			return session_runtime.SessionTitleFromHistory(history, displayUserInput)
+			return session_runtime.SessionTitleFromHistory(history, DisplayUserInput)
 		},
 		SetActive:       service.sessions.SetActive,
 		UnitFor:         service.sessionUnitLocked,
@@ -179,7 +179,7 @@ func (service *Service) assembleSessionColdComponents() sessionColdComponents {
 
 	publish := applicationsessioncold.NewPublish(applicationsessioncold.PublishDeps{
 		SetGlobalPrompt: func(prompt string) {
-			if _, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); !ok {
+			if !contract.SupportsSystemPromptFor(service.Deps.Engine) {
 				service.Deps.Engine.SetSystemPrompt(prompt)
 			}
 		},
@@ -217,7 +217,7 @@ func (service *Service) assembleSessionColdComponents() sessionColdComponents {
 			service.components.view.SetSessionChatLockedFor(sessionID, chat)
 		},
 		MirrorPlan: func(sessionID string, plan *model.PlanState) {
-			service.mirrorPlanProjectionForSessionLocked(sessionID, func() *model.PlanState { return plan })
+			service.components.sessionHistoryRuntime.MirrorPlanWithFallbackLocked(sessionID, func() *model.PlanState { return plan })
 		},
 		SystemPrompt: func() string {
 			return service.components.prompts.SystemPromptForActiveTaskLocked()

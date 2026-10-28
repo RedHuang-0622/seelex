@@ -1,0 +1,726 @@
+package integration
+
+import (
+	"context"
+	"fmt"
+	"github.com/RedHuang-0622/Seele/types"
+	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
+	"github.com/RedHuang-0622/seelex/application/event"
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"sync"
+	"testing"
+	"time"
+)
+
+var _ = types.Message{} // used by blockingEngine (embeds fakeEngine with AppendHistory)
+
+// =============================================================================
+// EventHub 竞态测试
+// =============================================================================
+
+// TestEventHub_RacePublishSubscribe 验证并发 Publish 与 Subscribe 不产生 data race。
+func TestEventHub_RacePublishSubscribe(t *testing.T) {
+	hub := event.NewEventHub()
+	const publishers = 20
+	const events = 50                         // 总计 1000 次 Publish
+	sub := hub.Subscribe(publishers * events) // buffer 必须 ≥ 总事件数，否则 default 分支的 drain+resync 会丢失事件，导致消费者永久阻塞
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < publishers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < events; j++ {
+				hub.Publish(event.EventMessageAdded, uint64(id*events+j), "", nil)
+			}
+		}(i)
+	}
+
+	// 消费者：读取 events 次后退出（不阻塞）
+	go func() {
+		for i := 0; i < publishers*events; i++ {
+			<-sub.Events
+		}
+	}()
+
+	wg.Wait()
+	sub.Close()
+}
+
+// TestEventHub_RaceSubscribeClosePublish 验证 Subscribe/Close 与 Publish 并发安全。
+func TestEventHub_RaceSubscribeClosePublish(t *testing.T) {
+	hub := event.NewEventHub()
+	var wg sync.WaitGroup
+	const rounds = 50
+
+	for i := 0; i < rounds; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			sub := hub.Subscribe(1)
+			// 给一点时间让 Publish 也有机会运行
+			time.Sleep(time.Microsecond)
+			sub.Close()
+		}()
+		go func() {
+			defer wg.Done()
+			hub.Publish(event.EventSnapshotChanged, 1, "", nil)
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		// 旧实现 deliver 持 subscriber.mu 用阻塞式 <-ch 排空缓冲：与并发消费者
+		// 抢读时会永久阻塞，而 close 又要等同一把锁 → 订阅关闭挂死（CI 表现
+		// 为整个 application/assembly 包等满 -timeout）。限时等待把 hang 变成可读失败。
+		t.Fatal("EventHub subscribe/close deadlocked（deliver 排空与 close 互等）")
+	}
+}
+
+// TestEventHub_RaceMultipleSubscribers 验证多订阅者并发订阅/关闭。
+func TestEventHub_RaceMultipleSubscribers(t *testing.T) {
+	hub := event.NewEventHub()
+	var wg sync.WaitGroup
+	const subscribers = 10
+
+	for i := 0; i < subscribers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sub := hub.Subscribe(16)
+			// 消费一些事件
+			for j := 0; j < 5; j++ {
+				select {
+				case <-sub.Events:
+				case <-time.After(time.Millisecond * 10):
+				}
+			}
+			sub.Close()
+		}()
+	}
+
+	// 同时大量发布
+	go func() {
+		for i := 0; i < 100; i++ {
+			hub.Publish(event.EventMessageDelta, uint64(i), "", map[string]string{"delta": "x"})
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("EventHub subscribe/close deadlocked（deliver 排空与 close 互等）")
+	}
+}
+
+// =============================================================================
+// ApprovalBroker 竞态测试
+// =============================================================================
+
+// TestApprovalBroker_RaceConcurrentRequests 验证并发 Request 安全。
+func TestApprovalBroker_RaceConcurrentRequests(t *testing.T) {
+	hub := event.NewEventHub()
+	broker := limitapproval.NewApprovalBroker(hub)
+	var wg sync.WaitGroup
+	const requests = 20
+
+	for i := 0; i < requests; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			reqID := fmt.Sprintf("race-req-%d", id)
+			// 发起请求（会阻塞直到 Resolve）
+			go func() {
+				time.Sleep(time.Millisecond * 5)
+				broker.Resolve(reqID, contract.ApprovalDecision{OptionID: "ok"})
+			}()
+			_, _ = broker.Request(context.Background(), contract.ApprovalRequest{
+				ID:       reqID,
+				Question: "test?",
+				Options:  []model.InteractionOption{{ID: "ok", Label: "OK"}},
+			})
+		}(i)
+	}
+	wg.Wait()
+}
+
+// TestApprovalBroker_RaceRequestShutdown 验证 Shutdown 与 Request 并发安全。
+func TestApprovalBroker_RaceRequestShutdown(t *testing.T) {
+	hub := event.NewEventHub()
+	broker := limitapproval.NewApprovalBroker(hub)
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, _ = broker.Request(context.Background(), contract.ApprovalRequest{
+				ID:       fmt.Sprintf("s-%d", id),
+				Question: "q",
+				Timeout:  time.Millisecond * 50,
+			})
+		}(i)
+	}
+
+	// 等待一些请求进入 pending
+	time.Sleep(time.Millisecond * 5)
+	broker.Shutdown()
+
+	wg.Wait()
+}
+
+// TestApprovalBroker_RaceTimeoutResolve 验证 Timeout 与 Resolve 竞态。
+func TestApprovalBroker_RaceTimeoutResolve(t *testing.T) {
+	hub := event.NewEventHub()
+	broker := limitapproval.NewApprovalBroker(hub)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			reqID := fmt.Sprintf("timeout-%d", id)
+			// 一半 Resolve 快于 timeout，一半慢于 timeout
+			go func() {
+				if id%2 == 0 {
+					time.Sleep(time.Microsecond)
+					broker.Resolve(reqID, contract.ApprovalDecision{OptionID: "fast"})
+				} else {
+					time.Sleep(time.Millisecond * 20)
+					broker.Resolve(reqID, contract.ApprovalDecision{OptionID: "slow"})
+				}
+			}()
+			broker.Request(context.Background(), contract.ApprovalRequest{
+				ID:       reqID,
+				Question: "q",
+				Timeout:  time.Millisecond * 5,
+			})
+		}(i)
+	}
+	wg.Wait()
+}
+
+// TestApprovalBroker_RaceDuplicateResolve 验证重复 Resolve 返回错误（并发安全）。
+func TestApprovalBroker_RaceDuplicateResolve(t *testing.T) {
+	hub := event.NewEventHub()
+	broker := limitapproval.NewApprovalBroker(hub)
+
+	done := make(chan struct{})
+	go func() {
+		broker.Request(context.Background(), contract.ApprovalRequest{
+			ID:       "dup",
+			Question: "q",
+		})
+		close(done)
+	}()
+
+	// 等待请求进入
+	time.Sleep(time.Millisecond * 5)
+
+	// 并发 Resolve
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			broker.Resolve("dup", contract.ApprovalDecision{OptionID: "ok"})
+		}()
+	}
+	wg.Wait()
+	<-done
+}
+
+// =============================================================================
+// Chat 核心路径竞态测试
+// =============================================================================
+
+// TestChat_RaceConcurrentSubmitChatRunning 验证并发 Submit 时 ErrChatRunning 和 InputQueue 竞态安全。
+func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
+	engine := &fakeEngine{chunks: []string{"slow..."}}
+	// 使用自定义 engine 让它阻塞以模拟长时间 chat
+	blockEngine := &blockingEngine{fakeEngine: engine}
+	service := mustNewLegacy(t, contract.Dependencies{
+		Engine:   blockEngine,
+		Runtime:  &fakeRuntime{},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
+		Skills:   fakeSkills{},
+		Sessions: fakeSessions{},
+	})
+	defer service.components.lifecycleApplication.Shutdown()
+
+	// 启动一个 Chat
+	err := service.components.submission.Submit(context.Background(), "hello")
+	if err != nil {
+		t.Fatal("first submit should succeed:", err)
+	}
+
+	// 等待 chat 开始运行
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if service.components.frontendSnapshot.Snapshot().Chat.Running {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	if !service.components.frontendSnapshot.Snapshot().Chat.Running {
+		t.Fatal("chat should be running")
+	}
+
+	// 并发 Submit：应触发 InputQueue 排队
+	var wg sync.WaitGroup
+	const concurrentSubmits = 10
+	for i := 0; i < concurrentSubmits; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_ = service.components.submission.Submit(context.Background(), fmt.Sprintf("msg-%d", id))
+		}(i)
+	}
+	wg.Wait()
+
+	snap := service.components.frontendSnapshot.Snapshot()
+	if snap.Chat.QueuedCount != concurrentSubmits {
+		t.Errorf("expected %d queued, got %d", concurrentSubmits, snap.Chat.QueuedCount)
+	}
+
+	// 取消 chat 清理
+	service.components.lifecycleApplication.CancelChat("")
+}
+
+// TestChat_RaceSnapshotDuringChat 验证 Chat 运行期间并发读取 Snapshot 无 data race。
+func TestChat_RaceSnapshotDuringChat(t *testing.T) {
+	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
+	service := mustNewLegacy(t, contract.Dependencies{
+		Engine:   engine,
+		Runtime:  &fakeRuntime{},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
+		Skills:   fakeSkills{},
+		Sessions: fakeSessions{},
+	})
+	defer service.components.lifecycleApplication.Shutdown()
+
+	_ = service.components.submission.Submit(context.Background(), "hello")
+
+	// 等待 chat 开始
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if service.components.frontendSnapshot.Snapshot().Chat.Running {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// 并发读取 Snapshot 和操作服务
+	var wg sync.WaitGroup
+	const readers = 10
+	const iterations = 100
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = service.components.frontendSnapshot.Snapshot()
+				_ = service.components.frontendSnapshot.Snapshot().Chat
+				_ = service.components.frontendSnapshot.Snapshot().Runtime
+				_ = service.components.frontendSnapshot.Snapshot().Conversation
+			}
+		}()
+	}
+
+	wg.Wait()
+	service.components.lifecycleApplication.CancelChat("")
+}
+
+// TestChat_RaceToolHandling 验证工具投影与 Snapshot 并发安全。
+func TestChat_RaceToolHandling(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	defer service.components.lifecycleApplication.Shutdown()
+
+	var wg sync.WaitGroup
+	const rounds = 50
+
+	for i := 0; i < rounds; i++ {
+		wg.Add(2)
+		go func(id int) {
+			defer wg.Done()
+			service.components.conversationTurn.projection.Start(context.Background(), "test_tool", fmt.Sprintf("tool-%d", id), `{"arg":"value"}`)
+			time.Sleep(time.Microsecond)
+			completeToolForTest(service, "test_tool", fmt.Sprintf("tool-%d", id), "result", nil, time.Millisecond)
+		}(i)
+		go func() {
+			defer wg.Done()
+			_ = service.components.frontendSnapshot.Snapshot()
+		}()
+	}
+	wg.Wait()
+}
+
+// =============================================================================
+// Service 生命周期竞态测试
+// =============================================================================
+
+// TestService_RaceShutdownSubmit 验证 Shutdown 与 Submit 并发安全。
+func TestService_RaceShutdownSubmit(t *testing.T) {
+	var wg sync.WaitGroup
+	const goroutines = 20
+
+	service := newLegacyTestService(t, &fakeEngine{})
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			service.components.lifecycleApplication.Shutdown()
+		}()
+		go func(id int) {
+			defer wg.Done()
+			_ = service.components.submission.Submit(context.Background(), "/help")
+		}(i)
+	}
+	wg.Wait()
+}
+
+// TestService_RaceShutdownChat 验证 Shutdown 与 Chat 并发安全。
+func TestService_RaceShutdownChat(t *testing.T) {
+	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
+	service := mustNewLegacy(t, contract.Dependencies{
+		Engine:   engine,
+		Runtime:  &fakeRuntime{},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
+		Skills:   fakeSkills{},
+		Sessions: fakeSessions{},
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		_ = service.components.submission.Submit(context.Background(), "chat during shutdown")
+	}()
+
+	go func() {
+		defer wg.Done()
+		time.Sleep(time.Millisecond * 5)
+		service.components.lifecycleApplication.Shutdown()
+	}()
+
+	wg.Wait()
+}
+
+// TestService_ShutdownThenSubmit 验证 Shutdown 后 Submit 返回错误。
+func TestService_ShutdownThenSubmit(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	service.components.lifecycleApplication.Shutdown()
+
+	err := service.components.submission.Submit(context.Background(), "hello after shutdown")
+	if err == nil {
+		t.Error("Submit after Shutdown should return error")
+	}
+	if err.Error() != "application is shut down" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestService_ShutdownThenStartChat 验证 Shutdown 后 startChat 返回错误。
+func TestService_ShutdownThenStartChat(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	service.components.lifecycleApplication.Shutdown()
+
+	err := service.components.conversationTurn.start.StartCurrent(context.Background(), applicationconversation.Request{DisplayInput: "hello", ModelInput: "hello"})
+	if err == nil {
+		t.Error("startChat after Shutdown should return error")
+	}
+	if err.Error() != "application is shut down" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// =============================================================================
+// EffortManager 竞态测试
+// =============================================================================
+
+// TestEffortManager_RaceConcurrentApply 验证并发 Apply 安全。
+func TestEffortManager_RaceConcurrentApply(t *testing.T) {
+	ps := prompt.NewPromptStack()
+	ps.Push("base", "base", "base prompt")
+	eng := &fakeEngine{}
+	em := prompt.NewEffortManager(ps, eng)
+
+	var wg sync.WaitGroup
+	levels := []string{"lite", "medium", "high", "max"}
+
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_ = em.Apply(levels[id%len(levels)])
+			_ = em.Current()
+		}(i)
+	}
+	wg.Wait()
+}
+
+// TestEffortManager_RaceCycleAndApply 验证 Cycle 与 Apply 并发安全。
+func TestEffortManager_RaceCycleAndApply(t *testing.T) {
+	ps := prompt.NewPromptStack()
+	ps.Push("base", "base", "base prompt")
+	eng := &fakeEngine{}
+	em := prompt.NewEffortManager(ps, eng)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			em.Cycle()
+		}()
+		go func(level string) {
+			defer wg.Done()
+			em.Apply(level)
+		}([]string{"lite", "high"}[i%2])
+	}
+	wg.Wait()
+}
+
+// =============================================================================
+// PromptStack 竞态测试
+// =============================================================================
+
+// TestPromptStack_RacePushRender 验证并发 Push + Render 安全。
+func TestPromptStack_RacePushRender(t *testing.T) {
+	ps := prompt.NewPromptStack()
+	ps.Push("base", "base", "base")
+
+	var wg sync.WaitGroup
+	const goroutines = 20
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(2)
+		go func(id int) {
+			defer wg.Done()
+			ps.Push("skill", fmt.Sprintf("skill-%d", id), fmt.Sprintf("prompt-%d", id))
+		}(i)
+		go func() {
+			defer wg.Done()
+			_ = ps.Render()
+			_ = ps.Describe()
+			_ = ps.Count()
+		}()
+	}
+	wg.Wait()
+}
+
+// TestPromptStack_RacePopPush 验证并发 Pop/PopKind + Push 安全。
+func TestPromptStack_RacePopPush(t *testing.T) {
+	ps := prompt.NewPromptStack()
+	ps.Push("base", "base", "base")
+	for i := 0; i < 10; i++ {
+		ps.Push("skill", fmt.Sprintf("s%d", i), fmt.Sprintf("p%d", i))
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			ps.PopKind("skill")
+		}()
+		go func(id int) {
+			defer wg.Done()
+			ps.Push("effort", fmt.Sprintf("e%d", id), fmt.Sprintf("effort-%d", id))
+		}(i)
+		go func() {
+			defer wg.Done()
+			_ = ps.Render()
+			_ = ps.Layers()
+		}()
+	}
+	wg.Wait()
+}
+
+// TestPromptStack_RaceClearKind 验证并发 ClearKind + Push 安全。
+func TestPromptStack_RaceClearKind(t *testing.T) {
+	ps := prompt.NewPromptStack()
+	ps.Push("base", "base", "base")
+	for i := 0; i < 20; i++ {
+		ps.Push("skill", fmt.Sprintf("s%d", i), fmt.Sprintf("p%d", i))
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			ps.ClearKind("skill")
+		}()
+		go func(id int) {
+			defer wg.Done()
+			ps.Push("skill", fmt.Sprintf("new-%d", id), "new")
+		}(i)
+	}
+	wg.Wait()
+}
+
+// =============================================================================
+// InputQueue 竞态测试
+// =============================================================================
+
+// TestInputQueue_RaceEnqueueDuringChat 验证 Chat 运行中并发入队安全。
+func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
+	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
+	service := mustNewLegacy(t, contract.Dependencies{
+		Engine:   engine,
+		Runtime:  &fakeRuntime{},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
+		Skills:   fakeSkills{},
+		Sessions: fakeSessions{},
+	})
+	defer service.components.lifecycleApplication.Shutdown()
+
+	_ = service.components.submission.Submit(context.Background(), "start")
+
+	// 等待 chat running
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if service.components.frontendSnapshot.Snapshot().Chat.Running {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// 大量并发 Submit（应该全部入队）
+	var wg sync.WaitGroup
+	const submits = 30
+	for i := 0; i < submits; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_ = service.components.submission.Submit(context.Background(), fmt.Sprintf("queue-%d", id))
+		}(i)
+	}
+	wg.Wait()
+
+	snap := service.components.frontendSnapshot.Snapshot()
+	if snap.Chat.QueuedCount != submits {
+		t.Errorf("expected %d queued, got %d", submits, snap.Chat.QueuedCount)
+	}
+
+	service.components.lifecycleApplication.CancelChat("")
+}
+
+// =============================================================================
+// Snapshot 并发读写测试
+// =============================================================================
+
+// TestSnapshot_RaceReadWrite 验证 Snapshot 读写并发安全。
+func TestSnapshot_RaceReadWrite(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	defer service.components.lifecycleApplication.Shutdown()
+
+	var wg sync.WaitGroup
+	const rounds = 100
+
+	for i := 0; i < rounds; i++ {
+		wg.Add(3)
+		// 写入者
+		go func(id int) {
+			defer wg.Done()
+			service.components.view.AddNotice(fmt.Sprintf("notice-%d", id))
+		}(i)
+		// 读取者
+		go func() {
+			defer wg.Done()
+			snap := service.components.frontendSnapshot.Snapshot()
+			_ = snap.Revision
+			_ = snap.Chat
+			_ = snap.Runtime
+			_ = len(snap.Conversation)
+		}()
+		// 另一个写入者
+		go func(id int) {
+			defer wg.Done()
+			service.components.conversationTurn.projection.Start(context.Background(), "t", fmt.Sprintf("t%d", id), "{}")
+			completeToolForTest(service, "t", fmt.Sprintf("t%d", id), "ok", nil, 0)
+		}(i)
+	}
+	wg.Wait()
+}
+
+// =============================================================================
+// CancelChat 竞态测试
+// =============================================================================
+
+// TestCancelChat_Race 验证并发 CancelChat 安全。
+func TestCancelChat_Race(t *testing.T) {
+	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
+	service := mustNewLegacy(t, contract.Dependencies{
+		Engine:   engine,
+		Runtime:  &fakeRuntime{},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
+		Skills:   fakeSkills{},
+		Sessions: fakeSessions{},
+	})
+	defer service.components.lifecycleApplication.Shutdown()
+
+	_ = service.components.submission.Submit(context.Background(), "start")
+	time.Sleep(time.Millisecond * 5)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			service.components.lifecycleApplication.CancelChat("")
+		}()
+	}
+	wg.Wait()
+}
+
+// =============================================================================
+// ObserveInteraction 竞态测试
+// =============================================================================
+
+// TestObserveInteraction_Race 验证审批观察并发安全。
+func TestObserveInteraction_Race(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	defer service.components.lifecycleApplication.Shutdown()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			interaction := &model.Interaction{
+				ID:       fmt.Sprintf("i%d", time.Now().UnixNano()),
+				Kind:     "approval",
+				Question: "test",
+				Options:  []model.InteractionOption{{ID: "ok", Label: "OK"}},
+			}
+			service.components.interactions.observe.Observe("sess-race", interaction.ID, interaction)
+		}()
+		go func() {
+			defer wg.Done()
+			service.components.interactions.observe.Observe("sess-race", fmt.Sprintf("i%d", time.Now().UnixNano()), nil)
+		}()
+	}
+	wg.Wait()
+}

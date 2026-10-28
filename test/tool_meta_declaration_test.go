@@ -19,7 +19,7 @@ import (
 // 为什么用源码扫描而不是遍历运行时注册表：装配完整的 Runtime 需要 accounts /
 // 角色 / plan executor 等一堆注入面，而"注册了什么名字"这件事**静态就在源码里**
 // ——每个注册点都写着工具名（字面量或包级常量）。扫描源码因此比"跑起来再问"
-// 更完整：组合根与 wiring/registry 注册的工具（read_tool_result / switch_plugin / …）不会出现在
+// 更完整：组合根与 boot 注册的工具（read_tool_result / switch_plugin / …）不会出现在
 // RegisterBuiltins 的路径上，运行时快照反而看不到它们。
 //
 // 判据：每个名字都能被 RoutePermissionGroup 路由到某个组。未分封的名字拿不到
@@ -66,7 +66,7 @@ func TestEveryRegisteredToolDeclaresGroups(t *testing.T) {
 // (工具名 → 首个注册处, 无法静态解析的注册处, 扫过的文件数)。
 //
 // 认两种调用形态（生产里各有一处，缺哪一种都会漏掉一整族工具）：
-//   - `x.RegisterTool("name", …)`（router.go / task/tools.go / wiring/registry）；
+//   - `x.RegisterTool("name", …)`（router.go / task/tools.go / boot/tools.go）；
 //   - 先把注册面存进局部变量再调用（`register := t.deps.RegisterTool; register(ToolClick, …)`，
 //     见 backend/tool/computer/tools.go）——别名从赋值语句里识别。
 func scanToolRegistrations(t *testing.T, root string) (map[string]string, []string, int) {
@@ -294,12 +294,12 @@ func TestRegistrationScannerSeesEveryFamily(t *testing.T) {
 		"todo_init", "task_add", // backend/tool/task/tools.go
 		"computer_click", "computer_screenshot", // backend/tool/computer/tools.go（别名形态）
 		"fork_subagents",              // backend/engine/assemble/runtime_plan.go
-		"read_tool_result",            // wiring/registry（M5-S2 之前是 main.go）
-		"compact_context",             // wiring/registry（M5-S2 之前是 main.go）
-		"goal_begin",                  // wiring/registry（M5-S2 之前是 register_goal_tools.go）
-		"skill_activate",              // wiring/registry（M5-S2 之前是 skill_activate_tool.go）
+		"read_tool_result",            // boot/tools.go（M5-S2 之前是 main.go）
+		"compact_context",             // boot/tools.go（M5-S2 之前是 main.go）
+		"goal_begin",                  // boot/tools.go（M5-S2 之前是 register_goal_tools.go）
+		"skill_activate",              // boot/tools.go（M5-S2 之前是 skill_activate_tool.go）
 		"web_search",                  // backend/tool/websearch
-		"switch_plugin", "mcp_create", // wiring/registry（能力面）
+		"switch_plugin", "mcp_create", // boot/tools.go（能力面）
 	} {
 		if _, ok := sites[name]; !ok {
 			t.Errorf("扫描器没扫到 %s 的注册点：K-0 判据对它有盲区", name)

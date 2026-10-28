@@ -23,7 +23,6 @@ type RuntimeDeps struct {
 	Tasks                            *taskcontext.Coordinator
 	View                             *viewstate.Coordinator
 	Limits                           func() worktable.Limits
-	TaskRecordsForSession            func(sessionID, viewSessionID string) []dto.TaskRecord
 	CloseTerminalSubagentToolRecords func([]dto.SubAgentTreeNode)
 	SubAgentTree                     func() []dto.SubAgentTreeNode
 	PublishWorkTable                 func(worktable.WorkTableUpdate, protocol.WorkTableEvent)
@@ -279,7 +278,7 @@ func (runtime *Runtime) TraceBlockFor(sessionID string) string {
 	runtime.deps.Core.ViewMu.RLock()
 	viewID := runtime.deps.Core.Snapshot.Session.ID
 	runtime.deps.Core.ViewMu.RUnlock()
-	records := runtime.deps.TaskRecordsForSession(sessionID, viewID)
+	records := runtime.deps.Core.Deps.Runtime.TaskSnapshotFor(viewstate.TaskScope(sessionID, viewID))
 	return BuildTraceBlock(TraceInputs{
 		SessionID:     sessionID,
 		ViewSessionID: viewID,

@@ -7,17 +7,17 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/internal/buildinfo"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/config"
+	"github.com/RedHuang-0622/seelex/internal/startup"
 )
 
 // launchFlags 是本入口的命令行参数：flag 名、默认值与说明文案的权威定义在
-// wiring/config（启动项可复用的关键——第二个入口只需 BindFlags 一次）。包级绑定
+// internal/startup（启动项可复用的关键——第二个入口只需 BindFlags 一次）。包级绑定
 // 保持「启动参数在任何装配之前就位」的既有语义。
 //
 // 版本号与默认前端不在这里：它们是构建期 ldflags 注入点，权威值在 internal/buildinfo。
-var launchFlags = config.BindFlags(flag.CommandLine)
+var launchFlags = startup.BindFlags(flag.CommandLine)
 
 func main() {
 	if err := run(); err != nil {
@@ -38,7 +38,7 @@ func run() error {
 		fmt.Println(buildinfo.Version)
 		return nil
 	}
-	app, err := bootstrap.Run(bootstrap.Options{Flags: launchFlags, Version: buildinfo.Version})
+	app, err := boot.Run(boot.Options{Flags: launchFlags, Version: buildinfo.Version})
 	if err != nil {
 		return err
 	}

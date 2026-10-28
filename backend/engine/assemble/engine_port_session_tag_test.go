@@ -7,8 +7,8 @@ import (
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
+	"github.com/RedHuang-0622/seelex/internal/host"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 // captureReactorEngine 记录 ChatStream 收到的 ctx，用于断言 EnginePort 在
@@ -34,7 +34,7 @@ func (*captureReactorEngine) AppendHistory(types.Message) {}
 // 给 llm/tool intent-effect 事件打会话标签（生产侧此前无人注入）。
 func TestEnginePortInjectsTelemetrySessionID(t *testing.T) {
 	engine := &captureReactorEngine{sessionID: "sess-tag"}
-	port := adapters.NewEnginePort(engine, nil, nil)
+	port := host.NewEnginePort(engine, nil, nil)
 
 	if _, err := port.ChatStreamFor("sess-tag", context.Background(), "hi", nil); err != nil {
 		t.Fatal(err)

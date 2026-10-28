@@ -13,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 )
 
@@ -80,10 +81,10 @@ func (a *InMemoryToolResultArchiver) Store(_ context.Context, callID, tool, raw 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if _, ok := a.results[callID]; ok {
-		return "result:" + callID, nil
+		return model.WireToolResultRef(callID), nil
 	}
 	a.results[callID] = raw
-	return "result:" + callID, nil
+	return model.WireToolResultRef(callID), nil
 }
 
 // Read 按引用读取归档内容（供 read_tool_result 语义的测试/装配使用）。
@@ -91,7 +92,10 @@ func (a *InMemoryToolResultArchiver) Read(ref string) (string, bool) {
 	if a == nil {
 		return "", false
 	}
-	callID := strings.TrimPrefix(ref, "result:")
+	callID, ok := model.WireToolResultCallID(ref)
+	if !ok {
+		return "", false
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	raw, ok := a.results[callID]

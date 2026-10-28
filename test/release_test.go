@@ -3,11 +3,11 @@ package test
 import (
 	"flag"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
+	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/buildinfo"
-	"github.com/RedHuang-0622/seelex/wiring"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/config"
+	startup "github.com/RedHuang-0622/seelex/internal/startup"
 	"testing"
 )
 
@@ -22,15 +22,15 @@ func TestParseFrontendMode(t *testing.T) {
 		{input: "HEADLESS", want: "headless"},
 		{input: "BACKEND", want: "backend"},
 	} {
-		got, err := config.ParseFrontendMode(test.input)
+		got, err := startup.ParseFrontendMode(test.input)
 		if err != nil {
-			t.Fatalf("config.ParseFrontendMode(%q): %v", test.input, err)
+			t.Fatalf("startup.ParseFrontendMode(%q): %v", test.input, err)
 		}
 		if got != test.want {
-			t.Fatalf("config.ParseFrontendMode(%q) = %q, want %q", test.input, got, test.want)
+			t.Fatalf("startup.ParseFrontendMode(%q) = %q, want %q", test.input, got, test.want)
 		}
 	}
-	if _, err := config.ParseFrontendMode("browser"); err == nil {
+	if _, err := startup.ParseFrontendMode("browser"); err == nil {
 		t.Fatal("ParseFrontendMode accepted an unsupported frontend")
 	}
 }
@@ -48,15 +48,15 @@ func TestParsePermissionMode(t *testing.T) {
 		// 旧别名：full_access → full 档。
 		{input: " FULL_ACCESS ", want: dto.PermissionTierFull},
 	} {
-		got, err := config.ParsePermissionMode(test.input)
+		got, err := startup.ParsePermissionMode(test.input)
 		if err != nil {
-			t.Fatalf("config.ParsePermissionMode(%q): %v", test.input, err)
+			t.Fatalf("startup.ParsePermissionMode(%q): %v", test.input, err)
 		}
 		if got != test.want {
-			t.Fatalf("config.ParsePermissionMode(%q) = %q, want %q", test.input, got, test.want)
+			t.Fatalf("startup.ParsePermissionMode(%q) = %q, want %q", test.input, got, test.want)
 		}
 	}
-	if _, err := config.ParsePermissionMode("unsafe"); err == nil {
+	if _, err := startup.ParsePermissionMode("unsafe"); err == nil {
 		t.Fatal("ParsePermissionMode accepted an unsupported permission mode")
 	}
 }
@@ -83,7 +83,7 @@ func TestSafeFlagDefaults(t *testing.T) {
 
 func TestDefaultManualRulesAllowSafeControlPlaneTools(t *testing.T) {
 	checker := toolspermission.NewPermissionChecker(toolspermission.PermissionConfig{
-		Mode: toolspermission.ModeManual, Rules: bootstrap.DefaultManualRules(),
+		Mode: toolspermission.ModeManual, Rules: boot.DefaultManualRules(),
 	})
 	for _, name := range []string{
 		"todolist_init", "todolist_add", "todolist_done", "todolist_status",
@@ -126,8 +126,8 @@ func TestFullAccessStartupKeepsManualPermissionBaseline(t *testing.T) {
 	runtime := &permissionRuntimeRecorder{}
 	// 档位由调用方显式给出（装配段不再读包级 flag）：M5-S3 之前这里是
 	// `launchFlags.PermissionMode = full_access` 再调 setupPermissionGate。
-	if err := bootstrap.SetupPermissionGate(
-		runtime, wiring.NewApprovalBroker(nil), string(toolspermission.ModeFullAccess),
+	if err := boot.SetupPermissionGate(
+		runtime, limitapproval.NewApprovalBroker(nil), string(toolspermission.ModeFullAccess),
 	); err != nil {
 		t.Fatal(err)
 	}

@@ -1,10 +1,13 @@
 {
   "service_method_count": 0,
   "assembly_internal_dependency_limit": 0,
-  "assembly_production_file_limit": 51,
-  "assembly_production_line_limit": 6891,
+  "assembly_production_file_limit": 49,
+  "assembly_production_line_limit": 6467,
   "assembly_component_field_limit": 65,
-  "assembly_test_file_limit": 192,
-  "assembly_test_line_limit": 37382,
+  "assembly_capability_assertion_limit": 23,
+  "assembly_test_file_limit": 0,
+  "assembly_test_line_limit": 0,
+  "assembly_all_test_file_limit": 0,
+  "assembly_all_test_line_limit": 0,
   "allowed_assembly_internal_dependencies": []
 }

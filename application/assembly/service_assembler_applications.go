@@ -143,7 +143,11 @@ func (service *Service) assembleProjectBoardQuery() {
 			plan := service.components.workTableRuntime.SessionActivePlanLocked(sessionID)
 			tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 			service.ViewMu.RUnlock()
-			return plan, service.taskRecordsForSession(sessionID, viewSessionID), tree, service.components.workTableRuntime.AsyncRuns()
+			var records []dto.TaskRecord
+			if service.Deps.Runtime != nil {
+				records = service.Deps.Runtime.TaskSnapshotFor(view_state.TaskScope(sessionID, viewSessionID))
+			}
+			return plan, records, tree, service.components.workTableRuntime.AsyncRuns()
 		},
 		WorkTableLimits: workTableBounds,
 		ProjectRoot: func(sessionID string) string {
@@ -253,7 +257,7 @@ func (service *Service) assembleSubmissionApplication() {
 }
 
 func (service *Service) assembleInteractionApplication() {
-	service.components.interactionApplication = applicationsession.NewInteraction(applicationsession.InteractionDeps{
+	resolve := applicationsession.NewInteraction(applicationsession.InteractionDeps{
 		Current: func() *model.Interaction {
 			service.ViewMu.RLock()
 			defer service.ViewMu.RUnlock()
@@ -273,6 +277,31 @@ func (service *Service) assembleInteractionApplication() {
 		AddNotice:        service.components.view.AddNotice,
 		SelectAccount:    service.components.adminApplication.SelectAccount,
 	})
+	observe := applicationsession.NewInteractionObserver(applicationsession.InteractionObserverDeps{
+		Lock:          &service.ViewMu,
+		Snapshot:      &service.Core.Snapshot,
+		ViewSessionID: service.currentViewSessionID,
+		Unit: func(sessionID string) applicationsession.ApprovalUnit {
+			return service.sessions.Unit(sessionID)
+		},
+		PendingBySession: func(sessionID string) []model.Interaction {
+			if service.Approval == nil {
+				return nil
+			}
+			return service.Approval.PendingBySession(sessionID)
+		},
+		BumpRevision: func() uint64 {
+			return service.components.view.BumpLocked()
+		},
+		PublishEvent: func(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) {
+			service.publishSessionEvent(kind, revision, requestID, sessionID, payload)
+		},
+		PublishSessionStateChanged: service.publishSessionStateChanged,
+	})
+	service.components.interactions = &sessionInteractionComponents{
+		resolve: resolve,
+		observe: observe,
+	}
 }
 
 func (service *Service) assembleForkApplication() {
@@ -299,7 +328,9 @@ func (service *Service) assembleSubmitApplication() {
 			return loaded, service.components.residencyRuntime.ContentUnloaded(sessionID)
 		},
 		Resume: service.components.sessionResume.Resume,
-		Submit: service.submitConversationFor,
+		Submit: func(ctx context.Context, sessionID, text string) error {
+			return service.components.conversationTurn.submission.SubmitFor(ctx, sessionID, text)
+		},
 	})
 }
 
@@ -443,9 +474,7 @@ func (service *Service) assemblePolicySwitchApplication(skillActivation applicat
 		},
 		RenderPrompt: func() string { return service.promptStack.Render() },
 		SetSystemPrompt: func(sessionID, prompt string) {
-			if routed, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); ok {
-				routed.SetSystemPromptFor(sessionID, prompt)
-			} else {
+			if !contract.SetSystemPromptFor(service.Deps.Engine, sessionID, prompt) {
 				service.Deps.Engine.SetSystemPrompt(prompt)
 			}
 		},
@@ -527,6 +556,15 @@ func (service *Service) assembleFrontendSnapshotApplication() {
 			return service.components.view.EnrichDirectoryRowsLocked(rows)
 		},
 	})
+	service.components.frontendSnapshot.BindToolResultBudget(view_state.NewToolResultBudget(view_state.ToolResultBudgetDeps{
+		Limit: snapshotToolOutputLimit,
+		Preview: func(content string, limit int) (string, bool) {
+			return service.components.residency.Preview(content, limit)
+		},
+		Archive: func(name, content string) string {
+			return service.components.tasks.StoreToolResultLocked(name, content).Ref
+		},
+	}))
 }
 
 func (service *Service) assembleSubagentApplication() {
