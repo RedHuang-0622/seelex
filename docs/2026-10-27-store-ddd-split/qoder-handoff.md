@@ -1,68 +1,95 @@
-# Store DDD Qoder 交接包
+# Store DDD M6 截止交接包
 
-状态快照：M0–M9 已完成。M9 里程碑 commit 为
-`9ac3f929 refactor(store-ddd): complete M9 role and workunit split`。
-当前下一步为 M10 Facade 清零。
+生成时间：2026-10-27 23:22 Asia/Shanghai
 
-当前可直接交给 Qoder 的 M10 交接见
-[`qoder-current-handoff.md`](qoder-current-handoff.md)。后续总规划提示词见
-[`qoder-remaining-work.md`](qoder-remaining-work.md)。仍需在这个 worktree
-顺序执行，不得并行开多个里程碑分支。
+## Qoder 任务说明
 
-截至 2026-10-28 01:55，M7 正式验收测试、四条 ownership gate、普通/tagged build
-与全仓 vet 均 PASS。外部 consumer 批次已从 `8fbae4e8` 完成 dry-run、apply、
-replay 测试、tree parity 和 rollback 演练，M7 已闭环。
-
-工作区：`G:\seelex-worktrees\store-ddd-M8-to-M11`
-
-分支：`codex/store-ddd-M8-to-M11`
-
-接手顺序：
-
-1. 先读仓库根 `MEMORY.md`、`AGENTS.md` §0/§5/§8–§10。
-2. 读本目录 `plan.md`、`milestones.md`、`external-change-protocol.md`、
-   `progress.md` 和 `impact/M1-external-deps.md`。
-3. 运行 `git status --short --branch` 与 `git worktree list`，以 `progress.md`
-   和最新提交为事实源。
-4. M7 Context 已完成：M5/M6 已迁 message/event 分片、head、draft 与状态机；
-   head JSON、seq 分配、EVENT identity 与 JSONL 读写/残尾修复；提交
-   `9f745772`、`5d7a8374`、`266a9d5f`、`c3e60865`、`6083dd33`、`bcb522d0`。
-   `711bfc67`、`a162e565`、`c393c418`、`0fbb82d6`。M6 已完成
-   queue/lifecycle、retention、compact、fork 的共享类型、状态转移与校验。
-  M7 已迁 `context.json`、checkpoint key、Context/Stack wire 类型、
-  SystemPrompt/checkpoint payload、compact 栈校验和各栈纯操作；提交
-  `be49335d`、`12325efd`、`bd889120`、`4e4867b4`、`81c5d4ed`、`0592b22a`、
-  `314fdaec`。最新切片把 provider wire 纯装配迁到
-  `store/context/wire_engine.go`，根 `store/wire_assembler.go` 只映射
-  `Event`/attempt cache；压缩检索、相关记忆与装配控制器改用
-  `CompactStackSnapshot() []CompactFrame`，不再通过万能 record 读压缩栈。
-  Prompt 装配、local compaction、gap coverage 已改用
-  `PromptStackSnapshot`；GoalStack/SystemPrompt/schema 等存储字段不再进入该
-  consumer 面。session fork 的 context JSON 重写已迁入
-  `store/context.ForkState`，外部生产代码不再直接解码/改写真 record。
-  接手前先检查 `git status --short --branch` 和 `git diff`；该 checkpoint 已提交为
-  `cf119696`，随后 `PromptStackSnapshot` 内层投影提交为 `3c23ebf4`；每个后续
-  里程碑都必须先全量门禁、再创建只含该里程碑的本地 commit（不 push）。
-  C: 盘空间不足时设置 `GOCACHE=G:\go-build-cache\seelex`、
-  `GOTMPDIR=G:\go-build-tmp\seelex`；禁止清理缓存或用户数据。
-5. 首次验证：
+继续实施 Seelex `store` 领域驱动拆分，目标是在已完成的 M0 基线上按
+[`plan.md`](plan.md) 与 [`milestones.md`](milestones.md) 推进到 M11。接手时先运行：
 
 ```text
-go test ./store/context -count=1
-go test ./store -run 'Context|Checkpoint|Wire' -count=1
-go test ./e2e -run 'TestStoreDDDMContextOwnershipGate|TestStoreDDDMCompactStackReadFaceGate|TestStoreDDDMPromptStackReadFaceGate|TestFacadeDependencyClosureRatchet' -count=1
+git worktree list
+git status --short --branch
+```
+
+优先处理分支 `codex/store-ddd-M7-g` 的隔离 worktree
+`G:\seelex-worktrees\store-ddd-M6`。旧的 C: worktree 仅保留历史证据，C: 盘已满；
+后续不得在旧 worktree 写文件。若该 worktree 已推进到后续
+里程碑，以 [`progress.md`](progress.md) 和该分支最新提交为事实源，不回到主工作区的旧状态。
+
+## 已完成
+
+- M0：物理布局 golden、Commit 写序/半失败、锁身份、God 类型 ratchet、
+  `./store/...` import 门禁、冷读 fixture。checkpoint 提交 `6c0545fd`。
+- M1：`store/board` 已承接项目看板追加、折叠、压实、路径校验、按路径锁、回收与
+  `BOARD.md` 渲染；根包只保留 DTO alias 与 Router 单层转发。领域测试、
+  `kernel/board`、`wiring/registry`、`test -run ProjectBoard` 和全仓 build/vet 已通过。
+  外部批次 checkpoint `22b60880`，里程碑提交 `ba243f67`。
+- M2：`store/internal/layout` 已承接会话路径、guide、module head 信封/checksum、
+  原子发布与按 `(Scope, ModuleID)` 的动态锁身份；根 18 个模块锁字段和中央
+  `mutexFor` switch 已删除。定向 Head/Lock/Atomic/Pending/Guide、完整 store/e2e、
+  全仓 build/vet/test 与 tagged build 已通过。
+- M3：`store/artifact` 已承接内容寻址 tool result、超大文本 blob、media
+  配额/去重/GC 与派生搜索索引；`storeEngine` 删除 3 个媒体实现方法。
+  里程碑提交 `b76ccdc2`。
+- M4：application `TurnStoreCommit` 已编排 artifact → message → compaction；
+  store 只暴露三个单聚合写口，M0 顺序/失败矩阵和 fork snapshot 链路通过。
+- M5：`store/session` 已承接 message/event 分片命名和
+  pending-tail 分类，随后迁入 message/event head JSON、seq 分配、EVENT
+  kind/row/commit identity，以及 JSONL 共享读、残尾修复、追加与解码。
+  提交：`9f745772`、`5d7a8374`、`266a9d5f`、`c3e60865`、`6083dd33`、
+  `bcb522d0`、`711bfc67`、`a162e565`、`c393c418`。head 自愈、typed
+  publish、JSONL storage、draft-tail 与 committed-head 状态转换已下沉。
+- M6：`store/session` 已承接 lifecycle/queue、retention、compact、fork 的
+  共享类型、状态转移与校验；首片提交 `0fbb82d6`。
+- M7（进行中）：已迁移 context/checkpoint 机制、Context/Stack wire 类型、
+  SystemPrompt/checkpoint payload。提交 `be49335d`、`12325efd`、`bd889120`。
+
+## 构建环境
+
+`C:` 盘空间可能不足。Go 命令失败于 linker 临时文件时，设置：
+
+```text
+GOCACHE=G:\go-build-cache\seelex
+GOTMPDIR=G:\go-build-tmp\seelex
+```
+
+后重跑。禁止通过清理 Go cache、`dist/`、`.seelex/` 或用户数据解决空间问题。
+
+## 必须先读
+
+1. `MEMORY.md`
+2. `AGENTS.md` §0、§5、§8–§10
+3. `docs/2026-10-27-store-ddd-split/plan.md`
+4. `docs/2026-10-27-store-ddd-split/milestones.md`
+5. `docs/2026-10-27-store-ddd-split/external-change-protocol.md`
+6. `docs/2026-10-27-store-ddd-split/progress.md`
+7. 当前里程碑涉及模块的 README 与测试
+
+## 下一步
+
+进入 M7 Context：
+
+- 迁移 prompt、四类上下文栈、checkpoint 与 compact bridge；
+- `wire_assembler` 归 engine context 读侧；
+- 保持冷恢复与 provider 前缀稳定；
+- 首选验证：
+
+```text
 go test ./store/... ./backend/engine/context/... ./backend/engine/assemble/... ./test/ -count=1
 ```
 
-`go test ./store/...` 曾有一次 `TestCommitNotBlockedByFullHistoryRead`
-环境负载型超时，单测重跑通过；不要通过改阈值掩盖，最终完整重跑后再判定。
+## 纪律
 
-外部批次证据见 `impact/M7-external-deps.{json,md}`、
-`impact/M7-*.patch` 与 `scripts/store-ddd/M7-external-migrate.py`。以后每个
-里程碑完成测试后都必须创建本地 commit（不 push）。
+- 每个里程碑先红后绿，提交“原位置 → 新唯一位置”删除清单。
+- God 类型方法数只降不升；禁止新增兼容 facade 换编译。
+- 零路径、零 JSON 格式、零 schema/head/watermark 变更、零数据迁移。
+- 不执行 `git reset --hard`、`git clean`、`make clean/release`、目录删除或用户数据清理。
+- 外部依赖批次必须走 `external-change-protocol.md` 的 worktree、manifest、checkpoint、
+  dry-run、apply 和 rollback 流程。
+- 不读取或输出 `config/accounts.yaml`、`*.local.yaml` 等真实配置。
 
-严禁 `git reset --hard`、`git clean`、`make clean/release`、目录删除或用户数据清理；
-外部依赖批次必须先在隔离 worktree 生成 manifest 和 checkpoint。
+## 截止规则
 
-M6 截止条件已满足，不触发开发交接。下一步从 M8 Teamwork 开始；Qoder 100
-积分只能在界面实际显示领取入口且点击成功后记为已领取。
+若 2026-10-28 02:00 时 M6 尚未验收，Qoder 从当前最新 worktree 继续，不要求 Codex
+重复已完成工作。交接必须在 `progress.md` 记录接手点、当前失败门禁和 next command。

@@ -2,7 +2,12 @@
 
 日期：2026-10-26
 
-状态：**BM-001 至 BM-004 完成；BM-005 已生成迁移清单与边界门禁，文件搬迁未开始。**
+状态：**BM-001 至 BM-004 完成；BM-005 已完成首个 `review_files` 注册切片，其余文件搬迁未开始。**
+
+下一阶段可直接使用
+[`next-session-prompt.md`](next-session-prompt.md)
+继续 BM-005 后续切片；首个切片的完整设计见
+[`bm005-design.md`](bm005-design.md)。
 
 ## 1. 依赖数量
 
@@ -91,6 +96,18 @@ middle → backend 已归零；BM-004 完成后 backend → application 已归�
 4. Application 的 facade 闭包显式登记 `contract/protocol`；E2E 的 wire 词表门禁
    直接读取 `contract/protocol/state.go`。
 
+### BM-005 首个切片：review_files
+
+- 新端口 `backend/tool/review.ToolRegistrar` 只暴露 `RegisterTool`；
+- 新唯一实现 `review.RegisterShowFilesTool(ToolRegistrar, ShowFilesPort)`；
+- `wiring/registry.RegisterReviewFilesTool` 直接调用域 helper；
+- `backend/engine/assemble.RegisterReviewFilesTool` 保留 D1 一行转发，BM-007 删除；
+- 新增 contract 结构门禁 `TestBM005ReviewFilesRegistrationIsOwnedByWiring`；
+- 新增 domain fake-registrar 用例，证明工具名/schema/handler 只注册一次且 handler
+  仍到达既有落点端口；
+- `teamwork_job_signals.go` 的错误库存分类修正为 `wiring/runtime`：它管理通道扇出、
+  goroutine 与停机顺序，不拥有 Teamwork 状态或判据。
+
 ## 5. 兼容层台账
 
 | 旧面 | 新面 | 当前状态 | 删除里程碑 |
@@ -100,6 +117,7 @@ middle → backend 已归零；BM-004 完成后 backend → application 已归�
 | middle 的 `backend/limit` 读数 | `dto.ViewLimits` | D1 alias/唯一投影，旧边已删 | BM-007 |
 | `application/prompt.PromptLayer` | `dto.PromptLayer` | D1 alias，backend 已迁契约 | BM-007 |
 | `state.Core.Events` 的 middle event hub | runtime event port/DTO | D0，等待 BM-005 | BM-005/BM-007 |
+| `assemble.RegisterReviewFilesTool` | `review.RegisterShowFilesTool` + `wiring/registry` | D2，旧入口仅一行转发且生产调用为零 | BM-007 |
 
 ## 6. 文件清单
 
@@ -140,6 +158,10 @@ middle → backend 已归零；BM-004 完成后 backend → application 已归�
 - `backend/engine/prompt/coordinator.go`
 - `backend/engine/prompt/README.md`
 - `backend/engine/react/visible_output.go`（改为 alias）
+- `backend/engine/assemble/review_files.go`（降为 D1 一行转发）
+- `backend/tool/review/show_files.go`（新增唯一注册 helper 与 `ToolRegistrar`）
+- `backend/tool/review/registration_test.go`（新增）
+- `backend/tool/review/README.md`
 - `backend/engine/task/{coordinator,task_context_state,task_execution}.go`
 - `backend/engine/task/coordinator_async_budget_test.go`
 - 54 个 backend 文件的 import 从 `middle/protocol/model` 改为
@@ -151,6 +173,7 @@ middle → backend 已归零；BM-004 完成后 backend → application 已归�
 - `docs/2026-10-25-backend-middle-modularization/plan.md`
 - `docs/2026-10-25-backend-middle-modularization/implementation.md`（本文件）
 - `docs/2026-10-25-backend-middle-modularization/runtime-migration-inventory.md`
+- `docs/2026-10-25-backend-middle-modularization/bm005-design.md`（新增）
 
 ### Application / Wiring / E2E
 
@@ -158,7 +181,8 @@ middle → backend 已归零；BM-004 完成后 backend → application 已归�
 - `application/core/service_assembler.go`（注入 `dto.ViewLimits`）
 - `application/core/project_board_read_test.go`
 - `wiring/bootstrap/bootstrap.go`
-- `wiring/registry/registry.go`
+- `wiring/registry/registry.go`（show_files 直接调用域 helper）
+- `wiring/registry/README.md`
 - `test/project_board_{write,wiring,i7}_test.go`
 - `e2e/facade_boundary_test.go`
 - `e2e/dto_boundary_test.go`
