@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	storelayout "github.com/RedHuang-0622/seelex/store/internal/layout"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
@@ -40,21 +41,7 @@ type MediaItem struct {
 }
 
 // MediaRef is one immutable content-addressed media asset.
-type MediaRef struct {
-	Ref       string    `json:"ref"`
-	Hash      string    `json:"hash"`
-	Digest    string    `json:"digest"`
-	Name      string    `json:"name"`
-	Aliases   []string  `json:"aliases,omitempty"`
-	MimeType  string    `json:"mime_type"`
-	Kind      string    `json:"kind,omitempty"`
-	Bytes     int       `json:"bytes"`
-	Width     int       `json:"width,omitempty"`
-	Height    int       `json:"height,omitempty"`
-	Scale     float64   `json:"scale,omitempty"`
-	SessionID string    `json:"session_id"`
-	CreatedAt time.Time `json:"created_at"`
-}
+type MediaRef = protocol.MediaRef
 
 // MediaHead is metadata/media.json payload.
 type MediaHead struct {

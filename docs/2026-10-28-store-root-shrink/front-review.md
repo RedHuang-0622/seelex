@@ -445,7 +445,7 @@ checkpoint、dry-run、apply、rollback 与可重放 patch/脚本。无法用窄
 
 ```text
 根生产 Go 文件        40 → 37
-根 Store 生产 importer 33 → 20
+根 Store 生产 importer 33 → 19
 Router               113 → 81
 jsonRepository        66 → 62
 storeEngine          151 → 142
@@ -492,7 +492,7 @@ git diff --check                            # clean
 - Wire/Stack 已通过 `WireStore` / `StackStore` 显式适配器离开 `Router`；
   底层 JSONL/head 写序仍属于 Store 持久化机制。
 - 最终 M11 要求“生产调用方不再 import 根 Store”尚未达成；allowlist 已从
-  79 收缩到 20，剩余兼容调用继续只许减少。
+  79 收缩到 19，剩余兼容调用继续只许减少。
 
 ### 预置验收断言
 

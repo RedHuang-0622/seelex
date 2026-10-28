@@ -23,7 +23,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
-	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 	storeproject "github.com/RedHuang-0622/seelex/store/project"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	storesession "github.com/RedHuang-0622/seelex/store/session"
@@ -100,19 +99,7 @@ func EventKindOf(event Event) string { return storesession.EventKindOf(event) }
 // Event is the append-only transcript representation shared by every backend.
 type Event = protocol.TranscriptEvent
 
-type ToolResult struct {
-	Ref        string    `json:"ref"`
-	Tool       string    `json:"tool"`
-	Content    string    `json:"content"`
-	Digest     string    `json:"digest"`
-	Size       int       `json:"size"`
-	TokenCount int       `json:"token_count"`
-	CreatedAt  time.Time `json:"created_at"`
-	// Multimodal 承载本次工具结果的媒体资产引用（`media:<sha256>`）。
-	// 正文仍然是 Content（文本结果或摘要），图片等二进制只以引用形式挂在
-	// 这里：记录本身不复制字节，字节在会话媒体分区（meta/<hash>/<原名>）。
-	Multimodal []storeartifact.MediaRef `json:"multimodal,omitempty"`
-}
+type ToolResult = protocol.ToolResultRecord
 
 // Commit replaces the bounded provider cache and append-only transcript
 // snapshot together with the latest projection. Tool results are immutable

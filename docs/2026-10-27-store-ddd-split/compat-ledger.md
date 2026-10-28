@@ -26,7 +26,7 @@
 ## 仍保留的根包兼容面
 
 `store.Stores` 是 typed 组合值对象，不提供运行期探测或万能接口。以下根包符号仍被
-20 个生产文件直接消费：
+19 个生产文件直接消费：
 
 - `Router` 的会话/context/项目兼容 API 与生命周期；
 - `SessionGranularStore`、`DurableHistory`、`SessionContextStore`；

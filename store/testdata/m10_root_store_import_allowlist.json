@@ -1,5 +1,5 @@
 {
-  "count": 20,
+  "count": 19,
   "schema_version": 1,
   "production_files": [
     "backend/engine/assemble/runtime_context.go",
@@ -20,8 +20,7 @@
     "internal/host/session_ssh_state_port.go",
     "internal/host/session_workspace_ports.go",
     "kernel/session/archive.go",
-    "kernel/session/fork.go",
-    "kernel/session/ports.go"
+    "kernel/session/fork.go"
   ],
   "milestone": "M10"
 }

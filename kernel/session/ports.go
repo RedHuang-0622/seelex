@@ -12,7 +12,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/kernel/state"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TaskPersistencePort 是会话持久化对 task/plan 权威状态的读写面。
@@ -103,10 +102,10 @@ type SessionContextPort interface {
 type SessionForkPort interface {
 	// LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
 	// （fork 切断点解析/段落边界校验用）。
-	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)
+	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
 	// LoadToolResultsWorkspace 枚举父会话 tool-results 通道全部结果
 	// （fork 深拷贝物理复制用）。
-	LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error)
+	LoadToolResultsWorkspace(projectID, sessionID string) ([]model.ToolResultRecord, error)
 	// SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入子会话快照
 	// （截断后的 record + events + tool-results 物理复制）。
 	SaveSessionSnapshotWorkspace(projectID, sessionID string, providerHistory []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error
