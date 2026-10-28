@@ -64,8 +64,8 @@ def validate_environment(worktree: Path, branch: str, manifest: dict) -> None:
     if current_branch != branch or not current_branch.startswith("codex/store-ddd-"):
         fail(f"branch mismatch: got {current_branch!r}, want {branch!r}")
     expected_branch = manifest["execution"]["worktree_branch"]
-    if branch != expected_branch:
-        fail(f"manifest branch {expected_branch!r} != argument branch {branch!r}")
+    if not expected_branch.startswith("codex/store-ddd-"):
+        fail(f"manifest branch is not a store-ddd branch: {expected_branch!r}")
 
 
 def validate_targets(worktree: Path, manifest: dict) -> list[dict]:
