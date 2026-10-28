@@ -3,7 +3,7 @@
   "milestone": "M10",
   "execution": {
     "worktree_branch": "codex/store-ddd-M8-to-M11",
-    "base_commit": "c5036c6c61d16430d886905c72152da74d8b7f09",
+    "base_commit": "fb358073757d12704f50ea23bafecf62c3d02f63",
     "checkpoint_commit": "PENDING_CHECKPOINT"
   },
   "checkpoint": {
@@ -640,8 +640,8 @@
       "path": "store/testdata/god_type_methods.json",
       "package": "github.com/RedHuang-0622/seelex/store/testdata",
       "side": "production",
-      "sha256": "649c828bf1f6386cee32e99dc6b5201d387fa89985dbbe621e866fe329daf24f",
-      "pre_sha256": "649c828bf1f6386cee32e99dc6b5201d387fa89985dbbe621e866fe329daf24f",
+      "sha256": "b715a9040820c2452bb62e7cc1b4f1bcbf697bbd70eb0002ba59c657b51f792b",
+      "pre_sha256": "b715a9040820c2452bb62e7cc1b4f1bcbf697bbd70eb0002ba59c657b51f792b",
       "post_sha256": "5209d2dcb0eda930c9300e56f8b44b85f0b96fbe8c635b5f400742c57c27938c",
       "depends_on": [],
       "depended_on_by": [],

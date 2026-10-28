@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import argparse
 
 
 def sha256(data: bytes) -> str:
@@ -18,7 +19,11 @@ def git(*args: str) -> subprocess.CompletedProcess[bytes]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pre-worktree", required=True)
+    args = parser.parse_args()
     root = Path(git("rev-parse", "--show-toplevel").stdout.decode().strip())
+    pre_root = Path(args.pre_worktree).resolve()
     paths = [
         path.decode()
         for path in git(
@@ -41,7 +46,10 @@ def main() -> None:
             check=False,
             capture_output=True,
         ).returncode == 0
-        pre = sha256(git("show", f"HEAD:{relative}").stdout) if exists else None
+        pre_file = pre_root / relative
+        pre = sha256(pre_file.read_bytes()) if pre_file.is_file() else None
+        if exists and pre is None:
+            raise SystemExit(f"pre-worktree is missing checked-out file {relative}")
         target = root / relative
         post = sha256(target.read_bytes()) if target.is_file() else None
         directory = str(Path(relative).parent).replace("\\", "/")
