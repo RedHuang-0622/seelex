@@ -25,7 +25,7 @@ func TestStoreDDDM10FacadeGate(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"Boards", "Teamwork", "ToolRecord"} {
+	for _, name := range []string{"Boards", "Teamwork", "ToolRecord", "MediaStoreOf"} {
 		if _, ok := scanPackageFunctions(t, filepath.Join(repo, "store"))[name]; ok {
 			t.Errorf("store 根包仍以自由函数 %s 做运行期能力发现；应由领域包构造器或消费方端口替代", name)
 		}
@@ -199,9 +199,6 @@ func readText(t *testing.T, path string) string {
 
 func assertSourceExcludes(t *testing.T, path string, forbidden ...string) {
 	t.Helper()
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return
-	}
 	text := readText(t, path)
 	for _, token := range forbidden {
 		if strings.Contains(text, token) {
