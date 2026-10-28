@@ -1,3 +1,5 @@
+> 历史记录，不描述当前实现。本文记录退场执行台账。
+
 # Application 兼容层退场 执行台账
 
 事实源：`front-review.md`（债务与归属）、`plan.md`（方案 C 与里程碑）、`deletion-list.md`（删除 ratchet）。

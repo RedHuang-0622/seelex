@@ -53,13 +53,20 @@ const historicalMarkerScanLines = 10
 var retiredCompatibilityHistoricalRecords = []string{
 	"docs/2026-10-25-application-modularization/implementation.md",
 	"docs/2026-10-25-application-modularization/remaining-work.md",
+	"docs/2026-10-27-application-compat-removal/deletion-list.md",
+	"docs/2026-10-27-application-compat-removal/front-review.md",
+	"docs/2026-10-27-application-compat-removal/handoff.md",
+	"docs/2026-10-27-application-compat-removal/implementation-prompt.md",
+	"docs/2026-10-27-application-compat-removal/ledger.md",
+	"docs/2026-10-27-application-compat-removal/next-session-prompt.md",
+	"docs/2026-10-27-application-compat-removal/plan.md",
 }
 
 // nonSourceDirectories 是仓库级扫描必须跳过的目录名：构建产物、版本库、前端依赖、
 // 本地缓存与用户会话数据都不属于源码/文档面。Go import 扫描（core_retirement_test.go）
 // 与本文件的 Markdown 扫描共用这一份判据，避免各写一份跳过表后互相漂移。
 var nonSourceDirectories = map[string]bool{
-	".git": true, "dist": true, "vendor": true, "_tmp": true,
+	".git": true, ".tmp": true, "dist": true, "vendor": true, "_tmp": true,
 	"tmp": true, "node_modules": true, ".gocache": true, ".venv": true,
 	"_scratch": true, "local": true, ".seelex": true,
 }
