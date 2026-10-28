@@ -13,7 +13,7 @@ func TestReadToolResultUsesDefaultLimitAndClamp(t *testing.T) {
 	application := New(Deps{
 		ReferencePageSize:    func() int { return 16 },
 		MaxReferencePageSize: func() int { return 8 },
-		ResolveAlias:         func(ref string) string { return ref },
+		CallIDAlias:          func(callID string) (string, bool) { return "", false },
 		ResolveResult: func(ref string) (model.StoredToolResult, bool, error) {
 			return model.StoredToolResult{
 				ToolResultRef: model.ToolResultRef{Ref: ref},
@@ -36,15 +36,15 @@ func TestReadToolResultUsesDefaultLimitAndClamp(t *testing.T) {
 	}
 }
 
-func TestReadToolResultResolvesAliasBeforeStorage(t *testing.T) {
+func TestReadToolResultResolvesWireRefThroughCallIDAlias(t *testing.T) {
 	application := New(Deps{
 		ReferencePageSize:    func() int { return 32 },
 		MaxReferencePageSize: func() int { return 32 },
-		ResolveAlias: func(ref string) string {
-			if ref == "result:call-a" {
-				return "tr-real"
+		CallIDAlias: func(callID string) (string, bool) {
+			if callID == "call-a" {
+				return "tr-real", true
 			}
-			return ref
+			return "", false
 		},
 		ResolveResult: func(ref string) (model.StoredToolResult, bool, error) {
 			if ref != "tr-real" {
@@ -63,6 +63,85 @@ func TestReadToolResultResolvesAliasBeforeStorage(t *testing.T) {
 	}
 	if !strings.Contains(raw, `"result_ref":"tr-real"`) || !strings.Contains(raw, "alias-target") {
 		t.Fatalf("unexpected page: %s", raw)
+	}
+}
+
+// 只有 wire 形状（"result:<callID>"）才查别名；归档引用与 node 引用一律原样交给存储。
+func TestReadToolResultSkipsAliasForNonWireRef(t *testing.T) {
+	consulted := false
+	application := New(Deps{
+		ReferencePageSize:    func() int { return 32 },
+		MaxReferencePageSize: func() int { return 32 },
+		CallIDAlias: func(callID string) (string, bool) {
+			consulted = true
+			return "", false
+		},
+		ResolveResult: func(ref string) (model.StoredToolResult, bool, error) {
+			return model.StoredToolResult{
+				ToolResultRef: model.ToolResultRef{Ref: ref},
+				Content:       "direct",
+			}, true, nil
+		},
+	})
+
+	raw, err := application.ReadToolResultHandler(`{"result_ref":"tr-direct"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consulted {
+		t.Fatal("CallIDAlias must not be consulted for an archived ref")
+	}
+	if !strings.Contains(raw, `"result_ref":"tr-direct"`) {
+		t.Fatalf("unexpected page: %s", raw)
+	}
+}
+
+// "result:" 去掉前缀后是空 callID —— 那不是可解析的 wire 引用，同样不查别名。
+func TestReadToolResultSkipsAliasForEmptyCallID(t *testing.T) {
+	consulted := false
+	var resolved string
+	application := New(Deps{
+		ReferencePageSize:    func() int { return 32 },
+		MaxReferencePageSize: func() int { return 32 },
+		CallIDAlias: func(callID string) (string, bool) {
+			consulted = true
+			return "", false
+		},
+		ResolveResult: func(ref string) (model.StoredToolResult, bool, error) {
+			resolved = ref
+			return model.StoredToolResult{}, false, nil
+		},
+	})
+
+	if _, err := application.ReadToolResultHandler(`{"result_ref":"result:"}`); err == nil {
+		t.Fatal("empty call ID must surface as an unavailable ref")
+	}
+	if consulted {
+		t.Fatal("CallIDAlias must not be consulted when the call ID is empty")
+	}
+	if resolved != "result:" {
+		t.Fatalf("ResolveResult ref = %q, want the untouched wire ref", resolved)
+	}
+}
+
+// 别名未命中时 wire 引用原样下传，由存储面报告"不可用"，不在装配层改写形状。
+func TestReadToolResultKeepsWireRefOnAliasMiss(t *testing.T) {
+	var resolved string
+	application := New(Deps{
+		ReferencePageSize:    func() int { return 32 },
+		MaxReferencePageSize: func() int { return 32 },
+		CallIDAlias:          func(callID string) (string, bool) { return "", false },
+		ResolveResult: func(ref string) (model.StoredToolResult, bool, error) {
+			resolved = ref
+			return model.StoredToolResult{}, false, nil
+		},
+	})
+
+	if _, err := application.ReadToolResultHandler(`{"result_ref":"result:call-miss"}`); err == nil {
+		t.Fatal("an unknown wire ref must be reported as unavailable")
+	}
+	if resolved != "result:call-miss" {
+		t.Fatalf("ResolveResult ref = %q, want the untouched wire ref", resolved)
 	}
 }
 

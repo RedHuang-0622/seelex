@@ -19,23 +19,15 @@ import (
 	"github.com/RedHuang-0622/seelex/kernel/sessionpolicy"
 )
 
-// defaultHistoryWindow 与 maxReplansPerPlanChain 已收编进 seele.yaml limits 段
-// （history_window / max_replans_per_plan_chain）；默认值定义在
-// limit.DefaultLimits，消费点经 Limits() 读取。
+// history_window / max_replans_per_plan_chain 默认值由 limit.DefaultLimits 提供。
 
 var (
 	ErrChatRunning         = errors.New("chat is already running")
 	ErrApplicationDraining = errors.New("application is finishing active work")
-	// ErrSessionRestoring 是恢复门的兜底错误：目标会话正在后台冷加载
-	// （restoring 空壳，视图指针已切到目标、内容尚未装载完成）时**不启动新回合**。
-	// 提交入口（submitConversation / submitConversationFor）命中 restoring 走
-	// **延后**——把输入挂到装载完成点再启动（既不开空壳回合，也不丢输入）；
-	// 本错误只在更窄的 TOCTOU 窗口出现：提交通过恢复门、释放 ViewMu 之后，切换
-	// 才把目标置为 restoring（startChatFor 内二次判定）。届时宁可明确失败，也不
-	// 在空壳上开出回合——见 devlog 2026-09-17-submit-during-cold-restore-fix。
+	// ErrSessionRestoring 是目标会话仍在后台冷加载时拒绝新回合的兜底错误。
+	// submission owner 负责延后；直接 start host 用它明确拒绝。
 	ErrSessionRestoring = errors.New("session is restoring; retry after the restore completes")
-	// ErrSessionBusy 是跨会话提交/切换的单飞执行边界（M1：共享组件栈要求
-	// 同一时刻只有一个会话在执行；真并行 = M2 会话级组件隔离）。
+	// ErrSessionBusy 是跨会话提交/切换的单飞边界。
 	ErrSessionBusy = errors.New("another session is running")
 	// ErrSessionSnapshotUnavailable 表示目标会话既无驻留引擎快照、也无持久化
 	// record 可拼只读基线（C1：未驻留会话从 record 冷拼装；两者皆无即不可用）。

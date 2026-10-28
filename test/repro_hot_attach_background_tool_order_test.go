@@ -6,6 +6,11 @@ import (
 	"fmt"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
+	assembly "github.com/RedHuang-0622/seelex/application/assembly"
+	event "github.com/RedHuang-0622/seelex/application/event"
+	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	boot "github.com/RedHuang-0622/seelex/boot"
+	host "github.com/RedHuang-0622/seelex/internal/host"
 
 	// 复现：A、B 两个会话同时在运行。视图先后停在 A；B 在后台跑一轮
 	// “纯工具调用（无正文）→ 工具结果 → 最终 llm 正文”的工具链，跑完（idle）
@@ -19,9 +24,6 @@ import (
 	applicationassembly "github.com/RedHuang-0622/seelex/application/assembly"
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/store"
-	"github.com/RedHuang-0622/seelex/wiring"
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,7 +60,7 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 	originalStorePath := launchFlags.StorePath
 	launchFlags.StorePath = filepath.Join(projectRoot, "sessions")
 	t.Cleanup(func() { launchFlags.StorePath = originalStorePath })
-	st, err := bootstrap.InitStore(launchFlags.StorePath)
+	st, err := boot.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,38 +68,38 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 	runtimeBridge.AttachHistoryRouter(st)
 	runtimeBridge.SetEventPersister(store.NewEventStore(st).Append)
 
-	skills := bootstrap.InitSkillSystem()
-	plugins, _, err := bootstrap.InitPluginSystem(runtimeBridge, skills, launchFlags.PluginsPaths)
+	skills := boot.InitSkillSystem()
+	plugins, _, err := boot.InitPluginSystem(runtimeBridge, skills, launchFlags.PluginsPaths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := wiring.NewToolHookBridge()
-	frameworkEngine, err := bootstrap.InitEngine(runtimeBridge, hooks, "")
+	hooks := assembly.NewToolHookBridge()
+	frameworkEngine, err := boot.InitEngine(runtimeBridge, hooks, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := bootstrap.ActivateDefaultPlugin(plugins, frameworkEngine); err != nil {
+	if err := boot.ActivateDefaultPlugin(plugins, frameworkEngine); err != nil {
 		t.Fatal(err)
 	}
-	appEngine := adapters.NewEnginePort(frameworkEngine, func(sessionID string) adapters.ReactorEngine {
-		fresh, createErr := bootstrap.InitEngine(runtimeBridge, hooks, sessionID)
+	appEngine := host.NewEnginePort(frameworkEngine, func(sessionID string) host.ReactorEngine {
+		fresh, createErr := boot.InitEngine(runtimeBridge, hooks, sessionID)
 		if createErr != nil {
 			return nil
 		}
 		return fresh
 	}, runtimeBridge.Tracer())
 	appEngine.EnableWorkingHistoryRelease()
-	workspaces, err := bootstrap.InitWorkspaceRepo(launchFlags.StorePath)
+	workspaces, err := boot.InitWorkspaceRepo(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	events := wiring.NewEventHub()
-	approval := wiring.NewApprovalBroker(events)
-	app, err := bootstrap.InitApplication(
+	events := event.NewEventHub()
+	approval := limitapproval.NewApprovalBroker(events)
+	app, err := boot.InitApplication(
 		appEngine,
 		runtimeBridge,
 		plugins,
-		bootstrap.InitSessionManager(st, appEngine),
+		boot.InitSessionManager(st, appEngine),
 		skills,
 		workspaces,
 		events,

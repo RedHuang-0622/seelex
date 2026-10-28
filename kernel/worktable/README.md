@@ -67,12 +67,14 @@ flowchart LR
 ## 测试
 
 ```text
-go test ./application/execution/worktable -count=1
+go test ./kernel/worktable -count=1
 ```
 
 `worktable_publisher_test.go` 覆盖突发汇聚、关闭尾态与关闭后 Send 安全性；
 `projection_test.go` 覆盖身份判据由宿主注入（本包不留第二份）、无身份行不进合并、
-secondary 为空早返回。宿主级（真实装配）用例仍在 `application/assembly`：
+secondary 为空早返回；`projection_ab_test.go`、`fuzz_projection_test.go` 与
+`subagent_status_test.go` 覆盖 extended A/B、模糊健壮性和状态词表。宿主级（真实装配）
+用例仍在 `application/assembly`：
 
 ```text
 go test ./application/assembly/ -run 'WorkTable|WorkItem|MergeTaskRecords|Teamwork' -count=1

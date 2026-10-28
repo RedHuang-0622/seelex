@@ -2,16 +2,17 @@
 
 ## 生态位
 
-`application/execution/toolhooks` 把 Seele loop hook 适配成 Application 的工具投影回调。
+`application/execution/toolhooks` 把 Seele loop hook 适配成 Application 的工具投影。
 主要调用方是 [`application/assembly`](../../assembly/README-tool.md) 的
-`ToolHookBridge` 宿主适配；具体工具消息、Task transcript、历史修复和 Runtime 发布仍由
-assembly Host adapter 提供。
+`ToolHookBridge`；owner 同时拥有 tool start/complete 的可见消息、Task transcript、
+runtime 投影和发布顺序，assembly Host adapter 只提供现有状态机制。
 
 ## 职责
 
 - 为并发 tool calls 分配稳定唯一 ID；
 - 按 turn/name/arguments 将 start 与 complete 配对；
 - 串联 LLM complete、tool start/complete 和 iteration complete；
+- 固定 tool start/complete 的 active/background、request fallback、结果归档和事件顺序；
 - 维护 Seele loop 的迭代闸门：ReAct budget、排队输入、provider history 修复与失败记录；
 - 提供可选、metadata-only 的 hook 诊断事件，观察者 panic 不得穿过 hook 边界。
 
@@ -19,14 +20,16 @@ assembly Host adapter 提供。
 
 - 不保存工具结果或工具计数；
 - 不拥有 Engine/Task/Runtime；
-- 不判断工具权限、不执行工具、不生成用户可见消息；
-- 不包含工具结果截断、worktable 同步或事件发布；
+- 不判断工具权限、不执行工具；
+- 不持有 Task、View 或持久化状态；结果预算/归档规则由注入端口执行；
 - 不导入 `application/assembly`。
 
 ## 文件结构
 
 - `bridge.go`：`Bridge`、`Deps`、诊断类型与 Seele hook 适配。
+- `projection.go`：`ProjectionApplication`，唯一拥有 tool start/complete 投影顺序。
 - `bridge_test.go`：并发 FIFO 配对、迭代闸门分支与诊断容错用例。
+- `projection_test.go`：session fallback 与 start 发布顺序。
 
 ## 核心实现
 

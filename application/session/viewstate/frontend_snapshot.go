@@ -17,12 +17,23 @@ type SnapshotDeps struct {
 // SnapshotApplication owns the frontend snapshot composition. The raw snapshot
 // and all message/revision mutation remain in Coordinator.
 type SnapshotApplication struct {
-	view *Coordinator
-	deps SnapshotDeps
+	view        *Coordinator
+	deps        SnapshotDeps
+	toolResults *ToolResultBudgetApplication
 }
 
 func NewSnapshotApplication(view *Coordinator, deps SnapshotDeps) *SnapshotApplication {
 	return &SnapshotApplication{view: view, deps: deps}
+}
+
+// BindToolResultBudget installs the visible tool-result boundary owner.
+func (application *SnapshotApplication) BindToolResultBudget(budget *ToolResultBudgetApplication) {
+	application.toolResults = budget
+}
+
+// ToolResultBudget returns the visible tool-result boundary owner.
+func (application *SnapshotApplication) ToolResultBudget() *ToolResultBudgetApplication {
+	return application.toolResults
 }
 
 // Snapshot returns a deep-copied projection with session status, the retained

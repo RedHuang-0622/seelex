@@ -8,6 +8,20 @@
 
 主要调用方是 `application` facade；主要消费者是 TUI、GUI Bridge 和 E2E harness。
 
+公开 API 测试已外移到 `application/assemblytest`；组件 owner 测试进一步迁回
+`application/session`、`kernel/worktable` 等归属包。assembly 根目录只保留真实组合、
+锁序、事件顺序和跨 owner 集成测试。目录规模由
+`application/testdata/application_budget.json` 的默认套件与全部测试两套 ratchet 共同约束。
+AST 结构门禁单独放在 `application/assembly/architecture`，不再混在父包测试列表中。
+共享真实组合图但只使用公开 owner 的用例放在 `application/assembly/integration`；
+该测试包自持 fake ports 与依赖变量，不访问 `Service.components`。
+
+只看生产调用点时可用：
+
+```text
+rg '<symbol>' application/assembly --glob '!**/*_test.go'
+```
+
 本包不拥有 Session、Conversation、Execution 的业务状态机。会话单元、队列、
 ChatState、DraftSlot、进程级会话序号和权限默认值归
 `application/session/state`，命令级事务与持久化顺序由对应领域应用包拥有；
@@ -480,7 +494,7 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 
 `service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现；工作区用例（创建/绑定/解绑、当前工作区读面与投影收集）已归位 [`application/workspace/switch`](../workspace/switch/README.md)，视图投影写面仍由本包持有。
 
-`service_components_test.go` 固化两条结构约束：`Service` 只能包含状态与组件图，聚焦组件不能反向持有门面。
+`application/assembly/architecture` 的结构门禁固化 `Service` 状态边界与组件所有权。
 
 ## 分卷 README（根包按文件前缀）
 
@@ -490,26 +504,26 @@ Role Account / Permission / Inheritance（AP-065～067）的应用判据已迁�
 
 | 分卷 | 覆盖文件 | 生态位 |
 |---|---|---|
-| [README-service.md](README-service.md) | `service*.go` | Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具） |
-| [README-session.md](README-session.md) | `session*.go` + 显式名单 | 会话草稿/恢复/存储用例与集成测试 |
-| [README-chat.md](README-chat.md) | `chat*.go`、`visible_output_test.go`、`reasoning_visible_test.go` | 聊天主循环与可见输出集成 |
+| [README-service.md](README-service.md) | `service*.go` | Service 门面、装配根与跨域用例编排 |
+| [README-session.md](README-session.md) | `session*.go` | 会话草稿/恢复/存储用例 |
+| [README-chat.md](README-chat.md) | `chat*.go` | 聊天主循环与可见输出协调 |
 | [README-command.md](README-command.md) | `command*.go` | 内置命令注册与执行 |
 | [README-error.md](README-error.md) | `error*.go` | 错误码与面向用户的错误呈现 |
 | [README-history.md](README-history.md) | `history*.go` | 历史检索与 provider 失败恢复 |
-| [README-input.md](README-input.md) | `input*.go` | 输入分派与路由兼容测试 |
+| [README-input.md](README-input.md) | `input*.go` | 输入分派与路由 |
 | [README-plan.md](README-plan.md) | `plan_*.go` | Plan 打点/分支事件/重规划 |
 | [README-reference.md](README-reference.md) | `reference*.go` | read_tool_result / read_plan 引用工具 |
 | [README-skill.md](README-skill.md) | `skill*.go` | Skill 指令信封编解码 |
 | [README-tool.md](README-tool.md) | `tool*.go` | 工具事件钩子与诊断 |
-| [README-work-table.md](README-work-table.md) | `work_table*.go` | 工作表格投影与测试 |
-| [README-context.md](README-context.md) | `context_*_test.go` | 上下文控制相关集成测试 |
-| [README-task.md](README-task.md) | `task_*_test.go` | 任务执行集成测试 |
-| [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
+| [README-work-table.md](README-work-table.md) | `work_table*.go` | 工作表格投影 |
+| [README-context.md](README-context.md) | 上下文生产代码 | 上下文控制 |
+| [README-task.md](README-task.md) | 任务生产代码 | 任务执行 |
+| [README-subagent.md](README-subagent.md) | 子代理生产代码 | 子代理投影 |
 | [README-goal.md](README-goal.md) | `goal_*.go` | goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归 |
 | [README-agentteam.md](README-agentteam.md) | `contract/role_sessions.go` | **角色会话端口**（RoleSessionID 派生、角色 draft/floor 透传）；Agent Team 装配面**已退场（2026-10-12 J-1a）**。纯基座部分已于 M5-R8b 归位 `backend/multiagent/team/` |
 | [README-permission.md](README-permission.md) | `Role application` | 角色默认/会话覆盖、继承与 SSH 路径白名单 |
 | [README-composer.md](README-composer.md) | `composer_*.go` | 输入草稿合成器的持久化与工作区绑定 |
-| [README-archive.md](README-archive.md) | `archive_*.go`、`close_semantics_test.go` | 会话归档与收尾语义 |
+| [README-archive.md](README-archive.md) | `archive_*.go` | 会话归档与收尾语义 |
 | [README-misc.md](README-misc.md) | 显式名单（aliases/completion/compressed/diagnostics/fault-guard/limits/perf/snapshot-budget/runtime/workspace/race） | 基础与杂项 |
 
 覆盖规则的唯一权威是 `scripts/gen_core_readme_index.py` 的 `ROOT_GROUPS`
@@ -580,11 +594,8 @@ transcript 按会话顺序重建。这样恢复前后的上下文前缀字节一
   **目标会话** 经 `SetSystemPromptFor` 写入（`EnginePort` 同步进程级 prompt
   缓存供新建引擎继承），不写进程级“活跃别名”引擎：别名可能指向另一个正在
   运行的会话，其 framework `Session` 锁被 `ChatStream` 全程持有，全局
-  `SetSystemPrompt` 会阻塞到该会话收尾——表现为“点第三个会话没反应、被切走
-  的会话跑完才开始切换”（复现/回归：
-  `repro_two_running_view_third_then_switched_finishes_test.go` 的
-  `TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns`）。非路由单会话
-  引擎无跨会话别名面，仍走全局写。
+  `SetSystemPrompt` 会阻塞到该会话收尾。非路由单会话引擎无跨会话别名面，
+  仍走全局写。
 - `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后进入幂等 draft：**早分配真实会话 ID 并建 `SessionUnit`**（`HasSession=false`，不建引擎 bundle、不写空历史、不建立 workspace binding）；**同时清空继承的项目绑定**（`CurrentWorkspace`/project root/session store workspace）——「任务会话」必须真正未关联工作区，上一个会话的项目信息（项目地址、资源管理器文件树与提交记录、工作台投影）不得污染新会话。需要项目上下文的「工作区会话」在草稿上显式 `BindWorkspace`，第一次进入 `submitConversation` 时才经 `ActivateSession` 用同一草稿 ID 建引擎 bundle，并立即用首问设置显示名。**草稿槽位（draft slot）保留**：`BeginNewSession` 在运行中也可进入草稿（不再返回 `ErrChatRunning`，也不触碰运行中会话的引擎）；切换/新建后草稿不丢失——槽位记录工作区绑定与早分配 SID 并在会话树以 `status=draft` 行常驻，再次新建恢复同一草稿，首次提交物化时消费槽位。用户输入未发送正文后 composer 随 record 落盘（`Status=draft`），冷启动恢复草稿。快照为会话补充 `status`（draft/idle/running/queued）与 `session.composer`（当前草稿未发送正文），`ApplyRuntimeProjectionLocked` 在草稿视图下不覆盖会话 ID（后台运行中会话不得顶掉草稿视图）。
 - M1（2026-08-23）起聊天保护粒度从全局单例收窄为**会话级**：每会话独立
   `ChatState`/cancel/inputQueue（`session_scope.go` 的 `sessionChat`
@@ -721,8 +732,9 @@ sequenceDiagram
 ## 测试
 
 ```text
-go test ./application/assembly -count=1
-go test ./application/assembly -race -count=1
+go test ./application/assembly/architecture -count=1
+go test ./application/assembly/integration -count=1
+go test ./application/assemblytest -count=1
 ```
 
 ## Runtime projections and catalog cache
@@ -759,8 +771,10 @@ The token audit counts the separately configured system prompt, message/tool-cal
 Oversized tool output and oversized current input are stored through immutable `result_ref` records. Provider history and `SessionRecord` contain only the reference warning; `read_tool_result` provides bounded, read-only pagination or filtering. `read_plan` retrieves omitted canonical Plan nodes without changing Plan state.
 
 `read_tool_result` 兼容 `result:call_<callID>` 别名：模型在省略占位后自行
-拼接的 `result:call_...` 引用会按工具调用 ID 映射回归档的真实 `tr-` ref
-（`resolveToolResultRefAlias`），避免「result_ref is not available」假阴性。
+拼接的 `result:call_...` 引用会按工具调用 ID 映射回归档的真实 `tr-` ref，
+避免「result_ref is not available」假阴性。前缀判据只有一份
+（`contract/protocol.WireToolResultCallID`）；装配侧只提供按调用 ID 查表的
+窄端口 `CallIDAlias`（`tasks.ToolResultRefByCallID`），不再自己解析引用形状。
 引用不可读/参数缺失不再落入 unclassified 兜底文案，而是分类为
 「工具执行｜read_tool_result」（`resultRefUnavailablePresentation`），
 给模型/用户可行动的指引。
@@ -863,4 +877,5 @@ plan/subagent 生命周期同步都落到注册表；`syncTasksFromSources`（�
 分配器给出（`task.NextAutoID`，装载/恢复经 `ObserveAutoID` 抬高水位），进程内
 唯一——同 ID 在注册表里是覆盖、在台账里是丢行。
 
-重点测试：`service_test.go` 覆盖 session/project/storage 用例，`command_registry_test.go` 覆盖输入协议，`race_test.go` 覆盖并发与关闭。
+测试归属：结构门禁在 `architecture`，跨 owner 行为在 `integration`，公开 API 在
+`assemblytest`；根包不再保留 `_test.go`。

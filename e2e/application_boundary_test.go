@@ -30,14 +30,10 @@ func TestTUIStaysOnApplicationBoundary(t *testing.T) {
 			if !strings.HasPrefix(path, seelexModulePrefix) {
 				continue
 			}
-			if path == "github.com/RedHuang-0622/seelex/application" ||
-				path == "github.com/RedHuang-0622/seelex/contract" ||
+			if path == "github.com/RedHuang-0622/seelex/contract" ||
 				strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/contract/") ||
+				strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/application/") ||
 				strings.HasPrefix(path, "github.com/RedHuang-0622/seelex/tui/") {
-				continue
-			}
-			if strings.HasSuffix(entry.Name(), "_test.go") &&
-				path == "github.com/RedHuang-0622/seelex/wiring" {
 				continue
 			}
 			t.Errorf("tui/%s 绕过 Application 边界直接依赖 %s", entry.Name(), path)

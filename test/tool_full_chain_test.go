@@ -7,16 +7,17 @@ import (
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
 	applicationassembly "github.com/RedHuang-0622/seelex/application/assembly"
+	assembly "github.com/RedHuang-0622/seelex/application/assembly"
+	event "github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	host "github.com/RedHuang-0622/seelex/internal/host"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
-	"github.com/RedHuang-0622/seelex/wiring"
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -239,7 +240,7 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	originalStorePath := launchFlags.StorePath
 	launchFlags.StorePath = filepath.Join(projectRoot, "sessions")
 	t.Cleanup(func() { launchFlags.StorePath = originalStorePath })
-	st, err := bootstrap.InitStore(launchFlags.StorePath)
+	st, err := boot.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,28 +257,28 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	runtimeBridge.AttachSubSessionStore(store.NewNodeSessionStore(st))
 	runtimeBridge.SetEventPersister(store.NewEventStore(st).Append)
 
-	skills := bootstrap.InitSkillSystem()
-	plugins, _, err := bootstrap.InitPluginSystem(runtimeBridge, skills, launchFlags.PluginsPaths)
+	skills := boot.InitSkillSystem()
+	plugins, _, err := boot.InitPluginSystem(runtimeBridge, skills, launchFlags.PluginsPaths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := wiring.NewToolHookBridge()
-	frameworkEngine, err := bootstrap.InitEngine(runtimeBridge, hooks, "")
+	hooks := assembly.NewToolHookBridge()
+	frameworkEngine, err := boot.InitEngine(runtimeBridge, hooks, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := bootstrap.ActivateDefaultPlugin(plugins, frameworkEngine); err != nil {
+	if err := boot.ActivateDefaultPlugin(plugins, frameworkEngine); err != nil {
 		t.Fatal(err)
 	}
-	appEngine := adapters.NewEnginePort(frameworkEngine, func(sessionID string) adapters.ReactorEngine {
-		fresh, createErr := bootstrap.InitEngine(runtimeBridge, hooks, sessionID)
+	appEngine := host.NewEnginePort(frameworkEngine, func(sessionID string) host.ReactorEngine {
+		fresh, createErr := boot.InitEngine(runtimeBridge, hooks, sessionID)
 		if createErr != nil {
 			return nil
 		}
 		return fresh
 	}, runtimeBridge.Tracer())
 	appEngine.EnableWorkingHistoryRelease()
-	workspaces, err := bootstrap.InitWorkspaceRepo(launchFlags.StorePath)
+	workspaces, err := boot.InitWorkspaceRepo(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,13 +291,13 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 			t.Fatalf("在 application 之前注入编排面失败: %v", err)
 		}
 	}
-	events := wiring.NewEventHub()
-	approval := wiring.NewApprovalBroker(events)
-	app, err := bootstrap.InitApplication(
+	events := event.NewEventHub()
+	approval := limitapproval.NewApprovalBroker(events)
+	app, err := boot.InitApplication(
 		appEngine,
 		runtimeBridge,
 		plugins,
-		bootstrap.InitSessionManager(st, appEngine),
+		boot.InitSessionManager(st, appEngine),
 		skills,
 		workspaces,
 		events,
@@ -307,15 +308,15 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 		t.Fatal(err)
 	}
 	// 回读类工具（read_tool_result / read_compressed_turn / search_history /
-	// compact_context）在生产里由 main.run() 经 registry.RegisterContextReadTools 登记。
+	// compact_context）在生产里由 main.run() 经 boot.RegisterContextReadTools 登记。
 	// 测试装配必须同等登记：否则模型收到「超限输入已外置，请用 read_tool_result
 	// 回读」的告示却根本没有这个工具，只能退回 bash/computer_screenshot 去找
 	// 内容——用例测到的行为与产品不一致（冒烟里模型把截图当回读入口就是这么来的）。
-	registry.RegisterContextReadTools(runtimeBridge, app)
-	// 周期提示词任务的执行器：与组合根同一份（registry.ScheduledPromptExecutor）。
+	boot.RegisterContextReadTools(runtimeBridge, app)
+	// 周期提示词任务的执行器：与组合根同一份（boot.ScheduledPromptExecutor）。
 	// 缺这一句时 scheduler 的 executor 是 nil，prompt 任务**根本创建不出来**
 	// （"提示词任务执行器未装配"），冒烟会把装配缺口误报成链子坏了。
-	runtimeBridge.SetScheduledPromptExecutor(registry.ScheduledPromptExecutor(app))
+	runtimeBridge.SetScheduledPromptExecutor(boot.ScheduledPromptExecutor(app))
 	// 收尾顺序是契约（`t.Cleanup` LIFO ⇒ 后注册的先跑），这里合成一处，不靠注册先后：
 	//
 	//  1. lifecycle.Shutdown()：取消/收口在飞的回合与派发（它也停掉"驱逐"派发）；

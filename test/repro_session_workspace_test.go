@@ -2,8 +2,8 @@ package test
 
 import (
 	"context"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/store"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -122,7 +122,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.components.Runtime.Lifecycle.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	st, err := bootstrap.InitStore(launchFlags.StorePath)
+	st, err := boot.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}

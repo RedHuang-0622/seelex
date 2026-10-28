@@ -729,6 +729,15 @@ func BoundConversationHead(messages []model.Message, window int) []model.Message
 	return protocol.BoundConversationHead(messages, window)
 }
 
+// TaskScope 是「读哪个会话的任务注册表」的唯一判据（看板读面与打点块同源）：
+// 空 scope 与视图会话都读活跃注册表（返回 ""），其它会话读各自的 scope。
+func TaskScope(sessionID, viewSessionID string) string {
+	if sessionID == "" || sessionID == viewSessionID {
+		return ""
+	}
+	return sessionID
+}
+
 // BumpLocked 递增快照修订号。
 func (c *Coordinator) BumpLocked() uint64 {
 	c.Snapshot.Revision++

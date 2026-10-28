@@ -28,7 +28,7 @@ package board
 //
 // 未新写第二份状态判定（"交付列复用清单"，一句话：本文件里没有任何一处是在**解释**状态）：
 //   buildWorkTable            application/assembly/work_table.go:30   活体 work 行（唯一实现）
-//   taskRecordsForSession     application/assembly/project_board.go   按会话取 task 注册表快照（与打点块同源）
+//   taskRecordsForSession     application/session/viewstate.TaskScope   按会话取 task 注册表快照的 scope 判据（与打点块同源）
 //   TeamworkPlan.Milestones   store/teamwork.go:98         里程碑与工作项的唯一事实源
 //   TeamworkState.Milestones  store/teamwork.go:151        里程碑运行态（优先读法）
 //   TeamworkState.State       store/teamwork.go:167        整队收口（空 = 未收口）

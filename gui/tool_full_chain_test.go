@@ -10,12 +10,20 @@ import (
 	frameworksession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/assembly"
+	"github.com/RedHuang-0622/seelex/application/event"
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	applicationreview "github.com/RedHuang-0622/seelex/application/review"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	inputrouter "github.com/RedHuang-0622/seelex/backend/engine/input"
+	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	reviewtool "github.com/RedHuang-0622/seelex/backend/tool/review"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/host"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
-	"github.com/RedHuang-0622/seelex/wiring"
+	middlehistory "github.com/RedHuang-0622/seelex/middle/switch/history"
 )
 
 type guiChainEngine struct {
@@ -240,18 +248,56 @@ func (*guiChainSessions) LoadHistoryRange(string, int, int) ([]application.Engin
 func (*guiChainSessions) SetWorkspace(string) {}
 func (*guiChainSessions) Workspace() string   { return "" }
 
+// guiChainExternalPorts 是 gui 测试包自己的端口表：生产装配表在 boot，而 boot
+// 反过来 import gui，包内测试不能引用它，因此这里按 owner 直接构造同一组实现。
+func guiChainExternalPorts(runtime contract.RuntimePort) assembly.ExternalPorts {
+	return assembly.ExternalPorts{
+		HistoryWindow:      middlehistory.Assembler{},
+		Residency:          host.NewResidencyPort(),
+		ConversationStream: host.NewConversationStreamPort(),
+		AccountWindow:      host.NewAccountWindowPolicy(),
+		SkillActivation:    host.NewSkillActivationPort(),
+		SessionRecords:     host.NewSessionRecordsPort(),
+		ErrorPresentation:  host.NewErrorPresentationPort(),
+		ApprovalFactory: func(events event.Hub) contract.ApprovalBroker {
+			return limitapproval.NewApprovalBroker(events)
+		},
+		CommandRegistry: func() contract.CommandRegistryPort {
+			return inputrouter.NewCommandRegistry()
+		},
+		InputRouter: func(handlers contract.InputRouteHandlers) contract.InputDispatcher {
+			return inputrouter.NewRouter(inputrouter.RouteHandlers{
+				Command:      handlers.Command,
+				Plugin:       handlers.Plugin,
+				Skill:        handlers.Skill,
+				Conversation: handlers.Conversation,
+			})
+		},
+		RoleSessions: host.NewRoleSessionsFactory(),
+		TeamworkBoardReader: func(runtime contract.RuntimePort) applicationexecution.BoardReader {
+			return teamwork.NewBoardReader(runtime)
+		},
+		HostSessionForToolCall: assemble.HostSessionForToolCall,
+		Goal:                   host.NewGoalCoordinator(runtime),
+		ReviewProcessor: func(owner applicationreview.Host) applicationreview.RequestProcessor {
+			return reviewtool.NewRequests(owner)
+		},
+	}
+}
+
 // newGUIChainApplication 返回一条真实流水线、按同一份 owner 绑好的 GUI 依赖表
 // 与审批端口。
 func newGUIChainApplication(t *testing.T) (*assembly.Service, Dependencies, application.ApprovalBroker) {
 	t.Helper()
-	events := wiring.NewEventHub()
-	approval := wiring.NewApprovalBroker(events)
-	hooks := wiring.NewToolHookBridge()
+	events := event.NewEventHub()
+	approval := limitapproval.NewApprovalBroker(events)
+	hooks := assembly.NewToolHookBridge()
 	engine := &guiChainEngine{hooks: hooks.Hooks()}
-	app, err := wiring.New(application.Dependencies{
-		Engine: engine, Runtime: &guiChainRuntime{}, Plugins: &guiChainPlugins{},
+	runtime := &guiChainRuntime{}
+	app, err := assembly.New(application.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &guiChainPlugins{},
 		Skills: &guiChainSkills{}, Sessions: &guiChainSessions{}, Events: events, Approval: approval,
-	})
+	}, guiChainExternalPorts(runtime))
 	if err != nil {
 		t.Fatal(err)
 	}

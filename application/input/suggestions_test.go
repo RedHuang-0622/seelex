@@ -51,3 +51,29 @@ func TestParsePreservesSigilOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestSuggestionsExcludeModelSideToolsFromExecutablePanel(t *testing.T) {
+	application := New(Deps{
+		CommandSuggestions: func() []Suggestion {
+			return []Suggestion{
+				{Text: "compact", Kind: SuggestionKindCommand},
+				{Text: "help", Kind: SuggestionKindCommand},
+			}
+		},
+		SkillSuggestions: func() []Suggestion {
+			return []Suggestion{{Text: "review", Kind: SuggestionKindSkill}}
+		},
+		HasVisibleTool: func(name string) bool {
+			return name == "compact_context" || name == "read"
+		},
+	})
+
+	for _, suggestion := range application.Suggestions("/") {
+		if suggestion.Text == "compact_context" || suggestion.Text == "read" {
+			t.Fatalf("模型侧工具进入了可执行面板：%+v", suggestion)
+		}
+		if suggestion.Kind != SuggestionKindCommand && suggestion.Kind != SuggestionKindSkill {
+			t.Fatalf("不可执行域进入可执行面板：%+v", suggestion)
+		}
+	}
+}

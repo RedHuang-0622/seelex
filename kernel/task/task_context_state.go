@@ -668,10 +668,11 @@ func (c *Coordinator) _RecordToolTranscriptLocked(sessionID, name, fallbackID, a
 		resultRef = stored.Ref
 		content = c.oversizedWarning(name, resultRef)
 		// wire 上框架 ToolResultProcessor 用的是内存归档器的引用形状
-		// （"result:<callID>"）；记录侧归档引用是 "tr-<digest>"。两者只差引用，
-		// 文本其余部分同款（见 seelexctx/processor.go OversizedToolResultWarning
-		// 与框架 session/loop.go 的 toolResultProcessor.Process 调用）。
-		providerContent = c.oversizedWarning(name, wireToolResultRefPrefix+callID)
+		// （model.WireToolResultRef(callID)）；记录侧归档引用是 "tr-<digest>"。
+		// 两者只差引用，文本其余部分同款（见 seelexctx/processor.go
+		// OversizedToolResultWarning 与框架 session/loop.go 的
+		// toolResultProcessor.Process 调用）。两者都必须如实保存，不能合并。
+		providerContent = c.oversizedWarning(name, model.WireToolResultRef(callID))
 		st.resultRefsByToolCallID[callID] = resultRef
 	}
 	c.appendTranscriptEventLocked(st, model.TranscriptEvent{
@@ -680,14 +681,6 @@ func (c *Coordinator) _RecordToolTranscriptLocked(sessionID, name, fallbackID, a
 	})
 	return content, resultRef
 }
-
-// wireToolResultRefPrefix 是框架 ToolResultProcessor 产出引用（
-// seelexctx.InMemoryToolResultArchiver）与模型自造引用共用的 "result:" 前缀；
-// 应用侧 read_tool_result 的别名解析（Service.resolveToolResultRefAlias）
-// 也按它把 result:call_<callID> 映射回归档引用。超限工具结果的 wire 正文里
-// 带的是这个引用，记录侧呈现文本里带的是归档引用（tr-<digest>）——两者都必须
-// 如实保存，不能合并。
-const wireToolResultRefPrefix = "result:"
 
 // frameworkToolErrorContent 返回框架在 wire 上为**失败工具**发出的正文：
 // `{"error": %q}`。框架 `session/loop.go` 在 OnToolComplete 之后执行
@@ -1448,6 +1441,38 @@ func (c *Coordinator) ToolResultRefByCallIDFor(sessionID, callID string) string 
 
 func (c *Coordinator) _ToolResultRefByCallIDFor(sessionID, callID string) string {
 	return c.sessionStateLocked(sessionID).resultRefsByToolCallID[callID]
+}
+
+// HasToolResultRef 报告活跃会话内存归档里是否存在该引用。
+func (c *Coordinator) HasToolResultRef(resultRef string) bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._HasToolResultRef(resultRef)
+}
+
+func (c *Coordinator) _HasToolResultRef(resultRef string) bool {
+	for _, ref := range c.activeSessionLocked().toolResultRefs {
+		if ref.Ref == resultRef {
+			return true
+		}
+	}
+	return false
+}
+
+// HasToolResultRefFor 是 HasToolResultRef 的指定会话版本。
+func (c *Coordinator) HasToolResultRefFor(sessionID, resultRef string) bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._HasToolResultRefFor(sessionID, resultRef)
+}
+
+func (c *Coordinator) _HasToolResultRefFor(sessionID, resultRef string) bool {
+	for _, ref := range c.sessionStateLocked(sessionID).toolResultRefs {
+		if ref.Ref == resultRef {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Coordinator) CurrentRequestIDFor(sessionID string) string {

@@ -1,6 +1,7 @@
 package test
 
 import (
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/kernel/board"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
@@ -14,7 +15,6 @@ import (
 	//     投影真的落到 `<项目根>/.seelex/board/` 里（**数据根下一份都不落**），未命中的工具
 	//     一行都不写，Close 可重入。
 	"github.com/RedHuang-0622/seelex/store"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -124,12 +124,12 @@ func TestProjectBoardDisabledInjectsNothing(t *testing.T) {
 	router, dataRoot, projectRoot := projectBoardWiringStore(t)
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
-	sink, closeSink, err := registry.ProjectBoardSinkFor(
+	sink, closeSink, err := boot.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: false, Hook: "", FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor, func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
-		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
+		t.Fatalf("boot.ProjectBoardSinkFor: %v", err)
 	}
 	if sink != nil {
 		t.Fatal("enabled=false 必须不返回订阅口（关就是关）")
@@ -148,7 +148,7 @@ func TestProjectBoardRejectsUnknownHook(t *testing.T) {
 	router, _, projectRoot := projectBoardWiringStore(t)
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
-	sink, closeSink, err := registry.ProjectBoardSinkFor(
+	sink, closeSink, err := boot.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: true, Hook: "todo-list", FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor, func() int { return limit.Get().EvidenceChars },
 	)
@@ -165,7 +165,7 @@ func TestProjectBoardRejectsUnknownHook(t *testing.T) {
 
 	// 空串 = 未配置 ⇒ 缺省档 todo_list（与出厂档一致）。
 	for _, hook := range []string{"", " todo_list ", "TOOL_COMPLETE"} {
-		if _, closeIdle, err := registry.ProjectBoardSinkFor(
+		if _, closeIdle, err := boot.ProjectBoardSinkFor(
 			limit.ProjectBoardLimits{Enabled: true, Hook: hook, FlushIdleMS: 20},
 			router, rows, plan, state, projectRootFor, func() int { return limit.Get().EvidenceChars },
 		); err != nil {
@@ -182,12 +182,12 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 	router, dataRoot, projectRoot := projectBoardWiringStore(t)
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
-	sink, closeSink, err := registry.ProjectBoardSinkFor(
+	sink, closeSink, err := boot.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: true, Hook: board.ProjectBoardHookModeTodoList, FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor, func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
-		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
+		t.Fatalf("boot.ProjectBoardSinkFor: %v", err)
 	}
 
 	// ① 未命中触发面（read_file 不在 todo_list 档）：一行都不写。

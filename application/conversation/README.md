@@ -27,6 +27,14 @@
 
 - `queue.go`：`QueueUnit`、`QueueDeps`、`QueueApplication`；拥有 queue edit、
   enqueue/durable mirror、recovery 回填和 recovered batch 合并。
+- `submission.go`：`SubmissionApplication`；拥有一次输入到 Request/Budget、
+  当前 draft materialization 与显式后台 session 提交的边界。
+- `turn_start.go`：`TurnStartApplication`；唯一拥有 restoring/compacting 延后、
+  running 入队、恢复队列排空、turn 起点投影与启动发布顺序。
+- `turn_budget.go`：`TurnBudgetFinalizerApplication`；唯一定义预算耗尽后的
+  text-only `+1` 收尾输入并编排 prepare/stream/cleanup。
+- `turn_error.go`：`TurnErrorApplication`；按权威 Task 状态分类取消、provider
+  中断和未验证失败。
 - `turn_state.go`：ChatState 转换规则。
 - `request.go`：不可变 ChatRequest 与批次合成。
 - `turn_input.go`：prompt/context 准备与输入归一。
@@ -74,6 +82,7 @@ revision，再解锁发布。关闭/排空错误保持原语义。
 
 ```text
 go test ./application/conversation -count=1
+go test ./application/conversation -run 'Test(TurnStartApplication|ConversationSubmission|TurnBudget|TurnErrorApplication)' -count=1
 go test ./application/assembly -run 'Queue|QueueComponent|ReorderQueuedInput|RecallQueuedInput' -count=1
 go test ./application/... -count=1
 ```

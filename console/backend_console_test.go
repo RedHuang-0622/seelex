@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/event"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 type backendConsoleFake struct {
@@ -38,7 +38,7 @@ func (fake *backendWorkspaceFake) BindWorkspace(workspaceID string) error {
 }
 
 func newBackendConsoleFake() *backendConsoleFake {
-	return &backendConsoleFake{hub: wiring.NewEventHub()}
+	return &backendConsoleFake{hub: event.NewEventHub()}
 }
 
 func (fake *backendConsoleFake) Submit(_ context.Context, text string) error {

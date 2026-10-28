@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,8 +52,8 @@ mcp_servers: []
 		t.Fatal(err)
 	}
 
-	// 插件根不再是"空着也能启动"的地方：零插件在启动期显式报错（wiring/bootstrap 的
-	// config.RequirePlugins）。这里先给临时根放一个最小插件，代表"发行包自带 plugins/"，
+	// 插件根不再是"空着也能启动"的地方：零插件在启动期显式报错（boot 的
+	// startup.RequirePlugins）。这里先给临时根放一个最小插件，代表"发行包自带 plugins/"，
 	// 再走自迭代闭环（plugin_create → plugins_reload 看到新增）。
 	seedDir := filepath.Join(launchFlags.PluginsPaths, "seed")
 	if err := os.MkdirAll(seedDir, 0o755); err != nil {
@@ -74,12 +73,12 @@ mcp_servers: []
 		t.Fatalf("NewRuntime: %v", err)
 	}
 	defer runtime.Shutdown()
-	skills := bootstrap.InitSkillSystem()
-	plugins, _, err := bootstrap.InitPluginSystem(runtime, skills, launchFlags.PluginsPaths)
+	skills := boot.InitSkillSystem()
+	plugins, _, err := boot.InitPluginSystem(runtime, skills, launchFlags.PluginsPaths)
 	if err != nil {
-		t.Fatalf("bootstrap.InitPluginSystem: %v", err)
+		t.Fatalf("boot.InitPluginSystem: %v", err)
 	}
-	registry.RegisterPluginSelfTools(runtime, plugins)
+	boot.RegisterPluginSelfTools(runtime, plugins)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

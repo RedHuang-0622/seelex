@@ -2,7 +2,7 @@ package test
 
 import (
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
-	"github.com/RedHuang-0622/seelex/wiring/config"
+	startup "github.com/RedHuang-0622/seelex/internal/startup"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +14,7 @@ import (
 
 func TestPluginRootChainOrderAndDedup(t *testing.T) {
 	exe := filepath.Join("bin", "seelex.exe")
-	got := config.PluginRootChain("a, b ,a", "c", exe)
+	got := startup.PluginRootChain("a, b ,a", "c", exe)
 	want := []string{
 		"a", "b", "c",
 		filepath.Join("bin", "plugins"),
@@ -36,7 +36,7 @@ func TestPluginRootChainOrderAndDedup(t *testing.T) {
 
 func TestPluginRootChainWithoutFlagFallsBackToExeThenCwd(t *testing.T) {
 	exe := filepath.Join(string(filepath.Separator), "app", "bin", "seelex")
-	got := config.PluginRootChain("", "", exe)
+	got := startup.PluginRootChain("", "", exe)
 	want := []string{
 		filepath.Join(string(filepath.Separator), "app", "bin", "plugins"),
 		filepath.Join(string(filepath.Separator), "app", "plugins"),
@@ -47,7 +47,7 @@ func TestPluginRootChainWithoutFlagFallsBackToExeThenCwd(t *testing.T) {
 	}
 
 	// 重复根只留一份：CWD 就是二进制所在目录时，<exe>/../plugins 与收尾的 plugins 是同一个。
-	deduped := config.PluginRootChain("plugins", "", filepath.Join("plugins", "seelex.exe"))
+	deduped := startup.PluginRootChain("plugins", "", filepath.Join("plugins", "seelex.exe"))
 	if len(deduped) != 2 {
 		t.Fatalf("deduped chain = %v, want 2 entries", deduped)
 	}
@@ -64,7 +64,7 @@ func TestPluginRootsUsesFlagThenEnvThenCwd(t *testing.T) {
 
 	t.Setenv("SEELEX_PLUGINS", filepath.Join("env", "plugins"))
 	launchFlags.PluginsPaths = filepath.Join("flag", "plugins")
-	roots := config.PluginRoots(launchFlags.PluginsPaths)
+	roots := startup.PluginRoots(launchFlags.PluginsPaths)
 	if len(roots) == 0 || roots[0] != filepath.Join("flag", "plugins") {
 		t.Fatalf("roots = %v, want the flag root first", roots)
 	}
@@ -77,18 +77,18 @@ func TestPluginRootsUsesFlagThenEnvThenCwd(t *testing.T) {
 
 	// 旗标为空时链首落到环境变量（defer 恢复见上）。
 	launchFlags.PluginsPaths = ""
-	if roots := config.PluginRoots(launchFlags.PluginsPaths); roots[0] != filepath.Join("env", "plugins") {
+	if roots := startup.PluginRoots(launchFlags.PluginsPaths); roots[0] != filepath.Join("env", "plugins") {
 		t.Fatalf("roots = %v, want $SEELEX_PLUGINS first when -plugins is empty", roots)
 	}
 }
 
 func TestRequirePluginsIsExplicitAboutZeroPlugins(t *testing.T) {
 	loaded := []plugin.Plugin{{Name: "default"}}
-	if err := config.RequirePlugins([]string{"plugins"}, loaded); err != nil {
+	if err := startup.RequirePlugins([]string{"plugins"}, loaded); err != nil {
 		t.Fatalf("non-empty plugin set must pass: %v", err)
 	}
 
-	err := config.RequirePlugins([]string{"a/plugins", "b/plugins"}, nil)
+	err := startup.RequirePlugins([]string{"a/plugins", "b/plugins"}, nil)
 	if err == nil {
 		t.Fatal("zero plugins must be an explicit error, not a silent downgrade")
 	}
@@ -99,21 +99,21 @@ func TestRequirePluginsIsExplicitAboutZeroPlugins(t *testing.T) {
 		}
 	}
 
-	if err := config.RequirePlugins(nil, nil); err == nil || !strings.Contains(err.Error(), "责任链为空") {
+	if err := startup.RequirePlugins(nil, nil); err == nil || !strings.Contains(err.Error(), "责任链为空") {
 		t.Fatalf("empty chain error = %v, want it to spell out that nothing was tried", err)
 	}
 }
 
 // TestPluginRootChainIsTheOnlySourceOfLoaderRoots 钉住"根解析只有一条路"：全仓生产代码里
-// 拼插件根的地方只有 wiring/config/plugins.go 一处。旧口径在组合根里直接
+// 拼插件根的地方只有 internal/startup/plugins.go 一处。旧口径在组合根里直接
 // `splitPaths(*pluginsPaths)`，于是发行包旁边的 plugins/ 是死的。
 //
 // 判据从"某个文件里没有某个字符串"升级成"**调用点只有一处**"：搬迁之后陈旧写法会跟着
 // 代码换文件，只有数调用点才钉得住。
 func TestPluginRootChainIsTheOnlySourceOfLoaderRoots(t *testing.T) {
-	// M5-S3 之后装配段在 wiring/bootstrap：loader 在那里用责任链解析出的 roots 构造，
+	// 装配段在 boot：loader 在那里用责任链解析出的 roots 构造，
 	// 而“-plugins 的值不许被别处自己拼”这条判据仍由下面的调用点计数来钉。
-	source, err := os.ReadFile(filepath.Join("wiring", "bootstrap", "plugins.go"))
+	source, err := os.ReadFile(filepath.Join("boot", "engine_plugins.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +121,11 @@ func TestPluginRootChainIsTheOnlySourceOfLoaderRoots(t *testing.T) {
 	if !strings.Contains(text, "plugin.NewLoader(roots...)") {
 		t.Fatal("InitPluginSystem 应当用责任链解析出的 roots 构造 loader")
 	}
-	if !strings.Contains(text, "config.PluginRoots(pluginsPaths)") {
-		t.Fatal("装配段必须把 -plugins 交给 config.PluginRoots 解析（自己拼根会让链上其余根变死）")
+	if !strings.Contains(text, "startup.PluginRoots(pluginsPaths)") {
+		t.Fatal("装配段必须把 -plugins 交给 startup.PluginRoots 解析（自己拼根会让链上其余根变死）")
 	}
 
-	const want = "wiring/config/plugins.go"
+	const want = "internal/startup/plugins.go"
 	var callers []string
 	err = filepath.WalkDir(".", func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {

@@ -10,8 +10,10 @@ import (
 	applicationassembly "github.com/RedHuang-0622/seelex/application/assembly"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	"github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/kernel/event"
 )
 
 func NewHarnessRunner(value Scenario) (*Runner, error) {
@@ -28,19 +30,19 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}
-	events := wiring.NewEventHub()
-	approvals := wiring.NewApprovalBroker(events)
-	hookBridge := wiring.NewToolHookBridge()
+	events := event.NewEventHub()
+	approvals := limitapproval.NewApprovalBroker(events)
+	hookBridge := applicationassembly.NewToolHookBridge()
 	tools := &applicationToolLifecycle{hooks: hookBridge.Hooks()}
 	scriptedEngine := NewScriptedEngine(value.EngineScript, tools, approvals)
 	scriptedEngine.SetSessionID(initialSessionID(value))
 	plugin := initialPlugin(value)
-	service, err := wiring.New(application.Dependencies{
+	service, err := applicationassembly.New(application.Dependencies{
 		Engine: scriptedEngine, Runtime: harnessRuntime{plugin: plugin},
 		Plugins: &harnessPlugins{current: application.PluginInfo{Name: plugin}},
 		Skills:  harnessSkills{}, Sessions: &harnessSessions{},
 		Events: events, Approval: approvals,
-	})
+	}, boot.ServicePorts(harnessRuntime{plugin: plugin}))
 	if err != nil {
 		return nil, fmt.Errorf("initialize application harness: %w", err)
 	}

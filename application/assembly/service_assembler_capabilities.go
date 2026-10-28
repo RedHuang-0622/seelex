@@ -86,7 +86,7 @@ func (service *Service) assembleAsyncCompletionApplication() {
 		},
 		SessionIdle: service.sessionIdleForAsyncTrigger,
 		SubmitConversation: func(ctx context.Context, sessionID, input string) error {
-			return service.submitConversationFor(ctx, sessionID, input)
+			return service.components.conversationTurn.submission.SubmitFor(ctx, sessionID, input)
 		},
 		EvidenceChars: func() int { return applicationpolicy.Get().EvidenceChars },
 	})
@@ -185,10 +185,15 @@ func (service *Service) assembleReferenceApplication() {
 			defer service.ViewMu.RUnlock()
 			return service.nodeToolResult(nodeID, ref)
 		},
-		ResolveAlias: service.resolveToolResultRefAlias,
+		CallIDAlias: func(callID string) (string, bool) {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			archivedRef := service.components.tasks.ToolResultRefByCallID(callID)
+			return archivedRef, archivedRef != ""
+		},
 		ResolveResult: func(ref string) (model.StoredToolResult, bool, error) {
 			service.ViewMu.RLock()
-			if !service.hasToolResultRefLocked(ref) {
+			if !service.components.tasks.HasToolResultRef(ref) {
 				service.ViewMu.RUnlock()
 				return model.StoredToolResult{}, false, nil
 			}

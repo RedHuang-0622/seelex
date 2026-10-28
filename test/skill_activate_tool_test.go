@@ -4,8 +4,7 @@ import (
 	"context"
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
-	"github.com/RedHuang-0622/seelex/wiring/registry"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,9 +43,9 @@ mcp_servers: []
 		t.Fatalf("NewRuntime: %v", err)
 	}
 	t.Cleanup(runtime.Shutdown)
-	skills := bootstrap.InitSkillSystem()
+	skills := boot.InitSkillSystem()
 	var activated []string
-	registry.RegisterSkillActivateTool(runtime, skills, func(name string) (skill.Skill, error) {
+	boot.RegisterSkillActivateTool(runtime, skills, func(name string) (skill.Skill, error) {
 		activated = append(activated, name)
 		if name != "s1" && name != "s2" && name != "s3" {
 			return skill.Skill{}, os.ErrNotExist

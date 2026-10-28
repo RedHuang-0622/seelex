@@ -71,42 +71,68 @@ go test ./contract -run 'TestBM00' -count=1
 
 ## 文件与函数索引
 
-### state.go
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-- `func ExplicitCompactionOrigin(origin string) bool` — 判定压缩来源是否为显式请求。
-- `func CompactionRangeLabel(messageFrom, messageTo string, eventFrom, eventTo uint64) string` — 渲染压缩区间。
-- `func CloneWorkItems(items []WorkItem) []WorkItem` — 深拷贝工作表格行。
-- `func CloneSnapshot(snapshot Snapshot) Snapshot` — 深拷贝完整 Snapshot。
-- `func CloneSessionForkRef(ref *SessionForkRef) *SessionForkRef` — 深拷贝会话血缘。
-- `func CloneRuntimeState(runtime RuntimeState) RuntimeState` — 深拷贝 Runtime 投影。
-- `func CloneTeamworkBoardView(view *dto.TeamworkBoardView) *dto.TeamworkBoardView` — 深拷贝团队看板。
-- `func CloneWorkTableBatches(batches []WorkTableBatch) []WorkTableBatch` — 深拷贝批次头。
+### conversation_window.go
 
-### context.go
+- `func DurableConversationCount(messages []Message) int` — DurableConversationCount returns the number of visible rows that participate
+- `func BoundConversationTail(messages []Message, window int) []Message` — BoundConversationTail keeps the tail window with system and durable rows
+- `func BoundConversationHead(messages []Message, window int) []Message` — BoundConversationHead keeps the head window with system and durable rows
 
-- 本文件只声明 Task context、transcript、token audit 与 active skill 值类型。
+### conversation_window_test.go
 
-### fork.go
-
-- 本文件只声明 fork 请求、结果、切点与会话血缘值类型。
+- `func TestConversationWindowKeepsSystemAndDurableRowsSeparately(t *testing.T)`
 
 ### event_units.go
 
-- `func CompleteEventUnits(events []TranscriptEvent) [][]TranscriptEvent` — 把事件流切成完整或开放的协议轮次。
-- `func EventParagraphs(events []TranscriptEvent) []EventParagraph` — 从协议轮次派生含端点的事件段落。
-- `func ParagraphEnd(events []TranscriptEvent, seq uint64) (uint64, bool)` — 返回包含指定事件序号的段落末端。
-- `func IsParagraphBoundary(events []TranscriptEvent, seq uint64) bool` — 判断事件序号是否落在段落边界。
+- `func CompleteEventUnits(events []TranscriptEvent) [][]TranscriptEvent` — CompleteEventUnits splits a transcript into visible protocol units: user
+- `func EventParagraphs(events []TranscriptEvent) []EventParagraph` — EventParagraphs derives paragraph boundaries from CompleteEventUnits.
+- `func ParagraphEnd(events []TranscriptEvent, seq uint64) (uint64, bool)` — ParagraphEnd returns the inclusive end of the paragraph containing seq.
+- `func IsParagraphBoundary(events []TranscriptEvent, seq uint64) bool` — IsParagraphBoundary reports whether seq ends a complete paragraph.
+- `func userEventUnit(events []TranscriptEvent, start int) ([]TranscriptEvent, int)`
+- `func toolEventUnit(events []TranscriptEvent, start int) ([]TranscriptEvent, int, bool)`
 
-### session_input_index.go
+### state.go
 
-- 本文件只声明会话输入索引、窗口与行投影。
+- `func ExplicitCompactionOrigin(origin string) bool` — ExplicitCompactionOrigin 报告该来源是否为显式要求（用户 /compact 或模型
+- `func CompactionRangeLabel(messageFrom, messageTo string, eventFrom, eventTo uint64) string` — CompactionRangeLabel 把压缩区间（消息号 + transcript 事件序号）渲染成一句
+- `func messageRangeLabel(from, to string) string` — messageRangeLabel 渲染消息号区间：单号不写 `..`，只有一端就只写一端。
+- `func CloneWorkItems(items []WorkItem) []WorkItem` — CloneWorkItems 返回工作表格行的深拷贝（并发读者安全；供快照克隆与事件发布）。
+- `func CloneSnapshot(snapshot Snapshot) Snapshot` — CloneSnapshot returns an independent copy suitable for concurrent readers.
+- `func CloneSessionForkRef(ref *SessionForkRef) *SessionForkRef` — CloneSessionForkRef 返回会话血缘的独立副本。
+- `func CloneRuntimeState(runtime RuntimeState) RuntimeState` — CloneRuntimeState returns an independent copy of mutable runtime slices.
+- `func CloneTeamworkBoardView(view *dto.TeamworkBoardView) *dto.TeamworkBoardView` — CloneTeamworkBoardView 深拷贝团队看板投影：切片**与元素内嵌的切片**都要独立。
+- `func CloneWorkTableBatches(batches []WorkTableBatch) []WorkTableBatch` — CloneWorkTableBatches 深拷贝批次头（Counts map 必须独立，避免并发读者
+- `func cloneSubAgentTree(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode` — cloneSubAgentTree 深拷贝子代理树投影（快照克隆不改旧快照的契约）。
+- `func clonePlanNodes(nodes []PlanNode) []PlanNode`
+
+### tool_result_page.go
+
+- `func WireToolResultRef(callID string) string` — WireToolResultRef 由工具调用 ID 构造 wire 结果引用。
+- `func WireToolResultCallID(ref string) (string, bool)` — WireToolResultCallID 解析 wire 结果引用；非 wire 形状或空调用 ID 一律返回 false，
+- `func NodeResultRef(ref string) (string, bool)` — NodeResultRef parses a `node:<nodeID>:...` subagent result reference.
+- `func BuildPage(result StoredToolResult, offset, limit int, contains string) ToolResultPage` — BuildPage applies contains filtering, byte pagination and UTF-8 boundary
+- `func EncodePage(result StoredToolResult, offset, limit int, contains string) (string, error)` — EncodePage keeps the model-facing read_tool_result JSON shape.
+- `func utf8Start(value string, index int) int`
+- `func utf8End(value string, index int) int`
+
+### tool_result_page_test.go
+
+- `func TestWireToolResultRefRoundTripsThroughCallID(t *testing.T)`
+- `func TestWireToolResultCallIDRejectsNonWireShape(t *testing.T)`
 
 ### toolcall_status_record.go
 
-- `func ToolCallStatusOfRecord(word string) dto.ToolEventStatus` — 把存档词折成工具事件枚举。
-- `func (c *ToolCall) UnmarshalJSON(data []byte) error` — 按存兼容词表读取工具调用。
+- `func ToolCallStatusOfRecord(word string) dto.ToolEventStatus` — ToolCallStatusOfRecord 是"工具调用视图词"这一格在**记录/边界那一侧**的唯一转换点：
+- `func (c *ToolCall) UnmarshalJSON(data []byte) error` — UnmarshalJSON 是这一格的落盘读法：`status` 按**词**读，经 ToolCallStatusOfRecord 折一次；
 
 ### visible_output.go
 
-- `func NewVisibleOutputStream(requestID string) *VisibleOutputStream` — 构造按请求累积的可见输出流。
-- `func StripThoughtBlocks(value string) string` — 从完整文本中剥离 think 块。
+- `func NewVisibleOutputStream(requestID string) *VisibleOutputStream`
+- `func (stream *VisibleOutputStream) RequestID() string` — RequestID 返回该输出流绑定的请求 ID（跨包只读访问）。
+- `func (stream *VisibleOutputStream) Text() string` — Text 返回本请求已累积的可见正文（空串 = 还没有可见正文）。
+- `func (stream *VisibleOutputStream) Consume(chunk string) string`
+- `func (stream *VisibleOutputStream) filter(chunk string) string` — filter 是 think 块过滤本体：返回本分片里真正可见的正文。
+- `func StripThoughtBlocks(value string) string`
+- `func trailingTagPrefix(value, tag string) string`

@@ -14,7 +14,7 @@ func newConversationTurnState() *conversationTurnState {
 		TurnStateApplication: applicationconversation.NewTurnState(),
 		RequestApplication: applicationconversation.NewRequestApplication(applicationconversation.RequestDeps{
 			ParseModelEnvelope: parseModelEnvelope,
-			WrapModelInput:     wrapModelInput,
+			WrapModelInput:     WrapModelInput,
 		}),
 	}
 }

@@ -41,6 +41,8 @@ Middle 只提供纯切换、历史和驻留策略。
 - `draft_submission.go`：未物化草稿的显式提交激活。
 - `draft_entry.go`：`/new` 的旧会话保存、清理与 draft shell 安装。
 - `draft_materialization.go`：首请求物化、标题、commit 与发布顺序。
+- `attach.go`：`AttachApplication`，唯一拥有 hot attach 的锁外准备、锁内会话投影
+  与锁外发布顺序；冷恢复和草稿物化继续共享同一把过渡锁及 `ViewMu → Unit` 锁序。
 - `resume.go`：hot/restoring/cold 会话选择分支。
 - `restore_recovery.go`：冷恢复失败回退与 fresh draft reset。
 - `fork_lineage.go`：只读取 `forked_from` 的窄 JSON 投影并安全解码，不依赖 Store 载荷类型。
@@ -49,12 +51,19 @@ Middle 只提供纯切换、历史和驻留策略。
 - `restoring_shell.go`：restoring 会话的 Snapshot 空壳投影。
 - `interaction.go`：`InteractionApplication`，统一 approval/session/account
   决议与失败 notice/close 顺序，不拥有 broker、Session 或 Account 状态。
+- `interaction_observer.go`：`InteractionObserverApplication`，唯一拥有审批的
+  会话归属、视图单槽镜像、待批计数与 open/close 事件顺序。
 - `meta_test.go`：组件读取与 nil 语义测试。
 - `ssh_test.go`：环境交集、固定环境与路径校验测试。
 - `release_test.go`：守卫、flush 和回收顺序测试。
 - `operations_test.go`：删除顺序、记录错误短路和工作区投影测试。
 - `orchestration_test.go`：草稿提交锁、resume 分支与恢复回退测试。
 - `draft_entry_test.go`：草稿入口保存/清理与物化顺序测试。
+- `draft_entry_behavior_external_test.go`：草稿入口 closed/draining、幂等和运行中保护。
+- `resume_component_external_test.go`：hot/restoring/cold resume 分支与失败恢复。
+- `restoring_shell_external_test.go`：restoring shell 的会话事实清理。
+- `restore_recovery_external_test.go`：stale epoch、前会话回退和 fresh draft 降级。
+- `restore_draft_reset_external_test.go`：恢复失败后的草稿重置与发布顺序。
 - `*_external_test.go`：草稿提交、物化与 fork-lineage 的 owner 外部测试。
 
 ## 核心实现

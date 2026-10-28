@@ -1,27 +1,47 @@
 # Assembly 剩余治理与 Store 衔接方案
 
 日期：2026-10-27
-状态：assembly 当前批次继续实施；store 拆分尚未编码
+状态：assembly A5.1–A7 已在 2026-10-27 当前工作树实施并通过定向验证；
+store 拆分仍未由本批次编码
 
 ## 1. 当前事实
 
 | 指标 | 当前值 |
 |---|---:|
 | `serviceComponents` 字段 | 65 |
-| assembly 生产文件 | 51 |
-| assembly 生产代码 | 6,891 行 |
-| assembly 测试文件 | 192 |
-| assembly 测试代码 | 37,382 行 |
+| assembly 生产文件 | 49 |
+| assembly 生产代码 | 6,468 行 |
+| assembly 默认套件测试文件 | 168 |
+| assembly 默认套件测试代码 | 33,697 行 |
+| assembly 全部测试文件（含 extended） | 172 |
+| assembly 全部测试代码（含 extended） | 35,473 行 |
 | 旧 Application/Assembly 宽接口与前端端口集合 | 0 |
 | 旧兼容包 / test alias / `frontendOfTestService` | 0 |
+| assembly 类型断言 | 23 |
 
 已经完成的是：旧宽接口和兼容层退场、turn/cold/edit-fork 的 builder-local
 中间件清理、若干外部端口的调用点生命周期归位，以及 owner 测试迁包。
 
-尚未完成的是：assembly 仍承载多段跨组件用例顺序与锁序；store 仍以
-`Router` / `jsonRepository` / `storeEngine` 共享 receiver 为主。
+本批次开工前，assembly 仍承载多段跨组件用例顺序与锁序；store 仍以
+`Router` / `jsonRepository` / `storeEngine` 共享 receiver 为主。后者不在
+本批次范围内。
 
-## 2. Assembly 未完成清单
+本批次闭项：
+
+- A5.1 submission / turn / budget / task error；
+- A5.2 hot-attach transition 与会话投影 UoW；
+- A5.3 approval interaction observer；
+- A5.4 tool projection、snapshot tool-result budget、Plan projection；
+- A6 可选 engine 能力适配收口；
+- A7 owner 测试迁移、extended probe 分离与预算 ratchet。
+
+逐项旧位置 → 新唯一位置与删除证据见
+[`deletion-list.md`](deletion-list.md)。
+
+## 2. Assembly 原未完成清单（本批次已关闭）
+
+以下“现状”保留开工前审计口径；交付状态以本节上方“本批次闭项”和
+`deletion-list.md` 为准。
 
 ### A5.1 Conversation submission / turn
 

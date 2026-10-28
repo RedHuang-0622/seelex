@@ -18,10 +18,3 @@ read_tool_result / read_plan 引用工具
 ### reference_tools.go
 
 - `func (service *Service) nodeToolResult(nodeID, ref string) (string, bool)` — nodeToolResult reads a subagent tool result through the Engine bridge.
-- `func (service *Service) hasToolResultRefLocked(resultRef string) bool` — hasToolResultRefLocked reports whether ref exists in the current session's
-- `func (service *Service) resolveToolResultRefAlias(ref string) string` — resolveToolResultRefAlias maps result:call_<id> to the archived tr- ref.
-
-### reference_tools_test.go
-
-- `func TestReadToolResultResolvesNodeRef(t *testing.T)` — TestReadToolResultResolvesNodeRef 验证 P1 桥：read_tool_result 对
-- `func TestReadToolResultResolvesCallAlias(t *testing.T)` — TestReadToolResultResolvesCallAlias 验证 result:call_<callID> 别名映射：

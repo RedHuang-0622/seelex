@@ -24,6 +24,10 @@ M1-A，本包从 `application/contract/` 归位到仓库顶层 `contract/`。包
 `compressed_turn.go` 定义压缩轮次归档的唯一 ToolResults ref 前缀；Application
 writer、Store 和 fork 复制共用该常量，避免字符串命名空间漂移。
 
+`engine_capabilities.go` 集中适配 routed/resident engine、session prompt、
+working-history release、activate/unload/bundle release、session-backed 与
+per-session execution 等可选能力；组合根不再各自复制 type assertion 和回退策略。
+
 `contract/protocol/event_units.go` 是完整协议轮次与段落边界的唯一实现；
 `contract/dto/queue_item.go` 是 durable queue 的只读恢复 DTO。Store 与 backend
 session 均以同身份 alias 复用，不复制 wire 字段或段落判据。
@@ -167,26 +171,48 @@ go test ./contract -run 'TestBM00' -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### architecture_test.go
+
+- `func TestBM001DependencyBudgetIsFrozen(t *testing.T)`
+- `func TestBM003AndBM004TargetEdgesAreZero(t *testing.T)`
+- `func TestBM002BackendOnlyKeepsRuntimeIntegrationToMiddle(t *testing.T)`
+- `func TestBM001FileSizeBudget(t *testing.T)`
+- `func productionImportEdges(t *testing.T, root string) importEdges`
+- `func assertEdgeBudget(t *testing.T, label string, got []string, budget map[string]string)`
+- `func productionGoFiles(t *testing.T, root string) []string`
+- `func lineCount(t *testing.T, path string) int`
+- `func repositoryRoot(t *testing.T) string`
+- `func sortedUnique(values []string) []string`
+- `func formatEdges(edges []string) string`
+
+### engine_capabilities.go
+
+- `func RoutedSessionEngine(engine ChatEngine) (SessionChatEngine, bool)` — RoutedSessionEngine returns the explicit-session engine when supported.
+- `func ResidentSessionEngineFor(engine ChatEngine) (ResidentSessionEngine, bool)` — ResidentSessionEngineFor returns the resident engine when supported.
+- `func SetSystemPromptFor(engine ChatEngine, sessionID, prompt string) bool` — SetSystemPromptFor writes a session prompt when the engine supports it.
+- `func SupportsSystemPromptFor(engine ChatEngine) bool` — SupportsSystemPromptFor reports whether session-routed prompt writes are
+- `func ReleaseWorkingHistoryFor(engine ChatEngine, sessionID string) bool` — ReleaseWorkingHistoryFor releases one session's working history.
+- `func ActivateSession(engine ChatEngine, sessionID string) (bool, error)` — ActivateSession creates the explicit engine bundle when supported.
+- `func UnloadSession(engine ChatEngine, sessionID string) (bool, error)` — UnloadSession unloads one resident session bundle when supported.
+- `func ReleaseSessionBundle(engine ChatEngine, sessionID string) bool` — ReleaseSessionBundle releases one resident engine bundle.
+- `func SessionBacked(engine ChatEngine) bool` — SessionBacked reports whether the engine owns a reentrant session-backed
+- `func PerSessionExecution(runtime RuntimePort) bool` — PerSessionExecution reports whether the host supports parallel session
+
 ### errors.go
 
 - `func IsProviderContextExhaustion(err error) bool` — IsProviderContextExhaustion 判定 provider 是否以"上下文窗口超出"为由拒绝请求。
 - `func ClassifyProviderFailure(err error) ProviderFailureKind` — ClassifyProviderFailure 按 provider 措辞把传输失败归到具体类别；无法归类返回
 
-### error_presentation.go
-
-- `type ErrorPresentationPort interface` — Chat 与 Tool 错误呈现的纯值端口；分类和文案由 Middle 唯一实现。
-
 ### retention.go
 
-- `func RetainFloorTokens(percent, budgetTokens int) int` — 计算上下文保留窗口的百分比下限；非正输入返回零。
+- `func RetainFloorTokens(percent, budgetTokens int) int` — RetainFloorTokens returns the percentage-derived lower bound of the context
 
-### input.go
+### retention_test.go
 
-- `type CommandRegistryPort interface` — 命令注册、查找与有序枚举的 Application 端口。
-- `type InputDispatcher interface` — 规范化输入分派的 Application 端口。
-- `type InputRouteHandlers struct` — 装配期注入 Backend 前缀路由的四类用例回调。
+- `func TestRetainFloorTokens(t *testing.T)`
 
-### role_sessions.go
+### runtime_migration_test.go
 
-- `type RoleSessionsPort interface` — GUI compat 消费的角色会话与定时插话窄端口。
-
+- `func TestBM005RuntimeAssemblyProductionFilesAreClassified(t *testing.T)`
+- `func TestBM005DomainPackagesDoNotImportRuntimeAssembly(t *testing.T)`
+- `func TestBM005ReviewFilesRegistrationIsOwnedByWiring(t *testing.T)`

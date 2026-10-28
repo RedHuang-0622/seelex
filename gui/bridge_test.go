@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/event"
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 type emittedEvent struct {
@@ -122,7 +122,7 @@ func (fake *recordingCancelApplication) CancelChat(requestID string) bool {
 
 func newFakeApplication() *fakeApplication {
 	return &fakeApplication{
-		hub: wiring.NewEventHub(),
+		hub: event.NewEventHub(),
 		snapshot: application.Snapshot{
 			ProtocolVersion: application.ProtocolVersion,
 			Revision:        1,

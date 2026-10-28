@@ -6,10 +6,17 @@
 
 覆盖：`tool*.go`；未归属文件由覆盖自检拦下。
 
+## 工具投影归属（A5.4）
+
+tool start/complete 的 active/background 分支、request fallback、工具消息、
+transcript、runtime 投影和发布顺序由
+`application/execution/toolhooks.ProjectionApplication` 唯一拥有。assembly 的
+`ToolHookBridge` 只完成 Seele hook DTO 与 owner 端口适配。
+
 ## 实现要点
 
-- 工具完成投影只有一条生产路径：`handleToolCompleteObserved`（`handleToolComplete`
-  是 `observe=nil` 的薄包装）。可选诊断观察者（`ToolHookBridge.SetDiagnosticObserver`）
+- 工具完成投影只有一条生产路径：`toolhooks.ProjectionApplication.Complete`。
+  可选诊断观察者（`ToolHookBridge.SetDiagnosticObserver`）
   只能**包围**阻塞边界（`toolhook.complete.lock.start/done` 等阶段打点），不改投影
   顺序、不带工具入参/输出；诊断事件是 metadata-only（`ToolHookDiagnosticEvent`）。
 - 工具启动/完成按 `(turn, name, arguments)` 键在
@@ -39,7 +46,7 @@
   `max_tool_result_chars` 约束（`tool_hooks_truncation_test.go` 两个用例各钉一端）。
 - plan 工具入参在钩子边界规范化：`normalizePlanToolCallInfo` 让应用快照与 Seele
   执行使用同一 DAG 表示；非法入参原样保留，使工具错误对用户可见。
-- 工具完成投影（`handleToolCompleteObserved`）在 `tool_result` 之后统一补一条空
+- 工具完成投影（`ProjectionApplication.Complete`）在 `tool_result` 之后统一补一条空
   assistant 占位，不区分会话是否活跃：后台会话若缺占位，后续流式正文会被
   `appendVisibleDeltaBackground` 并入工具之前的旧 assistant 空消息，热切回该
   会话时工具会“后插入”到最终回复之后（2026-09-08 修复；回归用例
@@ -100,126 +107,14 @@ assembly 兼容转发与宿主判据的边界说明。
 `application/execution/toolrecord/stage_test.go`（暂存本身）、`application/execution/subagentview/record_attribution_test.go`
 （归属与"记账先发生"）。
 
-### tool_record.go
-
-- `func (service *Service) SetToolRecordEnabled(enabled bool) (bool, error)` — 一行转发到 toolrecord 开关。
-- `func (service *Service) ApplyToolRecordEnabled(enabled bool)` — 一行转发到装配期开关。
-- `func (service *Service) ToolRecordEnabled() bool` — 一行读当前开关。
-- `func (service *Service) FlushToolRecord(sessionID string)` — 一行批量落盘。
-- `func (service *Service) toolRecordWritableSession(sessionID string) bool` — 核心宿主提供会话物化判据。
-- `func (service *Service) SetToolRecordSnapshotStore(store contract.ToolRecordSnapshotStore)` — 一行注入落盘口。
-- `func (service *Service) flushAllToolRecords()` — 一行停机兜底 flush。
-- `func (service *Service) ToolRecordBoard() dto.ToolRecordBoard` — 一行看板投影。
-- `func (service *Service) RecordToolCommandOutcome(sessionID, tool string, exitCode int)` — 一行命令面记账。
-- `func (service *Service) recordToolOutcome(sessionID, tool string, failed bool, errorText string)` — 一行主代理记账。
-
-### tool_record_test.go
-
-- `type recordingSnapshotStore struct{…}` — 落盘口替身：记下每次批量写，并能吐回一份"旧读数"。
-- `func (s *recordingSnapshotStore) SaveToolRecordSnapshot(sessionID string, snapshot dto.ToolRecordSnapshot) error` — 记下一次批量写（替身实现）。
-- `func (s *recordingSnapshotStore) LoadToolRecordSnapshot(string) (dto.ToolRecordSnapshot, bool, error)` — 数一数读回了几次（替身实现）。
-- `func (s *recordingSnapshotStore) savesSnapshot() []dto.ToolRecordSnapshot` — 取回已落盘的快照。
-- `func (s *recordingSnapshotStore) loadCount() int` — 取回读回次数。
-- `func enableToolRecord(t *testing.T, service *Service, store *recordingSnapshotStore)` — 打开开关并装上落盘口（测试装配动作）。
-- `func TestToolRecordCountsBothOutcomesAcrossFamilies(t *testing.T)` — 三条完成路径都记：成功与失败都记、running 帧不记、原因各归其格。
-- `func TestToolRecordFlushIsBatchAndIdempotent(t *testing.T)` — 批量落盘：只在提交点写、没有新读数不重写、写的是整份快照。
-- `func TestToolRecordFlushFailureSurfacesOnBoard(t *testing.T)` — 落盘失败不回抛，错误留给看板显示。
-- `func TestToolRecordLoadsPersistedReadingOnce(t *testing.T)` — 冷启动读回：看板读之前懒加载一次，且每个会话只读一次。
-- `func TestToolRecordDisabledRecordsNothing(t *testing.T)` — 关就是关：开关关着时一个字节都不记、也不落盘。
-- `func TestToolCommandOutcomeCountsNonZeroExitAsFailure(t *testing.T)` — 命令面（退出码）是另一条成败判据：非零 = 一次失败（归 command-failed）。
-- `func TestToolRecordIgnoresUnknownStatusWords(t *testing.T)` — 未知/空状态词不记。
-- `func TestToolRecordIsPerSession(t *testing.T)` — 每会话一份：两个会话的读数互不串。
-- `func TestToolRecordWithoutSessionIsDropped(t *testing.T)` — 每条记录都要有会话归属（无归属的调用记不进任何会话）。
-- `func TestToolRecordFlushWithoutStoreIsNoop(t *testing.T)` — 没装落盘口时批量落盘是空操作（读数仍在内存里）。
-- `func TestToolRecordDisabledRecordsNothing(t *testing.T)` — 关就是关：开关关着时一个字节都不记。
-- `func TestToolRecordIgnoresUnknownStatusWords(t *testing.T)` — 未知/空状态词不记（认不得的词不该被当成成功）。
-- `func TestToolRecordBoardReportsSwitchAndTotals(t *testing.T)` — 看点板：开关状态与合计从同一份台账折出来。
-### tool_hook_diagnostic_test.go
-
-- `func TestToolHookDiagnosticObserverMarksCompletionProjection(t *testing.T)`
-
-### tool_hooks.go
-
-- `func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string)`
-- `func (service *Service) planBranchBindingLocked() dto.PlanBranchBinding`
-- `func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration)`
-- `func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id, arguments, result string, toolErr error, duration time.Duration, observe func(string))` — handleToolCompleteObserved 把生产完成投影保持在一处，同时允许 ToolHookBridge
-- `func NewToolHookBridge() *ToolHookBridge`
-- `func (bridge *ToolHookBridge) Bind(service *Service)`
-- `func (bridge *ToolHookBridge) SetDiagnosticObserver(observer ToolHookDiagnosticObserver)` — SetDiagnosticObserver 安装可选、尽力而为的生命周期诊断。传入 nil 关闭。
-- `func (bridge *ToolHookBridge) Hooks() *session.LoopHooks`
-- `func normalizePlanToolCallInfo(info session.ToolCallInfo) session.ToolCallInfo` — normalizePlanToolCallInfo 保持应用快照与 Seele 执行的同一规范 DAG 表示。
-
-### tool_hooks_truncation_test.go
-
-- `func TestToolCompleteTruncatesSnapshotOutput(t *testing.T)` — TestToolCompleteTruncatesSnapshotOutput 验证实时截断链端到端：大工具
-- `func TestAppendHistoryLockedTruncatesRestoredOutput(t *testing.T)` — TestAppendHistoryLockedTruncatesRestoredOutput 验证会话恢复路径：恢复的
-
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### tool_hook_diagnostic_test.go
-
-- `func TestToolHookDiagnosticObserverMarksCompletionProjection(t *testing.T)`
-
 ### tool_hooks.go
 
-- `func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string)`
-- `func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration)`
-- `func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id, arguments, result string, toolErr error, duration time.Duration, observe func(string))` — handleToolCompleteObserved 把生产完成投影保持在一处，同时允许 ToolHookBridge
 - `func NewToolHookBridge() *ToolHookBridge` — NewToolHookBridge constructs the Seele-to-Application hook adapter.
 - `func (bridge *ToolHookBridge) Bind(service *Service)` — Bind installs the current Service as the hook host.
 - `func (bridge *ToolHookBridge) SetDiagnosticObserver(observer ToolHookDiagnosticObserver)` — SetDiagnosticObserver installs optional metadata-only hook diagnostics.
 - `func (bridge *ToolHookBridge) Hooks() *session.LoopHooks` — Hooks returns Seele loop hooks.
-
-### tool_hooks_test.go
-
-- `func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T)` — TestHandleSubagentToolEventProjectsBoundedIncrementals 钉住子代理工具事件的
-- `func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T)`
-
-### tool_hooks_truncation_test.go
-
-- `func TestToolCompleteTruncatesSnapshotOutput(t *testing.T)`
-- `func TestAppendHistoryLockedTruncatesRestoredOutput(t *testing.T)` — TestAppendHistoryLockedTruncatesRestoredOutput 验证会话恢复路径：恢复的
-
-### tool_record_isolation_test.go
-
-- `func toolRecordStat(tool string, success, failure int, reason string) []dto.ToolRecordStat` — toolRecordStat 造一格增量读数（失败笔数挂一个原因）。
-- `func subagentReading(tool string, status dto.ToolEventStatus, errorText string) seelsession.SubagentToolEvent` — subagentReading 造一条子代理工具读数（执行单元 = subagent:<nodeID>）。
-- `func totals(service *Service, sessionID string) (int, int, int)` — totals 读某会话的累计三数（不存在 ⇒ 全 0）。
-- `func newToolRecordHarness(t *testing.T) *toolRecordHarness`
-- `func (harness *toolRecordHarness) switchToB()` — switchToB 走**生产切换路径**（ResumeSession），不是直接改快照字段。
-- `func (harness *toolRecordHarness) switchToA()`
-- `func TestToolRecordSubagentReadingStaysWithOwnerAcrossViewSwitch(t *testing.T)`
-- `func TestToolRecordConcurrentSubagentsStayInOwnSession(t *testing.T)`
-- `func TestToolRecordTeammateWithoutMainSessionIsDropped(t *testing.T)`
-- `func TestToolRecordCommitIsIdempotentPerSeq(t *testing.T)`
-- `func TestToolRecordCommitAccumulatesAcrossSeqs(t *testing.T)`
-- `func draftService(t *testing.T) (*Service, *recordingSnapshotStore)` — draftService 造一个**仍是草稿**的 Service（引擎还没建 bundle：HasSession=false）。
-- `func TestToolRecordDraftSessionNeverWrites(t *testing.T)`
-- `func TestToolRecordDraftMaterializationWritesOnceWithLeafReadings(t *testing.T)`
-- `func TestToolRecordFlushDrainsUnclosedLeafStages(t *testing.T)`
-- `func TestToolRecordBoardFollowsViewWithoutCrossing(t *testing.T)`
-- `func TestToolRecordReleaseRecyclesStageAndSeq(t *testing.T)`
-- `func TestToolRecordDisabledStagesNothing(t *testing.T)`
-- `func TestToolRecordThreeFamiliesMergeInOneSession(t *testing.T)`
-
-### tool_record_test.go
-
-- `func (s *recordingSnapshotStore) SaveToolRecordSnapshot(sessionID string, snapshot dto.ToolRecordSnapshot) error`
-- `func (s *recordingSnapshotStore) LoadToolRecordSnapshot(string) (dto.ToolRecordSnapshot, bool, error)`
-- `func (s *recordingSnapshotStore) savesSnapshot() []dto.ToolRecordSnapshot`
-- `func (s *recordingSnapshotStore) loadCount() int`
-- `func enableToolRecord(t *testing.T, service *Service, store *recordingSnapshotStore)` — enableToolRecord 打开开关并把落盘口装上（测试里两条装配动作各走一次）。
-- `func TestToolRecordCountsBothOutcomesAcrossFamilies(t *testing.T)`
-- `func TestToolRecordFlushIsBatchAndIdempotent(t *testing.T)` — 批量落盘：只在提交点写一次；没有再记过就不重写（dirty 门）；写的是整份快照。
-- `func TestToolRecordFlushFailureSurfacesOnBoard(t *testing.T)` — 落盘失败不回抛（会话提交不该因为读数写不进去而失败），错误留给看板显示。
-- `func TestToolRecordLoadsPersistedReadingOnce(t *testing.T)` — 冷启动读回：看板读之前懒加载一次，且**每个会话只读一次**（不每次读盘）。
-- `func TestToolRecordDisabledRecordsNothing(t *testing.T)` — 关就是关：开关关着时一个字节都不记、也不落盘。
-- `func TestToolCommandOutcomeCountsNonZeroExitAsFailure(t *testing.T)` — 命令面（退出码）是**另一条**成败判据：工具没报错，但命令退非零 = 一次失败。
-- `func TestToolRecordIgnoresUnknownStatusWords(t *testing.T)` — 未知/空状态词不记（认不得的词不该被当成成功）。
-- `func TestToolRecordIsPerSession(t *testing.T)` — 每会话一份：两个会话的读数互不串（切会话看到的是自己的）。
-- `func TestToolRecordWithoutSessionIsDropped(t *testing.T)` — 每条记录都要有会话归属：没有归属的调用记不进任何会话（别造出"没有主人的读数"）。
-- `func TestToolRecordFlushWithoutStoreIsNoop(t *testing.T)`

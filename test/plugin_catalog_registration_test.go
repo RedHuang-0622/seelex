@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
-	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
+	boot "github.com/RedHuang-0622/seelex/boot"
 
 	// 精选目录**写侧**的链路用例（2026-10-05 事故的正面回归）。
 	//
@@ -14,9 +14,8 @@ import (
 	// 就是把机器该做的簿记推给人。
 	//
 	// 本文件把「**发现 → 读回 → 落进 yaml**」这条闭环钉在真链路上：临时插件根（含一份发行
-	// 风格的 curated.yaml + 一个 seed 插件）+ 真 `bootstrap.InitPluginSystem` + 真 `plugin_create` /
+	// 风格的 curated.yaml + 一个 seed 插件）+ 真 `boot.InitPluginSystem` + 真 `plugin_create` /
 	// `plugins_reload` 工具，断言那份 yaml **文件本身**真的多出了登记条目。
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,11 +114,11 @@ mcp_servers: []
 		t.Fatalf("NewRuntime: %v", err)
 	}
 	t.Cleanup(runtime.Shutdown)
-	plugins, _, err := bootstrap.InitPluginSystem(runtime, bootstrap.InitSkillSystem(), launchFlags.PluginsPaths)
+	plugins, _, err := boot.InitPluginSystem(runtime, boot.InitSkillSystem(), launchFlags.PluginsPaths)
 	if err != nil {
-		t.Fatalf("bootstrap.InitPluginSystem: %v", err)
+		t.Fatalf("boot.InitPluginSystem: %v", err)
 	}
-	registry.RegisterPluginSelfTools(runtime, plugins)
+	boot.RegisterPluginSelfTools(runtime, plugins)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)

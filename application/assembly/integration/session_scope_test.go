@@ -1,0 +1,237 @@
+package integration
+
+import (
+	"context"
+	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"strings"
+	"testing"
+	"time"
+)
+
+// perSessionFakeRuntime 声明宿主具备逐会话执行能力（生产 seelebridge
+// Runtime.PerSessionExecution=true 的镜像；内嵌 fakeRuntime 提供其余端口）。
+
+type perSessionFakeRuntime struct {
+	*fakeRuntime
+}
+
+func (perSessionFakeRuntime) PerSessionExecution() bool { return true }
+
+// TestPerSessionHostDoesNotSkipGlobalScopeSideEffects 回归：即使宿主声明
+// PerSessionExecution，在 per-session project root 能力实现前，core 仍必须
+// 设置进程级项目根与 Router 写作用域（否则工作区会话工具失效）。
+func TestPerSessionHostDoesNotSkipGlobalScopeSideEffects(t *testing.T) {
+	runtime := &perSessionFakeRuntime{fakeRuntime: &fakeRuntime{}}
+	sessions := &scopedSessions{}
+	service := mustNewLegacy(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions,
+	})
+	defer service.components.lifecycleApplication.Shutdown()
+	if !service.perSessionExecution() {
+		t.Fatal("per-session capability not detected")
+	}
+	if err := service.bindGlobalProjectRoot("C:\\proj"); err != nil {
+		t.Fatalf("bindGlobalProjectRoot: %v", err)
+	}
+	if runtime.ProjectRoot() != "C:\\proj" {
+		t.Fatalf("global project root after bind = %q, want C:\\proj（不得因 PerSessionExecution 跳过）", runtime.ProjectRoot())
+	}
+	service.setWorkspaceWriteScope("project-1")
+	if got := sessions.Workspace(); got != "project-1" {
+		t.Fatalf("router write scope = %q, want project-1（不得因 PerSessionExecution 跳过）", got)
+	}
+	first := service.newGeneratedSessionID("fork")
+	second := service.newGeneratedSessionID("fork")
+	if first == second || !strings.HasPrefix(first, "fork_") || !strings.HasPrefix(second, "fork_") {
+		t.Fatalf("generated ids = %q/%q, want unique fork_ ids", first, second)
+	}
+}
+
+// TestCrossSessionSubmitWhileRunningNoLongerBusy 验证 M2 多会话并行语义：
+// 同会话运行中，向其它会话提交不再返回 LegacyErrSessionBusy——未加载的会话走
+// 切换恢复路径（兼容 M1），已加载的会话在后台并行执行。
+func TestCrossSessionSubmitWhileRunningNoLongerBusy(t *testing.T) {
+	engine := &sessionBackedBlockingEngine{
+		fakeEngine: &fakeEngine{},
+		started:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	service := newLegacyTestService(t, engine)
+
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	select {
+	case <-engine.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("chat did not start")
+	}
+
+	// M2：跨会话提交不再被单飞门控拒绝（未加载会话回退切换恢复路径）。
+	err := service.components.submitApplication.SubmitToSession(context.Background(), "other-session", "to other session")
+	if errors.Is(err, LegacyErrSessionBusy) {
+		t.Fatalf("SubmitToSession(other) returned LegacyErrSessionBusy, want M2 background/activate semantics")
+	}
+
+	close(engine.release)
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSubmitToSessionDelegatesForActiveSession 验证同会话提交走既有
+// Submit 路径（运行中排队、空闲直跑）。
+func TestSubmitToSessionDelegatesForActiveSession(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if sessionID == "" {
+		t.Fatal("expected materialized session ID")
+	}
+	if err := service.components.submitApplication.SubmitToSession(context.Background(), sessionID, "second"); err != nil {
+		t.Fatalf("SubmitToSession(active): %v", err)
+	}
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(service.components.frontendSnapshot.Snapshot().Conversation); got < 4 {
+		t.Fatalf("conversation messages = %d, want >= 4 (two exchanges)", got)
+	}
+}
+
+// TestSubmitToSessionRejectsEmptyID 验证会话级 API 拒绝空会话 ID。
+func TestSubmitToSessionRejectsEmptyID(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	if err := service.components.submitApplication.SubmitToSession(context.Background(), "  ", "hi"); err == nil {
+		t.Fatal("expected error for empty session ID")
+	}
+}
+
+// TestActivateSessionAllowedForIdleTargetWhileOtherRunning 验证 M2 会话级
+// 门控：运行中的会话不再阻止切换/恢复一个空闲目标会话（M1 的全局拒绝已
+// 收窄为目标会话自身）。目标会话恢复成功后，原运行会话继续独立完成。
+func TestActivateSessionAllowedForIdleTargetWhileOtherRunning(t *testing.T) {
+	engine := &sessionBackedBlockingEngine{
+		fakeEngine: &fakeEngine{},
+		started:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	service := newLegacyTestService(t, engine)
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-engine.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("chat did not start")
+	}
+	// M2：目标会话自身空闲即可切换/恢复（不再返回 LegacyErrChatRunning）。
+	if err := service.components.sessionResume.Resume("other-session"); errors.Is(err, LegacyErrChatRunning) {
+		t.Fatalf("ActivateSession(idle target) while other running = LegacyErrChatRunning, want M2 per-session gate")
+	}
+	close(engine.release)
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSnapshotOfOnlyActiveSessionAvailable 验证 M1 快照粒度：仅活跃会话
+// 有驻留快照。
+func TestSnapshotOfOnlyActiveSessionAvailable(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	if err := service.components.submission.Submit(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
+	if _, err := service.components.sessionQuery.SnapshotOf(sessionID); err != nil {
+		t.Fatalf("SnapshotOf(active) = %v, want nil", err)
+	}
+	if _, err := service.components.sessionQuery.SnapshotOf("other-session"); !errors.Is(err, LegacyErrSessionSnapshotUnavailable) {
+		t.Fatalf("SnapshotOf(other) = %v, want LegacyErrSessionSnapshotUnavailable", err)
+	}
+}
+
+// TestChatEventsCarrySessionID 验证 chat 生命周期事件携带会话路由键。
+func TestChatEventsCarrySessionID(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	sub := service.components.view.Subscribe(64)
+	defer sub.Close()
+
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := service.components.frontendSnapshot.Snapshot().Session.ID
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-sub.Events:
+			if event.SessionID == sessionID {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("no event carried session_id %q", sessionID)
+		}
+	}
+}
+
+// TestSubscribeSessionFiltersBySessionID 验证会话级订阅只投递目标会话
+// （及全局空 SessionID）事件。
+func TestSubscribeSessionFiltersBySessionID(t *testing.T) {
+	service := newLegacyTestService(t, &fakeEngine{})
+	initialSessionID := service.components.frontendSnapshot.Snapshot().Session.ID
+	target, err := service.components.view.SubscribeSession(initialSessionID, 16)
+	if err != nil {
+		t.Fatalf("SubscribeSession(target): %v", err)
+	}
+	defer target.Close()
+	other, err := service.components.view.SubscribeSession("does-not-exist", 16)
+	if err != nil {
+		t.Fatalf("SubscribeSession(other): %v", err)
+	}
+	defer other.Close()
+
+	if err := service.components.submission.Submit(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.components.lifecycleApplication.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-target.Events:
+			if event.SessionID == initialSessionID {
+				goto targetSeen
+			}
+		case <-deadline:
+			t.Fatal("target subscription never received scoped event")
+		}
+	}
+targetSeen:
+	deadline = time.After(500 * time.Millisecond)
+	for {
+		select {
+		case event := <-other.Events:
+			if event.SessionID == "does-not-exist" {
+				t.Fatalf("other subscription received scoped event: %+v", event)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}

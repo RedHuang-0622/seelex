@@ -14,6 +14,8 @@ core、conversation、policy、admin 与 cold/session 组件直接消费本包�
 ## 职责与非职责
 
 - 做：消息追加与窗口裁剪、runtime 投影收集/应用、revision bump。
+- 做：`ToolResultBudgetApplication` 消费 residency 的唯一 preview 判据，计算
+  UTF-8 `total_chars` 并在截断时归档 `result_ref`；assembly 不再持有该判据。
 - 做：会话级事件订阅的唯一过滤判据。显式 session ID 精确匹配；空 ID 跟随
   `session.Domain.ActiveID()`；`resync.required` / `app.exit_requested`
   只接受空 SessionID 的进程级事件。

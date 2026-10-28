@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"github.com/RedHuang-0622/seelex/application/assembly"
+	boot "github.com/RedHuang-0622/seelex/boot"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/store"
 
@@ -17,7 +18,6 @@ import (
 	// 运行时当前 task 会话），`WorkTableRowsFor` 取得到该会话的行**；换一条不经过该口径的
 	// 会话（视图会话 ≠ 运行时当前 task 会话）就会取到空集 ⇒ I6 退场、什么都不落——这条
 	// 差别正是"文档说实现了、实机没东西"的根源，写在用例里防误读。
-	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,14 +39,14 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	limits.ProjectBoard.Enabled = true // 装配门：关着时本用例的前提就不成立（另有用例钉"关就是关"）
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	// 按**生产装配**挂写侧：同步器 + 会话→项目根解析器（main.run 里是同一对调用）。
-	sink, closeSink, err := registry.ProjectBoardSinkFor(
+	sink, closeSink, err := boot.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
 		harness.components.Execution.ProjectBoard.WorkTableRowsFor, assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamPlanFor,
 		assembly.ComponentsFor(harness.app).Execution.ProjectBoard.ProjectBoardTeamStateFor, harness.components.Execution.ProjectBoard.ProjectRootFor,
 		func() int { return limit.Get().EvidenceChars },
 	)
 	if err != nil {
-		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
+		t.Fatalf("boot.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
 	harness.components.Execution.ProjectBoardSink.Store(sink)
