@@ -29,8 +29,11 @@ type fakeApplication struct {
 	snapshot application.Snapshot
 	// snapshotMu 保护 snapshot：Bridge 中继 goroutine 持续 Snapshot()，
 	// 测试主 goroutine 的切换方法会改写它（-race 下必须互斥）。
-	snapshotMu      sync.RWMutex
-	submitted       string
+	snapshotMu sync.RWMutex
+	submitted  string
+	// submittedImages 是最近一次带图提交随行的图片元数据（桥面解析后交给 owner
+	// 的那一份）；纯文本提交留空。
+	submittedImages []dto.ComposerImage
 	cancelled       string
 	resolvedID      string
 	resolvedOption  string
@@ -436,6 +439,13 @@ func (fake *fakeApplication) Archive(sessionID string) error { return fake.Archi
 
 func (fake *fakeApplication) SubmitToSession(_ context.Context, sessionID, text string) error {
 	fake.submitted = sessionID + ":" + text
+	return errors.New("session submit: not supported")
+}
+
+// SubmitToSessionWithImages 与 SubmitToSession 同一桩口径（带图入口）。
+func (fake *fakeApplication) SubmitToSessionWithImages(_ context.Context, sessionID, text string, images []dto.ComposerImage) error {
+	fake.submitted = sessionID + ":" + text
+	fake.submittedImages = images
 	return errors.New("session submit: not supported")
 }
 

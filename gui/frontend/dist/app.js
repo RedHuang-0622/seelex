@@ -22,6 +22,7 @@ import {
 } from "./file-reference.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
+import { registerMessageImageLoader } from "./message-images.js";
 import { clearSubmittedText, composerSubmitPlan, composerViewSwitch, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
 import { createConversationView } from "./conversation-view.js";
 import { branchOriginModel } from "./branch-origin.js";
@@ -832,6 +833,32 @@ function showToast(error) {
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => elements.toast.classList.add("hidden"), 4200);
 }
+
+// ── 用户消息随行图片的缩略图读取口 ───────────────────────────────
+// 消息里只留 ref（字节不进快照/transcript），缩略图由这里按 ref 读回：会话归属取
+// **视图会话**——图片属于它被发送的那个会话，读到别的会话只会 404，所以宁可让
+// 读失败也不要串会话。
+//
+// 注册一次即全局生效（message-images.js 持有这个口）；读取结果在那边按 ref 缓存，
+// 重渲染不会重复打 RPC。
+registerMessageImageLoader(async ref => {
+  const sessionID = String(elements.conversation?.dataset?.sessionId || client.current()?.session?.id || "");
+  if (sessionID === "" || !ref) throw new Error("会话未就绪");
+  return invoke("ComposerImageData", sessionID, ref);
+});
+
+// 点缩略图 = 用系统默认查看器打开原图（与输入框里的附件 chip 同一条动作）。
+// 事件委托挂在对话区容器上：消息行会被 keyed 复用/重建，逐行绑事件会漏。
+elements.conversation.addEventListener("click", async event => {
+  const open = event.target?.closest?.("[data-message-image-open]");
+  if (!open) return;
+  event.preventDefault();
+  const sessionID = String(elements.conversation?.dataset?.sessionId || client.current()?.session?.id || "");
+  const ref = String(open.dataset.messageImageOpen || "");
+  if (sessionID === "" || ref === "") return;
+  try { await invoke("OpenComposerImage", sessionID, ref); }
+  catch (error) { showToast(error); }
+});
 
 function renderBranchOrigin(snapshot) {
   const host = elements["branch-origin"];
@@ -4867,7 +4894,10 @@ elements.composer.addEventListener("submit", async event => {
   event.preventDefault();
   const sent = elements.prompt.value;
   const text = sent.trim();
-  if (!text) return;
+  // 只有图没有字也是一次真实输入（"看这张截图"）：附件存在时允许空正文提交，
+  // 否则用户把截图拖进来按 Enter 会得到"什么都没发生"——图还在框里，消息没发出去。
+  const imageRefs = composerAttachments.map(item => String(item?.ref || "")).filter(Boolean);
+  if (!text && imageRefs.length === 0) return;
   // 提交瞬间先关闭浮层，别让候选面板跨过 RPC 往返继续撑着布局。
   hideInlineSuggestions();
   closeFilePicker();
@@ -4877,11 +4907,18 @@ elements.composer.addEventListener("submit", async event => {
     // "一个会话在跑、想发给另一个空闲会话"时，运行中会话不会因为后端视图指针
     // 的切换窗口把输入吸进自己的队列。视图会话 ID 在 await 之前取：这是本次
     // 提交要发往的会话，不是 RPC 回来时的会话。
-    const plan = composerSubmitPlan({ text, viewedSessionID: client.current()?.session?.id });
+    //
+    // 图片 ref 一并交给后端：它把这些 ref 解析成展示元数据写进这条用户消息，
+    // 对话区因此能在消息下面画出缩略图（否则图只进了随图队列，用户自己再也
+    // 看不到自己发了什么）。
+    const plan = composerSubmitPlan({ text, viewedSessionID: client.current()?.session?.id, imageRefs });
     await invoke(plan.rpc, ...plan.args);
-    // 图片附件已经随这次请求送出去了（后端落进会话媒体分区 + 随图队列）：这里只
-    // 清掉输入框里的缩略图条并释放本地 objectURL。
-    clearComposerAttachments();
+    // 图片**确实**随这次提交送出去了才清缩略图条：sigil 输入走的是后端路由器
+    // （命令/插件/技能），那条路不吃图片，图必须留在框里（下方给提示），
+    // 不能一边说"没发出去"一边把 chip 清掉。
+    const carried = plan.rpc === "SubmitToSession";
+    if (carried) clearComposerAttachments();
+    else if (imageRefs.length > 0) showToast("命令 / 插件 / 技能输入不随图，图片仍挂在输入框上");
     // 提交是异步 RPC：往返期间用户可能已继续输入，只移除已发送的那段（规则见
     // composer-input.js），不整框清空——整框清空会把这段新输入一起吞掉。
     elements.prompt.value = clearSubmittedText(elements.prompt.value, sent);

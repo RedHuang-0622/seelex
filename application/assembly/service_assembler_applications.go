@@ -328,8 +328,10 @@ func (service *Service) assembleSubmitApplication() {
 			return loaded, service.components.residencyRuntime.ContentUnloaded(sessionID)
 		},
 		Resume: service.components.sessionResume.Resume,
-		Submit: func(ctx context.Context, sessionID, text string) error {
-			return service.components.conversationTurn.submission.SubmitFor(ctx, sessionID, text)
+		// 闭包而不是方法值：装配顺序里 conversationTurn 尚未就位，方法值会在
+		// 这里立刻解引用，闭包把它推迟到提交那一刻。
+		Submit: func(ctx context.Context, sessionID, text string, images []dto.ComposerImage) error {
+			return service.components.conversationTurn.submission.SubmitForWithImages(ctx, sessionID, text, images)
 		},
 	})
 }

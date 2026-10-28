@@ -62,6 +62,16 @@ func (s *SessionStore) MediaPath(_ context.Context, projectID, sessionID, ref st
 	return s.store.MediaPath(scope, ref)
 }
 
+// MediaMeta reads one stored media asset's metadata without its bytes (写一行
+// 「这条用户消息带了哪几张图」只需要名字/类型/尺寸，不需要图本体)。
+func (s *SessionStore) MediaMeta(_ context.Context, projectID, sessionID, ref string) (MediaRef, error) {
+	scope, err := s.scope(projectID, sessionID)
+	if err != nil {
+		return MediaRef{}, err
+	}
+	return s.store.MediaMeta(scope, ref)
+}
+
 // ListMedia lists media assets.
 func (s *SessionStore) ListMedia(_ context.Context, projectID, sessionID string) ([]MediaRef, error) {
 	scope, err := s.scope(projectID, sessionID)

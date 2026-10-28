@@ -75,6 +75,23 @@ func (s *Store) ReadMedia(scope storelayout.Scope, ref string) (MediaRef, []byte
 	return s.readMediaLocked(scope, ref)
 }
 
+// MediaMeta reads one stored media asset's metadata **without** its bytes.
+//
+// 为什么单独开一格：提交一条带图消息时要把它挂上来的那几个 ref 解析成展示
+// 元数据（名字/类型/尺寸），而图片本体可能有数 MB——为了写一行 transcript 去
+// 把每张图都读进内存是白花。读法与 ReadMedia 同一份 meta 文件，只是不碰数据
+// 文件；ref 非法或分区里没有这条资产都显式失败（绝不编造元数据）。
+func (s *Store) MediaMeta(scope storelayout.Scope, ref string) (MediaRef, error) {
+	digest := MediaRefHash(ref)
+	if digest == "" {
+		return MediaRef{}, fmt.Errorf("%w: %q", ErrMediaRefInvalid, ref)
+	}
+	lock := s.lock(scope, MediaLockID)
+	lock.Lock()
+	defer lock.Unlock()
+	return s.readMediaMetaFile(scope, digest)
+}
+
 // MediaPath returns one stored media asset's on-disk path inside the session
 // partition (read-only fact; the layout owner is this file).
 //

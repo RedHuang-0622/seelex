@@ -14,6 +14,7 @@ package media
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -132,4 +133,84 @@ func imageName(raw, extension string) string {
 		stem = "image"
 	}
 	return stem + extension
+}
+
+// ResolveUserImages 把一批「输入框附件 ref」解析成这条用户消息随行的展示元数据。
+//
+// 谁在什么时候调它：用户按下发送时，GUI 桥面把输入框里那几个 ref 交给本方法，
+// 结果随这次输入一起进 transcript（见 protocol.TranscriptEvent.Images）。因此
+// 解析必须发生在**提交那一刻**——图片属于那一条消息，晚一步（比如让读侧去猜
+// "最近谁挂了图"）就再也对不上了。
+//
+// 判据只有一条：ref 必须在这个会话自己的媒体分区里存在。存在的才返回；有一个
+// 不存在就整体失败——消息里少一张图比"标了图但打不开"更容易被发现，也更容易修。
+// 顺序按调用方给的顺序保留（用户眼里的顺序就是发送时的顺序）。
+func (m *SessionMedia) ResolveUserImages(ctx context.Context, sessionID string, refs []string) ([]dto.ComposerImage, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, errors.New("composer: 缺少会话 ID，无法解析图片附件")
+	}
+	if m == nil || m.host == nil {
+		return nil, errors.New("media: 会话存储未装配")
+	}
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	projectID := m.ProjectIDFor(ctx, sessionID)
+	images := make([]dto.ComposerImage, 0, len(refs))
+	seen := make(map[string]struct{}, len(refs))
+	for _, raw := range refs {
+		ref := strings.TrimSpace(raw)
+		if ref == "" {
+			continue
+		}
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		item, err := m.host.MediaMetaWorkspace(ctx, projectID, sessionID, ref)
+		if err != nil {
+			return nil, fmt.Errorf("composer: 图片 %q 不在本会话媒体分区里：%w", ref, err)
+		}
+		images = append(images, dto.ComposerImage{
+			Ref:      item.Ref,
+			Name:     item.Name,
+			MimeType: item.MimeType,
+			Bytes:    item.Bytes,
+			Width:    item.Width,
+			Height:   item.Height,
+		})
+	}
+	if len(images) == 0 {
+		return nil, nil
+	}
+	return images, nil
+}
+
+// ReadUserImage 读回一张已落盘图片的字节，供渲染层画缩略图。
+//
+// 它是**只读**通道（与 AttachUserImage 的写入面分开）：渲染层手上只有 ref，
+// 原图在会话媒体分区里而路径不回渲染层，所以缩略图必须经宿主读回。读的仍是
+// 同一份会话归属解析，因此跨会话/跨项目的 ref 在这里读不到。
+func (m *SessionMedia) ReadUserImage(ctx context.Context, sessionID, ref string) (dto.ComposerImageData, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return dto.ComposerImageData{}, errors.New("composer: 缺少会话 ID，无法读取图片")
+	}
+	if strings.TrimSpace(ref) == "" {
+		return dto.ComposerImageData{}, errors.New("composer: 缺少图片引用，无法读取图片")
+	}
+	if m == nil || m.host == nil {
+		return dto.ComposerImageData{}, errors.New("media: 会话存储未装配")
+	}
+	item, data, err := m.host.ReadMediaWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, ref)
+	if err != nil {
+		return dto.ComposerImageData{}, err
+	}
+	return dto.ComposerImageData{
+		Ref:        item.Ref,
+		MimeType:   item.MimeType,
+		Bytes:      item.Bytes,
+		DataBase64: base64.StdEncoding.EncodeToString(data),
+	}, nil
 }

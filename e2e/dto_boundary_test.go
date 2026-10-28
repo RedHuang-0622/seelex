@@ -82,6 +82,7 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		filepath.Join("contract", "dto", "teammate_session_live.go"): readRepoFile(t, "contract", "dto", "teammate_session_live.go"),
 		filepath.Join("contract", "dto", "subagent_live.go"):         readRepoFile(t, "contract", "dto", "subagent_live.go"),
 		filepath.Join("contract", "protocol", "state.go"):            readRepoFile(t, "contract", "protocol", "state.go"),
+		filepath.Join("contract", "protocol", "message.go"):          readRepoFile(t, "contract", "protocol", "message.go"),
 	}
 	required := map[string]map[string][]string{
 		filepath.Join("contract", "dto", "rolesession.go"): {
@@ -101,7 +102,11 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		// 聊天区按这些字段名读可见会话消息（components.js roleIdentity 用
 		// role_name 渲染 EXEC/ADVISOR，round_id 渲染 R 徽标）：改名会让前端
 		// 又退回"两个 teammate 都叫 AGENT"。
-		filepath.Join("contract", "protocol", "state.go"): {
+		//
+		// 2026-10-30 起 `Message` / `MessageOrigin` 住在 `protocol/message.go`
+		// （state.go 撞上 frozen 行数预算后按"先拆再长"拆出），因此这条断言
+		// 跟着类型走，而不是跟着旧文件名走。
+		filepath.Join("contract", "protocol", "message.go"): {
 			"Message": {"role_name", "role_session_id", "round_id", "unit_seq"},
 		},
 		// 「这件事的会话」实时读面（team-board-view.js 的 renderTeammateLiveSession

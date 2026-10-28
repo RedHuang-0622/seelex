@@ -143,7 +143,26 @@
           "description": "editable=false 时的可展示原因。",
           "type": "string",
           "maxLength": 240
+        },
+        "images": {
+          "description": "用户消息随行附上的图片（输入框拖拽 / 粘贴）。只带引用与展示元数据，字节不进快照：渲染层按 ref 经 Bridge.ComposerImageData 读回缩略图，点开由宿主用系统默认查看器打开原图。只有 role=user 的行会出现此字段。",
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/messageImage" }
         }
+      }
+    },
+    "messageImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": { "$ref": "common.schema.json#/$defs/identifier" },
+        "name": { "type": "string", "maxLength": 260 },
+        "mime_type": { "type": "string", "maxLength": 120 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 0 },
+        "height": { "type": "integer", "minimum": 0 }
       }
     }
   }

@@ -78,7 +78,7 @@ sequenceDiagram
 | `assets.go` | `//go:embed frontend/dist`。 |
 | `run_wails.go` / `run_stub.go` | build tags 下的真实 GUI 与不可用 stub。 |
 | `dialogs_gui.go` / `dialogs_stub.go` | 平台目录选择适配。 |
-| `composer_media.go` | 输入框图片附件的桥面：`AttachComposerImage`（base64 解码 → 媒体域落盘 + 随图入队）、`OpenComposerImage`（定位原图交给系统默认查看器）。 |
+| `composer_media.go` | 输入框图片附件的桥面：`AttachComposerImage`（base64 解码 → 媒体域落盘 + 随图入队）、`ComposerImageData`（按 ref 读回缩略图字节）、`OpenComposerImage`（定位原图交给系统默认查看器）。提交时 `SubmitToSession` 的第三个参数把 ref 解析成展示元数据写进用户消息（见「输入框图片附件」§）。 |
 | `openfile_gui.go` / `openfile_windows.go` / `openfile_unix.go` / `openfile_stub.go` | 「用系统默认程序打开原图」的平台分支（rundll32 / open / xdg-open）；无 GUI 构建显式报不支持。 |
 | `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
 | `fork_live_probe_test.go` | 真实 API headless fork 探针（env 门控，opt-in；顶层 Submit → fork_subagents 链路 1/10/100 并发对照）。 |
@@ -126,6 +126,30 @@ sequenceDiagram
 端口 `gui.Dependencies.Composer`（形状由 GUI 自己声明）由组合根从
 `Runtime.ComposerMedia()` 注入——媒体域属于 backend，应用层不认识它，所以这一格是
 唯一不走 `Components` 的依赖（见 `boot/frontend_gui.go`）。
+
+#### 发出去之后：图片属于那条用户消息（2026-10-30）
+
+只在输入框里看得见图是不够的——用户发了"这句话 + 这张图"，如果消息里没有图，用户
+自己（以及刷新后的任何人）就只看得到半句话。所以图片在**提交那一刻**被绑到消息上：
+
+- `Bridge.SubmitToSession(sessionID, text, imageRefs)`：输入框里那几个 ref 先经
+  `SessionMedia.ResolveUserImages` 按**该会话**的媒体分区解析成展示元数据
+  （`dto.ComposerImage`，只读 meta 文件，不读几 MB 的图本体），然后交给
+  `SubmitApplication.SubmitToSessionWithImages`。解析不出来就让整条提交失败——宁可
+  让用户重拍，也不写一条指着打不开的图的消息。
+- 图片随 `conversation.Request.Images` 走完整条队列（入队存 payload、晋升按批次合并
+  去重），起始时写进这条 **user 事件行**（`protocol.TranscriptEvent.Images`）；
+  实时视图行（`MessageOrigin.Images` → `Message.Images`）与冷恢复投影
+  （`ProjectConversationEvents`）都只从这一行照抄，因此不存在"实时有图、重启没图"。
+- 渲染层拿到的仍只有 ref（字节不进快照与 transcript）：
+  `Bridge.ComposerImageData(sessionID, ref)` → `SessionMedia.ReadUserImage` 按
+  (会话, ref) 读回字节，`message-images.js` 拼成 data URL、按 ref 缓存并注水。
+  点缩略图仍走 `OpenComposerImage`（系统默认查看器打开原图）。
+- sigil 输入（`/` `#` `$`）走的是后端路由器，那条路不吃图片：前端此时**不**清输入框
+  里的缩略图条，并明确提示"命令 / 插件 / 技能输入不随图"。
+
+`MediaMeta`（store/artifact）就是为了这条链加的"只读元数据"面：提交时只要名字/类型/
+尺寸去写一行用户消息，不必把图读进内存。
 
 ### 多仓库 git（方向 A，2026-10-19）
 
@@ -529,7 +553,7 @@ go test ./gui -run TestRealAPISessionForkLiveProbe -v -count=1 -timeout 30m
 - `func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error)` — ForkSessionLatest 从会话最新完整轮次分支出新会话并切换（Wails 前端会话
 - `func (bridge *Bridge) EditUserMessageAndFork(parentSessionID string, request model.EditUserMessageForkRequest) (model.EditUserMessageForkResult, error)` — EditUserMessageAndFork 是最小 GUI 写面：一次 RPC 内完成编辑源消息的分叉与
 - `func (bridge *Bridge) CancelChat(requestID string) bool` — CancelChat 取消当前视图会话的运行中回合。request_id 可能滞后一个事件 tick，
-- `func (bridge *Bridge) SubmitToSession(sessionID, text string) error` — SubmitToSession 向指定会话提交输入（会话级保护 API；与视图会话无关）。
+- `func (bridge *Bridge) SubmitToSession(sessionID, text string, imageRefs []string) error` — SubmitToSession 向指定会话提交输入（会话级保护 API；与视图会话无关）。imageRefs 是输入框里挂着的图片 ref：先按该会话媒体分区解析成展示元数据，随这条输入写进用户消息（对话区据此在消息下面画缩略图），解析不出来就整条失败。
 - `func (bridge *Bridge) ReorderQueuedInput(sessionID string, from, to int) error` — ReorderQueuedInput 调换目标会话排队输入的顺序（队列条目的 ↑/↓ 操作）。
 - `func (bridge *Bridge) RecallQueuedInput(sessionID string, index int) (string, error)` — RecallQueuedInput 撤回目标会话的一条排队输入，返回其展示原文（渲染层把
 - `func (bridge *Bridge) ActivateSession(sessionID string) error` — ActivateSession 切换指定会话为当前会话（M1：切换即恢复，运行中拒绝）。

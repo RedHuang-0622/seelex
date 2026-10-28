@@ -35,6 +35,10 @@ func (h *stubHost) MediaPathWorkspace(ctx context.Context, projectID, sessionID,
 	return h.media.MediaPath(ctx, projectID, sessionID, ref)
 }
 
+func (h *stubHost) MediaMetaWorkspace(ctx context.Context, projectID, sessionID, ref string) (storeartifact.MediaRef, error) {
+	return h.media.MediaMeta(ctx, projectID, sessionID, ref)
+}
+
 func (h *stubHost) SessionProjectID(sessionID string) string {
 	if h == nil {
 		return ""

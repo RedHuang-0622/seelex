@@ -449,6 +449,9 @@ func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content 
 			Kind: origin.Kind, EventSeq: origin.EventSeq,
 			RoleName: origin.RoleName, RoleSessionID: origin.RoleSessionID,
 			RoundID: origin.RoundID, UnitSeq: origin.UnitSeq,
+			// 用户行随行的图片跟着行走（同 origin）：可见消息是事件行的投影，
+			// 图片是内容的一部分，不该在"视图"这一层丢掉。
+			Images: origin.Images,
 		}
 		// 历史浏览模式（可见窗口已锚定在更早位置、未贴尾）：新消息属于窗口
 		// 之后，只推进总数，不写进可见窗口——写进去会在窗口尾部插出一个洞

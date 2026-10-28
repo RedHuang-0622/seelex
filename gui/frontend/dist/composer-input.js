@@ -62,12 +62,23 @@ export function isSigilInput(text) {
 //     "当前会话"**。运行中会话不会再把本该发给空闲会话的输入吸进自己的队列。
 //   - 拿不到视图会话 ID（快照未就绪）→ 退回 `Submit`（宁可走老路，也不能把
 //     输入投到一个空 ID 上）。
-// 返回 { rpc, args }（args 直接展开给 invoke）。
-export function composerSubmitPlan({ text, viewedSessionID }) {
+//
+// imageRefs 是输入框里挂着的图片（`AttachComposerImage` 返回的 ref）：
+//   - 普通对话：随第三参一起交给后端，图片因此落进**这条用户消息**（对话区在消息
+//     下面画缩略图）。refs 为空时也传空数组——判据在后端，前端不省这一格形状。
+//   - sigil 输入：后端路由器不吃图片，这颗 ref 不放（调用方据此把 chip 留在框里）。
+// 返回 { rpc, args }（args 直接展开给 invoke）。"这批图有没有随这次提交走"由
+// rpc 名回答：只有 `SubmitToSession` 那条路接图片，调用方据此决定清不清 chip。
+export function composerSubmitPlan({ text, viewedSessionID, imageRefs = [] } = {}) {
   const value = String(text ?? "");
   const sessionID = String(viewedSessionID ?? "").trim();
-  if (isSigilInput(value) || sessionID === "") return { rpc: "Submit", args: [value] };
-  return { rpc: "SubmitToSession", args: [sessionID, value] };
+  const refs = (Array.isArray(imageRefs) ? imageRefs : [])
+    .map(ref => String(ref ?? "").trim())
+    .filter(ref => ref !== "");
+  if (isSigilInput(value) || sessionID === "") {
+    return { rpc: "Submit", args: [value] };
+  }
+  return { rpc: "SubmitToSession", args: [sessionID, value, refs] };
 }
 
 // COMPOSER_STASH_LIMIT 是「输入框正文按会话留存」的上限（LRU）：正文只是未

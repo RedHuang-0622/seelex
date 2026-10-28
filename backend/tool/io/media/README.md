@@ -21,7 +21,8 @@ GUI 的输入框图片附件（拖拽 / 粘贴）经 `gui.Bridge` → `Runtime.C
 - **做**：① 归属解析——把一次媒体读写判给"执行这次动作的那个会话"（`ProjectIDFor`）；
   ② 媒体分区分读写——`StoreMedia` / `LoadMedia`；③ 待随图队列——`Attach` / `AttachPending` /
   `PendingCount`，以及把它接上 Completer 链的 `Wrap`；④ 用户输入框附上来的图片
-  ——`AttachUserImage` / `MediaFilePath`（GUI 拖拽 / 粘贴的唯一落点，2026-10-30）。
+  ——`AttachUserImage` / `ResolveUserImages` / `ReadUserImage` / `MediaFilePath`
+  （GUI 拖拽 / 粘贴的唯一落点 + 发出去之后的展示面，2026-10-30）。
 - **不做**：不决定包装挂在链的哪一层（那是装配器的拓扑判断）；不判断"该不该给模型看图"
   （授权在权限门）；不落非媒体数据；不缓存字节（字节在会话媒体分区，队列只存附件投影）；
   不启动系统查看器（那是宿主的 GUI 面：`gui.openWithSystemViewer`）。
@@ -30,12 +31,14 @@ GUI 的输入框图片附件（拖拽 / 粘贴）经 `gui.Bridge` → `Runtime.C
 
 | 类型 / 方法 | 作用 |
 |---|---|
-| `Host` | 宿主端口，只有媒体读写三格（`WriteMediaWorkspace` / `ReadMediaWorkspace` / `MediaPathWorkspace`）与 `SessionProjectID(sessionID) string`。宿主是 `*assemble.Runtime`；本包不持 `store.Router` |
+| `Host` | 宿主端口：媒体读写四格（`WriteMediaWorkspace` / `ReadMediaWorkspace` / `MediaPathWorkspace` / `MediaMetaWorkspace`——最后一格是"只读元数据、不读字节"）与 `SessionProjectID(sessionID) string`。宿主是 `*assemble.Runtime`；本包不持 `store.Router` |
 | `SessionMedia` | 本域唯一状态：`host` + 待随图队列 `pending *imageattach.Registry`。零值不可用，`New(host)` 构造 |
 | `Attach` / `AttachPending` / `PendingCount` | 入队与读数。`AttachPending` 是工具侧入口：缺会话上下文**显式报错**（截了却送不到模型必须让人知道），`Attach` 则按队列语义静默丢弃；三者与 `AttachUserImage` 共用同一处 `attach`（唯一 `pending.Add`） |
 | `StoreMedia` / `LoadMedia` | 会话媒体分区的写/读。两处都先解析归属再做 IO，因此读写同域、不会把别的会话/项目的画面取过来；`StoreMedia` 与 `AttachUserImage` 共用同一处 `storeMedia` |
 | `AttachUserImage` | 用户从输入框附上来的图片（拖拽 / 粘贴）：按 MIME 白名单（png/jpeg/webp/gif/bmp）校验并把扩展名归一，落进该会话媒体分区后挂进随图队列。**会话由请求显式给出**（同一时刻可能有多个会话在跑，图属于用户正在编辑的那个） |
 | `MediaFilePath` | 某条已落盘媒体在该会话分区里的真实文件位置——GUI「点开缩略图，用系统默认查看器看原图」用。路径只在宿主进程内消费，不回渲染层 |
+| `ResolveUserImages` | 提交一条带图消息时，把输入框交上来的 ref 列表解析成**展示元数据**（`dto.ComposerImage`：ref/name/mime/bytes/尺寸），随这次输入写进用户消息行。判据只有一条：ref 必须在**该会话自己**的媒体分区里；有一条不存在就整条失败（消息里少一张图比"标了图打不开"更难被发现）。只读 meta 文件，不读图本体 |
+| `ReadUserImage` | 按 (会话, ref) 读回一张已落盘图片的**字节**（base64 + MIME），给对话区的缩略图用——渲染层拿不到路径，只能经宿主读。只读、归属解析与写入面同一份 |
 | `ProjectIDFor` | 归属三级解析：会话绑定 → `model.SceneScope.WorkspaceID` → 默认项目 `""`。刻意不读 Router 的活跃写作用域、不用主会话兜底（并行子代理执行期间视图可能已切走） |
 | `Wrap` | 把 `imageattach.Wrapper`（`Next` + `Pending` + `Loader: LoadMedia` + 可选 Stream/StreamEvents）**返回**给调用方装配，自身不持有 Completer |
 
@@ -48,7 +51,10 @@ GUI 的输入框图片附件（拖拽 / 粘贴）经 `gui.Bridge` → `Runtime.C
 输入框图片附件（frontend composer → gui.Bridge）
   └─ AttachComposerImage(sessionID, name, mime, w, h, base64)
        └─ SessionMedia.AttachUserImage → storeMedia(显式会话) + attach(显式会话)
+  └─ SubmitToSession(sessionID, text, refs) → SessionMedia.ResolveUserImages
+       └─ 解析结果随这条输入写进用户消息（protocol.TranscriptEvent.Images）
   └─ OpenComposerImage(sessionID, ref) → SessionMedia.MediaFilePath → gui.openWithSystemViewer(默认查看器)
+  └─ ComposerImageData(sessionID, ref) → SessionMedia.ReadUserImage → 渲染层缩略图（data URL）
 装配器（assemble.NewRuntime，拓扑序第 3.1 步）
   └─ SessionMedia.Wrap(completer, streamer) —— 挂在 request log 包装之内、agent.NewWithComponents 之前
 下一次模型请求
@@ -59,11 +65,16 @@ GUI 的输入框图片附件（拖拽 / 粘贴）经 `gui.Bridge` → `Runtime.C
 下一次该会话的请求会把它送给模型并且只送一次。因此"附了图但没发消息"时，图仍会随下一次
 请求出发；会话切换时前端只清掉缩略图条——图属于**上一个会话**，前端擦不掉。
 
+**「属于哪条消息」的语义**（与上面那件事分开记）：随图队列回答"模型什么时候看得到"，
+用户消息里的 `images` 回答"用户发的哪句话配了哪几张图"。后者在**提交那一刻**由
+`ResolveUserImages` 定死（ref → 展示元数据），随 `Request` 走完整条队列并落进 user 事件行，
+因此排队晋升、冷恢复、fork 之后都能把图摆回它该在的那条消息下面。
+
 ## 依赖方向
 
 - 允许：标准库、Seele（`agent` / `types`）、[`backend/tool/io/imageattach`](../imageattach/README.md)、
   [`backend/tool/computer`](../../computer/README.md)（只取 `MediaAsset` / `StoredMedia` / `PendingImage` 三个形状）、
-  `contract/dto`（`ComposerImageRequest` / `ComposerImage` 两个形状）、
+  `contract/dto`（`ComposerImageRequest` / `ComposerImage` / `ComposerImageData` 三个形状）、
   `internal/model`、`internal/telemetry`、`store/artifact` 的形状类型。
 - 禁止：`application/*`（上层）、`backend/engine/assemble`（装配器反过来 import 本包；
   宿主关系只能经 `Host` 端口表达），以及任何"再包一层会话状态"的重复实现。

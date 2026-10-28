@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // sessionAwareFakeApplication 是带会话级 owner 桩的测试替身。
@@ -22,6 +23,14 @@ type sessionAwareFakeApplication struct {
 
 func (fake *sessionAwareFakeApplication) SubmitToSession(_ context.Context, sessionID, text string) error {
 	fake.submitted = sessionID + ":" + text
+	return fake.submitToSessionErr
+}
+
+// SubmitToSessionWithImages 记录随行图片，供"桥面把输入框 ref 解析后交给 owner"
+// 这条链的断言用。
+func (fake *sessionAwareFakeApplication) SubmitToSessionWithImages(_ context.Context, sessionID, text string, images []dto.ComposerImage) error {
+	fake.submitted = sessionID + ":" + text
+	fake.submittedImages = images
 	return fake.submitToSessionErr
 }
 
@@ -103,7 +112,7 @@ func TestBridgeSessionAwareAPIsRouteToApplication(t *testing.T) {
 		t.Fatalf("NewBridge: %v", err)
 	}
 
-	if err := bridge.SubmitToSession("s1", "hi"); err != nil {
+	if err := bridge.SubmitToSession("s1", "hi", nil); err != nil {
 		t.Fatalf("SubmitToSession: %v", err)
 	}
 	if app.submitted != "s1:hi" {

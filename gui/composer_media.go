@@ -48,8 +48,8 @@ func (bridge *Bridge) AttachComposerImage(sessionID, name, mimeType string, widt
 
 // OpenComposerImage 用系统默认查看器打开一张已附加图片的原始文件。
 //
-// 「不打开的预览」是这条交互的前提：缩略图留在输入框里，不抢占前台、不弹窗；只有
-// 用户**明确点开**时才交给系统。所以这里不等待、不挂窗口，只把请求交给默认应用。
+// 「不打开的预览」是这条交互的前提：缩略图留在输入框 / 对话区里，不抢占前台、不弹窗；
+// 只有用户**明确点开**时才交给系统。所以这里不等待、不挂窗口，只把请求交给默认应用。
 func (bridge *Bridge) OpenComposerImage(sessionID, ref string) error {
 	media := bridge.composerMedia()
 	if media == nil {
@@ -60,6 +60,19 @@ func (bridge *Bridge) OpenComposerImage(sessionID, ref string) error {
 		return fmt.Errorf("打开图片失败：%w", err)
 	}
 	return openWithSystemViewer(path)
+}
+
+// ComposerImageData 读回一张已附加图片的字节，供对话区画缩略图。
+//
+// 为什么需要这条读面：用户消息随行图片在消息里只留 ref（字节不进快照与
+// transcript），渲染层手上没有路径（路径不回渲染层），所以缩略图必须按 (会话, ref)
+// 向宿主读回。它只读、只按会话媒体分区解析，跨会话/跨项目的 ref 在这里读不到。
+func (bridge *Bridge) ComposerImageData(sessionID, ref string) (dto.ComposerImageData, error) {
+	media := bridge.composerMedia()
+	if media == nil {
+		return dto.ComposerImageData{}, fmt.Errorf("图片附件未装配（当前宿主不支持）")
+	}
+	return media.ReadUserImage(bridge.requestContext(), sessionID, ref)
 }
 
 // composerMedia 取图片附件端口；未装配时返回 nil（调用方给显式错误）。

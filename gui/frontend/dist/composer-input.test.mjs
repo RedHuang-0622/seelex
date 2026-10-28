@@ -73,7 +73,33 @@ test("lets a plain Enter submit", () => {
 test("普通对话输入走 SubmitToSession + 当前视图会话 ID", () => {
   assert.deepEqual(
     composerSubmitPlan({ text: "帮我跑一遍测试", viewedSessionID: "sess-4" }),
-    { rpc: "SubmitToSession", args: ["sess-4", "帮我跑一遍测试"] }
+    { rpc: "SubmitToSession", args: ["sess-4", "帮我跑一遍测试", []] }
+  );
+});
+
+test("输入框图片随普通对话一起交给后端（第三参 = ref 列表）", () => {
+  // 图片属于**这一条消息**：ref 跟着同一次提交下去，后端据此把它写进用户消息
+  // （对话区才能在消息下面画出缩略图）。去空白、保序、空串丢掉。
+  assert.deepEqual(
+    composerSubmitPlan({ text: "看这张图", viewedSessionID: "sess-4", imageRefs: ["media:aa", " media:bb ", ""] }),
+    { rpc: "SubmitToSession", args: ["sess-4", "看这张图", ["media:aa", "media:bb"]] }
+  );
+  // 只有图没有字：正文空串照发（"看这张截图"是完整的一句请求）。
+  assert.deepEqual(
+    composerSubmitPlan({ text: "", viewedSessionID: "sess-4", imageRefs: ["media:aa"] }),
+    { rpc: "SubmitToSession", args: ["sess-4", "", ["media:aa"]] }
+  );
+  // 非数组/缺省都归一成空数组：形状固定，"有没有图"由后端按 refs 判。
+  assert.deepEqual(
+    composerSubmitPlan({ text: "hi", viewedSessionID: "sess-4", imageRefs: null }),
+    { rpc: "SubmitToSession", args: ["sess-4", "hi", []] }
+  );
+});
+
+test("sigil 输入不夹带图片（后端路由器不吃图，chip 必须留在框里）", () => {
+  assert.deepEqual(
+    composerSubmitPlan({ text: "/compact", viewedSessionID: "sess-4", imageRefs: ["media:aa"] }),
+    { rpc: "Submit", args: ["/compact"] }
   );
 });
 
@@ -95,7 +121,7 @@ test("文件引用输入不是 sigil：`@路径` 与普通对话走同一条 Sub
     assert.equal(isSigilInput(text), false, `${text} 不该判为 sigil`);
     assert.deepEqual(
       composerSubmitPlan({ text, viewedSessionID: "sess-4" }),
-      { rpc: "SubmitToSession", args: ["sess-4", text] }
+      { rpc: "SubmitToSession", args: ["sess-4", text, []] }
     );
   }
 });
@@ -104,7 +130,7 @@ test("拿不到视图会话 ID 时退回 Submit（不往空 ID 上投）", () =>
   assert.deepEqual(composerSubmitPlan({ text: "hi", viewedSessionID: "" }), { rpc: "Submit", args: ["hi"] });
   assert.deepEqual(composerSubmitPlan({ text: "hi", viewedSessionID: "  " }), { rpc: "Submit", args: ["hi"] });
   assert.deepEqual(composerSubmitPlan({ text: "hi", viewedSessionID: null }), { rpc: "Submit", args: ["hi"] });
-  assert.deepEqual(composerSubmitPlan({ text: "hi", viewedSessionID: " sess-9 " }), { rpc: "SubmitToSession", args: ["sess-9", "hi"] });
+  assert.deepEqual(composerSubmitPlan({ text: "hi", viewedSessionID: " sess-9 " }), { rpc: "SubmitToSession", args: ["sess-9", "hi", []] });
 });
 
 // ── 输入框正文按会话归属：运行中会话里写的字不得被发给空闲会话 ──────────
@@ -196,8 +222,8 @@ const appSource = await readFile(new URL("./app.js", import.meta.url), "utf8");
 
 test("app.js：composer 提交经 composerSubmitPlan 显式钉会话，不裸调会被后端 current 带偏的 Submit", () => {
   assert.ok(
-    appSource.includes("composerSubmitPlan({ text, viewedSessionID: client.current()?.session?.id })"),
-    "提交必须显式取当前视图会话（await 之前取，不是 RPC 回来时取）"
+    appSource.includes("composerSubmitPlan({ text, viewedSessionID: client.current()?.session?.id, imageRefs })"),
+    "提交必须显式取当前视图会话（await 之前取，不是 RPC 回来时取），并把图片 ref 一并交给后端"
   );
   assert.ok(appSource.includes("await invoke(plan.rpc, ...plan.args)"), "提交必须走 plan 决定的 RPC");
   assert.ok(

@@ -45,6 +45,9 @@ func ProjectConversationEvents(events []protocol.TranscriptEvent, policy Convers
 			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
 			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
 			ConfigRole: event.ConfigRole, ConfigModel: event.ConfigModel, ConfigProvider: event.ConfigProvider,
+			// 图片是这条行的一部分：随行复制，前端据此在用户消息下面画出缩略图。
+			// 冷恢复走的就是这条投影——不复制的话，实时行有图、重启后没图。
+			Images: event.Images,
 		}
 		switch event.Role {
 		case "assistant":

@@ -65,6 +65,34 @@ func TestMediaRoundTripDedupAndPaths(t *testing.T) {
 	}
 }
 
+// TestMediaMetaReadsMetadataWithoutBytes 钉住「只读元数据」这一格：提交一条带图
+// 消息时只要名字/类型/尺寸去写用户消息行，不该为了元数据把几 MB 的图读进内存。
+// 判据（非法 ref / 不存在的 ref 显式失败）与 ReadMedia 同一份，不能各写一套。
+func TestMediaMetaReadsMetadataWithoutBytes(t *testing.T) {
+	store, scope := testStore(t, storeroot.Settings{})
+	data := []byte("image-bytes")
+	written, err := store.WriteMedia(scope, MediaItem{
+		Name: "screen.png", MimeType: "image/png", Kind: "user_image", Data: data, Width: 12, Height: 6,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := store.MediaMeta(scope, written.Ref)
+	if err != nil {
+		t.Fatalf("MediaMeta: %v", err)
+	}
+	if meta.Ref != written.Ref || meta.Name != "screen.png" || meta.MimeType != "image/png" ||
+		meta.Bytes != len(data) || meta.Width != 12 || meta.Height != 6 || meta.Kind != "user_image" {
+		t.Fatalf("元数据 = %+v", meta)
+	}
+	if _, err := store.MediaMeta(scope, "media:"); err == nil {
+		t.Fatal("非法 ref 必须显式失败")
+	}
+	if _, err := store.MediaMeta(scope, "media:deadbeef"); err == nil {
+		t.Fatal("不存在的 ref 必须显式失败")
+	}
+}
+
 func TestMediaLimitsAndGC(t *testing.T) {
 	store, scope := testStore(t, storeroot.Settings{
 		MediaMaxItemBytes: 4, MediaSessionQuotaBytes: 8, MediaMaxItemsPerSession: 2, MediaMaxLongSide: 10,

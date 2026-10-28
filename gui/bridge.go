@@ -549,8 +549,32 @@ func (bridge *Bridge) CancelChat(requestID string) bool {
 
 // SubmitToSession 向指定会话提交输入（会话级保护 API；与视图会话无关）。
 // 会话作用域的解析与保护在 owner 里，桥面只补 request context。
-func (bridge *Bridge) SubmitToSession(sessionID, text string) error {
-	return bridge.deps.SessionSubmit.SubmitToSession(bridge.requestContext(), sessionID, text)
+//
+// imageRefs 是输入框里挂着的那几张图（`AttachComposerImage` 返回的 ref）。它们属于
+// **这一条输入**：这里把它们解析成展示元数据随提交一起下发，图片因此落进这条用户
+// 消息（前端在消息下面画缩略图），而不是"发出去之后谁也看不见"的旁路状态。
+// 解析失败（ref 不在本会话媒体分区）就整条失败——宁可让用户重拍，也不写一条指着
+// 打不开的图的消息。
+func (bridge *Bridge) SubmitToSession(sessionID, text string, imageRefs []string) error {
+	ctx := bridge.requestContext()
+	images, err := bridge.resolveComposerImages(ctx, sessionID, imageRefs)
+	if err != nil {
+		return err
+	}
+	return bridge.deps.SessionSubmit.SubmitToSessionWithImages(ctx, sessionID, text, images)
+}
+
+// resolveComposerImages 把输入框的 ref 列表解析成提交随行的图片元数据。
+// 没有 ref（绝大多数提交）时不做任何媒体调用。
+func (bridge *Bridge) resolveComposerImages(ctx context.Context, sessionID string, refs []string) ([]dto.ComposerImage, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	media := bridge.composerMedia()
+	if media == nil {
+		return nil, fmt.Errorf("图片附件未装配（当前宿主不支持）")
+	}
+	return media.ResolveUserImages(ctx, sessionID, refs)
 }
 
 // ReorderQueuedInput 调换目标会话排队输入的顺序（队列条目的 ↑/↓ 操作）。

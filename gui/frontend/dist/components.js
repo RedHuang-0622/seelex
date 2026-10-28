@@ -513,16 +513,53 @@ function renderMessage(message, key, above = false, below = false, payloads = ne
   const label = roleIdentity(message, role);
   const reasoning = String(message.reasoning_content || "").trim();
   const roundID = Number(message.round_id || 0);
+  const images = role === "user" ? messageImages(message) : [];
   const wheelKind = role === "user" ? "user" : role === "system" ? "system" : role === "assistant" ? (String(message.content || "").trim() ? "agent" : "think") : "other";
-  const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
+  // 轮轴标签：正文为空但带了图时不能写成「（空）」——用户确实发了东西，发的是图。
+  const wheelText = String(message.content || "").trim() || reasoning || (images.length ? `图片 ×${images.length}` : "");
+  const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(wheelText)}`;
   const actions = renderUserMessageActions(message, key, payloads);
   const body = `<div class="message-body" data-message-body="true">${renderMessageBody(message, role, key)}</div><!--/seelex-message-body-->`;
+  // 图片挂在正文**下面**：用户发出去的是「这句话 + 这几张图」，读的顺序也应当
+  // 是"先说什么，再看给的是什么"。缩略图字节由 message-images.js 注水（一次
+  // RPC 一张，按 ref 缓存），这里只画结构与 ref。
+  const imageStrip = role === "user" ? renderMessageImages(images) : "";
   const content = role === "user"
-    ? `<div class="message-user-cluster">${body}${actions}</div>`
+    ? `<div class="message-user-cluster">${body}${imageStrip}${actions}</div>`
     : `${body}${actions}`;
   return `<article class="message ${escapeHtml(role)}${messageRoleClass(message)}${joined.className}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}"${joined.dataAttrs}>
     ${content}
   </article>`;
+}
+
+// messageImages 取一条消息随行的图片（只有用户行会有；其它角色一律空）。
+//
+// 判据只有一处：`message.images`（后端把用户消息随行图片写在这里，见
+// protocol.Message.Images）。前端不从正文、不从队列、不从输入框状态猜"这条消息
+// 是不是带了图"——猜出来的东西在刷新后一定对不上。
+function messageImages(message) {
+  const list = Array.isArray(message?.images) ? message.images : [];
+  return list.filter(image => String(image?.ref ?? "") !== "");
+}
+
+// renderMessageImages 画用户消息的图片条；空列表整块收起（不吃高度、不吃指针）。
+function renderMessageImages(images) {
+  if (!images.length) return "";
+  const figures = images.map(image => {
+    const ref = String(image.ref);
+    const name = String(image?.name ?? "") || "图片";
+    const dimensions = Number(image?.width) > 0 && Number(image?.height) > 0
+      ? `${Number(image.width)}×${Number(image.height)}`
+      : "";
+    const title = dimensions === "" ? name : `${name}（${dimensions}）`;
+    return `<figure class="message-image" data-message-image-figure="${escapeHtml(ref)}">`
+      + `<button type="button" class="message-image-open" data-message-image-open="${escapeHtml(ref)}"`
+      + ` title="点击用系统默认查看器打开 ${escapeHtml(title)}" aria-label="打开图片 ${escapeHtml(title)}">`
+      + `<img class="message-image-thumb" data-message-image="${escapeHtml(ref)}" alt="${escapeHtml(name)}" loading="lazy" draggable="false" />`
+      + `</button>`
+      + `</figure>`;
+  }).join("");
+  return `<div class="message-images" role="group" aria-label="随这条消息发送的图片">${figures}</div>`;
 }
 
 // renderUserMessageActions 只给真实用户行生成复制/编辑动作。复制正文进入既有

@@ -1880,6 +1880,50 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .composer-attachment:hover .composer-attachment-remove,
 .composer-attachment:focus-within .composer-attachment-remove { opacity: 1; }
 .composer-attachment-remove:hover { background: var(--status-failed); }
+/* 用户消息随行图片（发送后的样子）：挂在正文下面，尺寸按内容但不越过一个上限。
+   与输入框里的 chip 同一条语言——「不打开的预览」：缩略图只在这里显示，点开才
+   交给系统默认图片查看器。 */
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.message-image {
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--panel-solid);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.message-image:hover { border-color: var(--border-info); }
+.message-image-open {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.message-image-thumb {
+  display: block;
+  /* 原生尺寸之外的软上限：截图常见 1280~2560 宽，等比缩到最长边 260px，
+     再大的图在对话区只会把消息行撑成一屏。 */
+  max-width: 260px;
+  max-height: 260px;
+  min-width: 44px;
+  min-height: 44px;
+  object-fit: contain;
+  background: repeating-linear-gradient(45deg, var(--panel) 0 4px, var(--panel-solid) 4px 8px);
+}
+/* 读不回来（图被回收 / 会话已切换）：不画破图，留一块可辨认的占位，并停掉
+   cursor 的"可点开"暗示——点它只会得到一句"打开图片失败"。 */
+.message-image[data-message-image-state="missing"] .message-image-thumb {
+  width: 88px;
+  height: 66px;
+  opacity: 0.45;
+}
+.message-image[data-message-image-state="missing"] .message-image-open { cursor: not-allowed; }
 /* `+` 加号的选择器：从工具条上方浮出的小面板（复用命令面板的行样式）。 */
 .composer-file-picker {
   position: absolute;

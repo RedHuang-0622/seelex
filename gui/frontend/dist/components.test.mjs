@@ -73,6 +73,38 @@ test("用户消息正文和小型操作组成同一个右对齐气泡集群", ()
   assert.ok(cluster.indexOf("message-body") < cluster.indexOf("message-actions"));
 });
 
+test("用户消息随行图片画在正文下面（发送后看得见自己发了哪张图）", () => {
+  const rendered = renderConversationComponent([
+    {
+      id: "u-img", role: "user", content: "看这张截图", event_seq: 5, editable: true,
+      images: [
+        { ref: "media:aaa", name: "shot.png", mime_type: "image/png", bytes: 12, width: 800, height: 600 },
+        { ref: "media:bbb", name: "clip.png", mime_type: "image/png", bytes: 9 }
+      ]
+    }
+  ], { running: false });
+
+  const article = rendered.html.match(/<article class="message user[\s\S]*?<\/article>/)?.[0] || "";
+  assert.match(article, /class="message-images"/, "用户消息必须带图片条");
+  assert.match(article, /data-message-image="media:aaa"/, "缩略图节点必须带 ref（注水靠它）");
+  assert.match(article, /data-message-image-open="media:aaa"/, "缩略图必须可点开原图");
+  assert.match(article, /alt="shot.png"/, "无图时也要可读：alt 用原始文件名");
+  assert.match(article, /800×600/, "尺寸进 title（点开前的唯一线索）");
+  // 顺序：正文 → 图片 → 操作按钮（用户读的顺序是"先说什么，再看给的是什么"）。
+  assert.ok(article.indexOf("message-body") < article.indexOf("message-images"));
+  assert.ok(article.indexOf("message-images") < article.indexOf("message-actions"));
+  // 没有 images 字段的消息一个节点都不多画（旧数据/助手行不背这个负担）。
+  const plain = renderConversationComponent([{ id: "u0", role: "user", content: "纯文字" }], { running: false });
+  assert.doesNotMatch(plain.html, /message-images/);
+});
+
+test("用户消息只有图没有字时，轮轴标签写图片张数而不是「（空）」", () => {
+  const model = renderConversationModel([
+    { id: "u-only-image", role: "user", content: "", images: [{ ref: "media:aaa", name: "shot.png" }] }
+  ]);
+  assert.match(model.items[0].html, /data-wheel-label="你 · 图片 ×1"/);
+});
+
 test("user copy payload is the original content, not rendered markdown", () => {
   const model = renderConversationModel([
     { id: "u1", role: "user", content: "**原文** <script>x</script>", event_seq: 2, editable: true }

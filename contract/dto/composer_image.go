@@ -39,3 +39,19 @@ type ComposerImage struct {
 	Width    int    `json:"width,omitempty"`
 	Height   int    `json:"height,omitempty"`
 }
+
+// ComposerImageData 是一张已落盘会话图片的**字节载荷**（渲染层缩略图用）。
+//
+// 为什么要有这一格：对话区把用户消息随行的图片画出来时，手上只有 ref——
+// 原图在会话媒体分区里，渲染层拿不到路径（路径不回渲染层，见 MediaFilePath）。
+// 于是缩略图走这条只读通道：按 (session, ref) 读回字节，编码成 base64 由渲染层
+// 拼成 data URL。它是**读**，不是新的存储通道：落盘、配额、归属仍只有
+// AttachUserImage 那一份实现。
+type ComposerImageData struct {
+	Ref      string `json:"ref"`
+	MimeType string `json:"mime_type"`
+	Bytes    int    `json:"bytes"`
+	// DataBase64 是裸 base64（不含 `data:` 前缀）：前缀由渲染层按 MimeType 拼，
+	// 后端不猜它要在哪个宿主里显示。
+	DataBase64 string `json:"data_base64"`
+}

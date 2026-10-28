@@ -121,6 +121,21 @@ func (r *Runtime) MediaPathWorkspace(ctx context.Context, projectID, sessionID, 
 	return state.store.MediaPath(ctx, projectID, sessionID, ref)
 }
 
+// MediaMetaWorkspace 是 media 域的宿主窄端口：只读一条媒体资产的元数据。
+//
+// 为什么要与 ReadMediaWorkspace 分开：提交带图消息时只需要"这张图叫什么、多大"
+// 去写一行 transcript，图本体可能有数 MB——为了元数据把字节也读进来是白花。
+func (r *Runtime) MediaMetaWorkspace(ctx context.Context, projectID, sessionID, ref string) (storeartifact.MediaRef, error) {
+	if r == nil {
+		return storeartifact.MediaRef{}, errors.New("media: runtime is unavailable")
+	}
+	state := r.mediaStore.Load()
+	if state == nil || state.store == nil {
+		return storeartifact.MediaRef{}, errors.New("media: artifact store is unavailable")
+	}
+	return state.store.MediaMeta(ctx, projectID, sessionID, ref)
+}
+
 // ComposerMedia 把媒体面交给 GUI 装配（输入框图片附件的唯一 owner）。
 //
 // 为什么走这个 getter 而不是把 `*toolmedia.SessionMedia` 塞进

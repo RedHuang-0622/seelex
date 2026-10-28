@@ -33,6 +33,10 @@ type Host interface {
 	// MediaPathWorkspace 给出某条已落盘媒体资产的真实文件位置（GUI「点开缩略图，
 	// 用系统默认查看器看原图」）。只读事实：媒体布局归存储 owner，本域不拼路径。
 	MediaPathWorkspace(context.Context, string, string, string) (string, error)
+	// MediaMetaWorkspace 只读某条已落盘媒体资产的**元数据**（不读字节）：把
+	// 输入框附件的那几个 ref 解析成「这条用户消息带了哪几张图」的展示元数据时用，
+	// 免得为了写一行 transcript 把几 MB 的图都读进内存。
+	MediaMetaWorkspace(context.Context, string, string, string) (storeartifact.MediaRef, error)
 	// SessionProjectID 解析会话绑定的项目 id；未绑定返回 ""。
 	SessionProjectID(sessionID string) string
 }

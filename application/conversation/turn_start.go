@@ -169,10 +169,7 @@ func (application *TurnStartApplication) appendTurnMessagesLocked(
 	input string,
 	userEvent model.TranscriptEvent,
 ) (model.Message, model.Message) {
-	userOrigin := model.MessageOrigin{
-		RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
-		RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq, EventSeq: userEvent.Seq,
-	}
+	userOrigin := model.MessageOriginOf(userEvent)
 	mainOrigin := model.MessageOrigin{
 		RoleName: model.RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID,
 	}

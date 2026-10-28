@@ -13,6 +13,7 @@ package gui
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/RedHuang-0622/seelex/application"
 	assembly "github.com/RedHuang-0622/seelex/application/assembly"
@@ -288,9 +289,15 @@ type fakeComposerMedia struct {
 	recorder  *fakeApplication
 	attached  []dto.ComposerImageRequest
 	openCalls []string
-	attachErr error
-	openErr   error
-	openPath  string
+	// resolveCalls / readCalls 记录"提交解析"与"缩略图读回"两条只读调用
+	// （入参是 `会话|...` 形态，断言归属没有被串成别的会话）。
+	resolveCalls []string
+	readCalls    []string
+	attachErr    error
+	openErr      error
+	openPath     string
+	resolveErr   error
+	readErr      error
 }
 
 func (fake *fakeComposerMedia) AttachUserImage(_ context.Context, request dto.ComposerImageRequest) (dto.ComposerImage, error) {
@@ -310,4 +317,27 @@ func (fake *fakeComposerMedia) MediaFilePath(_ context.Context, sessionID, ref s
 		return "", fake.openErr
 	}
 	return fake.openPath, nil
+}
+
+// ResolveUserImages 把 ref 桩成固定的展示元数据；resolveErr 用来钉"解析失败
+// 不提交"这条判据。
+func (fake *fakeComposerMedia) ResolveUserImages(_ context.Context, sessionID string, refs []string) ([]dto.ComposerImage, error) {
+	fake.resolveCalls = append(fake.resolveCalls, sessionID+"|"+strings.Join(refs, ","))
+	if fake.resolveErr != nil {
+		return nil, fake.resolveErr
+	}
+	images := make([]dto.ComposerImage, 0, len(refs))
+	for _, ref := range refs {
+		images = append(images, dto.ComposerImage{Ref: ref, Name: ref + ".png", MimeType: "image/png", Bytes: 7})
+	}
+	return images, nil
+}
+
+// ReadUserImage 桩回缩略图字节（真实实现按会话媒体分区读盘）。
+func (fake *fakeComposerMedia) ReadUserImage(_ context.Context, sessionID, ref string) (dto.ComposerImageData, error) {
+	fake.readCalls = append(fake.readCalls, sessionID+"|"+ref)
+	if fake.readErr != nil {
+		return dto.ComposerImageData{}, fake.readErr
+	}
+	return dto.ComposerImageData{Ref: ref, MimeType: "image/png", Bytes: 7, DataBase64: "cG5nLWJ5dGVz"}, nil
 }

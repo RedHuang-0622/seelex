@@ -100,6 +100,9 @@ func (application *TurnProcessApplication) BeginLocked(
 	application.deps.Tasks.ActivateTaskSkillsLocked(taskState, request.Skills)
 	userEvent := application.deps.Tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: requestID, Role: "user", Content: request.DisplayInput,
+		// 图片随这条 user 行落盘：它是这句话的一部分（用户发了"这句 + 这几张图"），
+		// 冷恢复/回读据此才能把图重新摆在用户消息下面。
+		Images: request.Images,
 	})
 	unit.SetStream(chat.NewVisibleOutputStream(requestID))
 	if options.MarkBusy {

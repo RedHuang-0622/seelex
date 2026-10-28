@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // TurnStarter is the admission boundary consumed by submissions.
@@ -39,7 +40,9 @@ func NewSubmission(deps SubmissionDeps) *SubmissionApplication {
 // Submit materializes the viewed draft and submits to that session.
 func (application *SubmissionApplication) Submit(ctx context.Context, input string) error {
 	sessionID := application.deps.CurrentSessionID()
-	request := application.requestFor(sessionID, input)
+	// 输入框图片是**会话视图**上的附件：草稿落成会话的那条路径走 sigil/普通
+	// 两条提交口，都不带图（星号路由把输入交给后端路由器，图不属于那条路）。
+	request := application.requestFor(sessionID, input, nil)
 	lock := application.deps.TransitionLock()
 	lock.Lock()
 	err := application.deps.MaterializeDraft(request.DisplayInput)
@@ -53,11 +56,21 @@ func (application *SubmissionApplication) Submit(ctx context.Context, input stri
 // SubmitFor submits to an explicit background session without consuming the
 // viewed draft.
 func (application *SubmissionApplication) SubmitFor(ctx context.Context, sessionID, input string) error {
-	return application.deps.Start.StartFor(ctx, sessionID, application.requestFor(sessionID, input))
+	return application.SubmitForWithImages(ctx, sessionID, input, nil)
 }
 
-func (application *SubmissionApplication) requestFor(sessionID, input string) Request {
-	request := application.deps.Request.NewRequest(input, application.deps.Layers())
+// SubmitForWithImages 是带图片附件的显式会话提交：图片属于**这一条输入**，
+// 随 Request 一起入队/起始，最终写进这条 user 事件行（见 Request.Images）。
+func (application *SubmissionApplication) SubmitForWithImages(
+	ctx context.Context,
+	sessionID, input string,
+	images []dto.ComposerImage,
+) error {
+	return application.deps.Start.StartFor(ctx, sessionID, application.requestFor(sessionID, input, images))
+}
+
+func (application *SubmissionApplication) requestFor(sessionID, input string, images []dto.ComposerImage) Request {
+	request := application.deps.Request.NewRequestWithImages(input, application.deps.Layers(), images)
 	request.Budget = application.deps.BudgetFor(application.deps.EffortFor(sessionID))
 	return request
 }

@@ -93,6 +93,10 @@ go test ./contract -run 'TestBM00' -count=1
 - `func userEventUnit(events []TranscriptEvent, start int) ([]TranscriptEvent, int)`
 - `func toolEventUnit(events []TranscriptEvent, start int) ([]TranscriptEvent, int, bool)`
 
+### message.go
+
+- `func MessageOriginOf(event TranscriptEvent) MessageOrigin` — MessageOriginOf 把一条 transcript 事件行映射成可见消息的归属（含随行图片）。
+
 ### state.go
 
 - `func ExplicitCompactionOrigin(origin string) bool` — ExplicitCompactionOrigin 报告该来源是否为显式要求（用户 /compact 或模型

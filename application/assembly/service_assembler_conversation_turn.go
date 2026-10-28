@@ -113,10 +113,7 @@ func (service *Service) assembleConversationTurnComponents() {
 			if !promotion.Promoted {
 				return nil, nil
 			}
-			userOrigin := model.MessageOrigin{
-				RoleName: promotion.UserEvent.RoleName, RoleSessionID: promotion.UserEvent.RoleSessionID,
-				RoundID: promotion.UserEvent.RoundID, UnitSeq: promotion.UserEvent.UnitSeq, EventSeq: promotion.UserEvent.Seq,
-			}
+			userOrigin := model.MessageOriginOf(promotion.UserEvent)
 			mainOrigin := model.MessageOrigin{RoleName: model.RoleNameMain, RoleSessionID: sessionID, RoundID: promotion.UserEvent.RoundID}
 			if active {
 				return service.components.view.AppendMessageWithOriginLocked("user", promotion.Request.DisplayInput, nil, userOrigin),

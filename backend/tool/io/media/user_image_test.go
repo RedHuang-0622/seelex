@@ -3,6 +3,7 @@ package media
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +11,16 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
 )
+
+// decodeBase64 解开缩略图载荷（读面只回裸 base64，前缀由渲染层拼）。
+func decodeBase64(t *testing.T, value string) []byte {
+	t.Helper()
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		t.Fatalf("base64 解码失败: %v", err)
+	}
+	return decoded
+}
 
 // userImageFixture 起一个真实存储（临时目录）+ stubHost，返回媒体面。
 // 用户图片的落盘/配额/归属都是存储侧事实，用假存储测不出「真的写进去了」。
@@ -173,5 +184,95 @@ func TestMediaFilePathRejectsMissingFacts(t *testing.T) {
 	var inert *SessionMedia
 	if _, err := inert.MediaFilePath(context.Background(), "sess-a", "media:abc"); err == nil {
 		t.Fatal("未装配存储必须报错")
+	}
+}
+
+// TestResolveUserImagesBuildsMessageMetadata 钉住「提交带图消息时把 ref 解析成
+// 展示元数据」这条链：
+//   - 只认**本会话媒体分区**里的 ref（别的会话的 ref 一律拒绝：消息里不该出现一条
+//     打不开的图）；
+//   - 顺序按发送时给的顺序、按 ref 去重（用户眼里的顺序就是发送顺序）；
+//   - 不认识的 ref 让整条提交失败，而不是默默少一张图（少图比"标了图打不开"更难发现）。
+//
+// 这条元数据是**消息的一部分**：它随后被写进用户消息行，对话区据此把图摆在
+// 用户消息下面。
+func TestResolveUserImagesBuildsMessageMetadata(t *testing.T) {
+	media, stores := userImageFixture(t)
+	ctx := context.Background()
+	first, err := media.AttachUserImage(ctx, dto.ComposerImageRequest{
+		SessionID: "sess-a", Name: "shot", MimeType: "image/png", Width: 800, Height: 600, Data: []byte("png-bytes"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := media.AttachUserImage(ctx, dto.ComposerImageRequest{
+		SessionID: "sess-a", Name: "clip", MimeType: "image/jpeg", Data: []byte("jpg-bytes"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	images, err := media.ResolveUserImages(ctx, "sess-a", []string{second.Ref, first.Ref, second.Ref, "  "})
+	if err != nil {
+		t.Fatalf("ResolveUserImages: %v", err)
+	}
+	if len(images) != 2 {
+		t.Fatalf("解析结果 = %+v, want 2 条（去重 + 丢空串）", images)
+	}
+	if images[0].Ref != second.Ref || images[1].Ref != first.Ref {
+		t.Fatalf("顺序没保留: %+v", images)
+	}
+	if images[1].Name != "shot.png" || images[1].MimeType != "image/png" || images[1].Width != 800 || images[1].Height != 600 {
+		t.Fatalf("元数据 = %+v", images[1])
+	}
+	if images[1].Bytes != len("png-bytes") {
+		t.Fatalf("字节数 = %d", images[1].Bytes)
+	}
+
+	// 别的会话：同一 ref 解析不到（归属解析跟着会话走）。
+	if _, err := media.ResolveUserImages(ctx, "sess-b", []string{first.Ref}); err == nil {
+		t.Fatal("跨会话的 ref 必须拒绝")
+	}
+	// 不存在的 ref：整条失败，不返回"少一张"的部分结果。
+	if _, err := media.ResolveUserImages(ctx, "sess-a", []string{first.Ref, "media:deadbeef"}); err == nil {
+		t.Fatal("不存在的 ref 必须让整条解析失败")
+	}
+	// 没图：返回 nil 且不报错（绝大多数提交都走这条）。
+	if images, err := media.ResolveUserImages(ctx, "sess-a", nil); err != nil || images != nil {
+		t.Fatalf("空 refs = %+v, %v", images, err)
+	}
+	// 缺会话：显式报错（不许把元数据算到别的会话上）。
+	if _, err := media.ResolveUserImages(ctx, " ", []string{first.Ref}); err == nil {
+		t.Fatal("缺会话必须报错")
+	}
+	_ = stores
+}
+
+// TestReadUserImageReturnsBytesForThumbnail 钉住对话区缩略图的读面：按 (会话, ref)
+// 读回**原字节**并给出 MIME（渲染层拼 data URL 用）；跨会话读不到。
+func TestReadUserImageReturnsBytesForThumbnail(t *testing.T) {
+	media, _ := userImageFixture(t)
+	ctx := context.Background()
+	image, err := media.AttachUserImage(ctx, dto.ComposerImageRequest{
+		SessionID: "sess-a", Name: "shot", MimeType: "image/png", Data: []byte("png-bytes"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := media.ReadUserImage(ctx, "sess-a", image.Ref)
+	if err != nil {
+		t.Fatalf("ReadUserImage: %v", err)
+	}
+	if data.MimeType != "image/png" || data.Bytes != len("png-bytes") {
+		t.Fatalf("元数据 = %+v", data)
+	}
+	if decoded := decodeBase64(t, data.DataBase64); !bytes.Equal(decoded, []byte("png-bytes")) {
+		t.Fatalf("读回字节 = %q", decoded)
+	}
+	if _, err := media.ReadUserImage(ctx, "sess-b", image.Ref); err == nil {
+		t.Fatal("别的会话不该能读这张图")
+	}
+	if _, err := media.ReadUserImage(ctx, "sess-a", ""); err == nil {
+		t.Fatal("缺 ref 必须报错")
 	}
 }

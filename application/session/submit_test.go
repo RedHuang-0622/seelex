@@ -4,7 +4,43 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
+
+// imageSuffix 把随行图片压成断言用的小尾巴（没有图 = 空串，行为不变）。
+func imageSuffix(images []dto.ComposerImage) string {
+	if len(images) == 0 {
+		return ""
+	}
+	suffix := "+images"
+	for _, image := range images {
+		suffix += ":" + image.Ref
+	}
+	return suffix
+}
+
+// TestSubmitApplicationCarriesImagesToSubmitter 证明带图入口与纯文本入口走同一份
+// 准入顺序，且图片原样交到提交口（图片属于这一条输入，不能在中途丢）。
+func TestSubmitApplicationCarriesImagesToSubmitter(t *testing.T) {
+	var got []dto.ComposerImage
+	application := NewSubmit(SubmitDeps{
+		Materialize: func(string, string) error { return nil },
+		Loaded:      func(string) (bool, bool) { return true, false },
+		Resume:      func(string) error { return nil },
+		Submit: func(_ context.Context, _ string, _ string, images []dto.ComposerImage) error {
+			got = images
+			return nil
+		},
+	})
+	images := []dto.ComposerImage{{Ref: "media:aaa", Name: "shot.png", MimeType: "image/png", Bytes: 12}}
+	if err := application.SubmitToSessionWithImages(context.Background(), "s1", "看一看", images); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Ref != "media:aaa" {
+		t.Fatalf("images = %+v", got)
+	}
+}
 
 func TestSubmitApplicationMaterializesAndRoutesExplicitSession(t *testing.T) {
 	var calls []string
@@ -23,8 +59,8 @@ func TestSubmitApplicationMaterializesAndRoutesExplicitSession(t *testing.T) {
 			calls = append(calls, "resume:"+sessionID)
 			return nil
 		},
-		Submit: func(_ context.Context, sessionID, text string) error {
-			calls = append(calls, "submit:"+sessionID+":"+text)
+		Submit: func(_ context.Context, sessionID, text string, images []dto.ComposerImage) error {
+			calls = append(calls, "submit:"+sessionID+":"+text+imageSuffix(images))
 			return nil
 		},
 	})

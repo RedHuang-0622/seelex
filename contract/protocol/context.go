@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 const TaskContextProjectionSchemaVersion = 1
@@ -125,6 +127,14 @@ type TranscriptEvent struct {
 	ConfigRole     string `json:"config_role,omitempty"`
 	ConfigModel    string `json:"config_model,omitempty"`
 	ConfigProvider string `json:"config_provider,omitempty"`
+	// Images 是这条 user 行随行附上的图片（输入框拖拽 / 粘贴进来的图）。
+	//
+	// 为什么与正文同一行落盘：图片是**这条消息的一部分**，不是一次旁路投递。
+	// 冷恢复、fork、历史窗口回读都只读这一行，就能把"这句话配了哪几张图"还原
+	// 出来，不必去媒体分区反查"最近谁挂了图"。只带引用与展示元数据
+	// （`dto.ComposerImage`），字节不进 transcript——缩略图由渲染层按 ref 经
+	// Bridge 读回，原图由宿主交给系统默认查看器。
+	Images []dto.ComposerImage `json:"images,omitempty"`
 	// CommitID groups event rows written by one durable commit.
 	CommitID string `json:"commit_id,omitempty"`
 	// InOutJSON is the final successful message payload, preserved verbatim.

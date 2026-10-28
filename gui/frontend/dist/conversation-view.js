@@ -1,5 +1,6 @@
 import { createConversationWheel } from "./conversation-wheel.js";
 import { createEmbedFrameBuffer } from "./embed-buffering.js";
+import { hydrateMessageImages } from "./message-images.js";
 import { markEntering, prefersReducedMotion } from "./motion.js";
 import { animateSpring } from "./spring-motion.js";
 
@@ -302,6 +303,10 @@ export function createConversationView(container, options = {}) {
         embedBuffer,
         animateEnter: !repaintBoundary && existingKeys.size > 0 && newItemCount > 0 && newItemCount <= 2
       });
+      // 用户消息随行图片：结构渲染完就把 ref 注水成可显示的缩略图。注水按 ref
+      // 缓存（message-images.js），流式期间每帧调一次也不会重复打 RPC；第一次
+      // 进会话/换会话时同理。
+      hydrateMessageImages(container);
       const renderedRows = [...container.querySelectorAll?.("[data-conversation-key]") || []];
       const rowMetrics = renderedRows.map(node => {
         const rect = node.getBoundingClientRect?.();
