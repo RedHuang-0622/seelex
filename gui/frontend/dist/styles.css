@@ -4913,10 +4913,10 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   position: absolute;
   top: 30px;
   bottom: 52px;
-  right: max(10px, calc((100% - 860px) / 2 - 84px));
+  right: max(8px, calc((100% - 860px) / 2 - 96px));
   z-index: 6;
-  width: 48px;
-  opacity: .84;
+  width: 60px;
+  opacity: .94;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 .conversation-shell .conversation-wheel:hover,
@@ -4937,22 +4937,22 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 5px;
+  right: 6px;
   width: 1px;
-  background: linear-gradient(to bottom, transparent 0%, var(--border-strong) 7%, var(--border-strong) 93%, transparent 100%);
-  opacity: .7;
+  background: linear-gradient(to bottom, transparent 0%, var(--text) 7%, var(--text) 93%, transparent 100%);
+  opacity: .42;
 }
 .wheel-track:focus-visible { box-shadow: 0 0 0 1px var(--border-info); border-radius: var(--r-md); }
 /* 刻度是贴着基线向左伸出的细线；波浪只通过 transform 改变长度与横向位移。 */
 .wheel-dash {
   position: absolute;
-  right: 5px;
-  width: 20px;
-  height: 1px;
+  right: 6px;
+  width: 22px;
+  height: 2px;
   padding: 0;
   border: 0;
-  background: var(--tick);
-  opacity: var(--wheel-wave-opacity, .62);
+  background: var(--text);
+  opacity: var(--wheel-wave-opacity, .72);
   cursor: pointer;
   transform-origin: 100% 50%;
   transform: translateX(var(--wheel-wave-shift, 0px)) scaleX(var(--wheel-wave-scale, 1));
@@ -4963,10 +4963,10 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   will-change: transform;
 }
 .wheel-dash::after { content: ""; position: absolute; inset: -7px -10px; }
-.wheel-dash.is-pending { opacity: .35; }
-.wheel-dash:hover { background: var(--text-soft); opacity: 1; }
+.wheel-dash.is-pending { opacity: .48; }
+.wheel-dash:hover { background: var(--text); opacity: 1; }
 .wheel-dash.is-active {
-  width: 28px;
+  width: 34px;
   background: var(--tick-hot);
   opacity: 1;
 }

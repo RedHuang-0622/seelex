@@ -546,7 +546,7 @@ export function createConversationWheel(container, options = {}) {
       const strength = wheelWaveStrength(center - y, WAVE_RADIUS);
       node.style.setProperty("--wheel-wave-scale", String(round2(1 + strength * 1.35)));
       node.style.setProperty("--wheel-wave-shift", `${round2(-strength * 4)}px`);
-      node.style.setProperty("--wheel-wave-opacity", String(round2(0.58 + strength * 0.42)));
+      node.style.setProperty("--wheel-wave-opacity", String(round2(0.72 + strength * 0.28)));
     }
   }
 

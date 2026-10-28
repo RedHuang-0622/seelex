@@ -344,6 +344,7 @@ test("wheel guide: question and final LLM summary have distinct contrast layers"
   const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
   assert.match(css, /\.wheel-tip-question\s*\{[^}]*color:\s*var\(--text\)/s);
   assert.match(css, /\.wheel-tip-reply\s*\{[^}]*color:\s*var\(--muted\)/s);
+  assert.match(css, /\.wheel-dash\s*\{[^}]*background:\s*var\(--text\)/s);
   assert.match(css, /\.wheel-dash\s*\{[^}]*transform:\s*translateX\(var\(--wheel-wave-shift[^}]*scaleX\(var\(--wheel-wave-scale/s);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.wheel-dash\s*\{[^}]*transform:\s*none/s);
 });
