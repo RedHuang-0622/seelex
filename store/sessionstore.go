@@ -101,21 +101,9 @@ type Event = protocol.TranscriptEvent
 
 type ToolResult = protocol.ToolResultRecord
 
-// Commit replaces the bounded provider cache and append-only transcript
-// snapshot together with the latest projection. Tool results are immutable
-// additions referenced by the committed state.
-type Commit struct {
-	ProviderHistory []types.Message
-	Events          []Event
-	State           []byte
-	ToolResults     []ToolResult
-	// CompactionRecords 是本次提交时要对齐的压缩记录**全量列表**（应用侧
-	// ContextCompaction 的序列化原文，append-only、只追加不重排）。存储层按
-	// 水位（metadata/compaction.json 的 count）只追加新增的尾部行——重复提交同
-	// 一份列表是幂等空操作。调用方每次落盘都传全量，因为「盘上已有多少条」只有
-	// 水位知道，而水位是存储层的私有事实。
-	CompactionRecords []json.RawMessage
-}
+// Commit is the session-owned atomic write payload; the root name remains an
+// identity alias for compatibility.
+type Commit = storesession.Commit
 
 // validateProjectID 校验项目级记录（WriteProjectRecord/ReadProjectRecord）的
 // 项目作用域；项目记录不挂会话，只按 projectID 独立存储。

@@ -19,7 +19,6 @@
 
 ### durable_history.go
 
-- `func IsSessionNotFound(err error) bool` — IsSessionNotFound 判断「会话不存在」错误——**全仓唯一判据**。会话恢复的语义是
 - `func NewDurableHistory(router *Router, sessionID string) *DurableHistory` — NewDurableHistory 创建绑定到指定会话的持久化适配器。
 - `func (d *DurableHistory) SetWorkspaceResolver(resolver func() string)` — SetWorkspaceResolver 注入会话绑定 workspace 解析器：DurableHistory 的
 - `func (d *DurableHistory) workspace() string`
@@ -181,30 +180,11 @@
 - `func (store *SessionGranularStore) EnsureIndexed(projectID, sessionID string) error` — EnsureIndexed 在项目索引尚无该会话时生成一次空 commit（manifest/meta），
 - `func (store *SessionGranularStore) LoadSession(projectID, sessionID string) (Record, bool, error)` — LoadSession 读取会话记录；不存在返回 (zero, false, nil)。
 - `func (store *SessionGranularStore) History(sessionID string) *DurableHistory` — History 返回会话的框架工作历史句柄（session:<id>:history）。
-- `func (store *SessionGranularStore) HistoryForProject(projectID, sessionID string) *DurableHistory` — HistoryForProject 返回绑定到显式项目作用域的会话历史句柄（会话粒度
 - `func (store *SessionGranularStore) ResolveProjectForSession(sessionID string) string` — ResolveProjectForSession 返回会话归属项目，定序：
-- `func (store *SessionGranularStore) SaveHistory(projectID, sessionID string, messages []types.Message) error` — SaveHistory 以会话粒度原子写 provider 历史（session:<id>:history；
-- `func (store *SessionGranularStore) HistoryRange(projectID, sessionID string, offset, limit int) ([]types.Message, int, error)` — HistoryRange 按窗口读取会话 provider 历史，返回 [offset, offset+limit)
-- `func (store *SessionGranularStore) TranscriptTail(projectID, sessionID string, tokenBudget, maxUnits int) ([]Event, error)` — TranscriptTail 读取会话事件日志尾部窗口（token + 单元上限；会话粒度键）。
-- `func (store *SessionGranularStore) EventRange(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error)` — EventRange 按 EventSeq 范围读取会话事件流（fork 切断点解析用）。
 - `func (store *SessionGranularStore) ToolResults(projectID, sessionID string) ([]ToolResultRef, error)` — ToolResults 读取会话工具结果归档引用（session:<id>:toolresults）。
 - `func (store *SessionGranularStore) ToolResult(projectID, sessionID, resultRef string) (ToolResult, error)` — ToolResult 读取会话工具结果原始内容（按 resultRef）。
-- `func (store *SessionGranularStore) ListToolResults(projectID, sessionID string) ([]ToolResult, error)` — ListToolResults 读取会话 tool-results 通道全量（fork 深拷贝物理复制用）。
 - `func (store *SessionGranularStore) Context(projectID, sessionID string) (ContextStack, error)` — Context 读取会话上下文四栈（session:<id>:context）。
-- `func (store *SessionGranularStore) SaveContext(projectID, sessionID string, payload []byte) error` — SaveContext 保存会话上下文四栈（session:<id>:context；幂等）。
-- `func (store *SessionGranularStore) LoadContextRaw(projectID, sessionID string) ([]byte, error)` — LoadContextRaw 读取会话上下文模块原始字节（fork 四栈深拷贝用）；不存在
 - `func (store *SessionGranularStore) SaveCommit(projectID, sessionID string, commit Commit) error` — SaveCommit 以会话粒度原子提交快照（record + transcript + tool-results）。
-- `func (store *SessionGranularStore) LoadCompactionRecords(projectID, sessionID string) ([]json.RawMessage, error)` — LoadCompactionRecords 读取该会话的压缩记录（应用侧记录原文，按写入顺序）。
-- `func (store *SessionGranularStore) CurrentGeneration(projectID, sessionID string) (string, error)` — CurrentGeneration 返回会话当前已发布 generation（fork 血缘来源）。
-- `func (store *SessionGranularStore) QueueEnqueue(projectID, sessionID, requestID, content string) error` — QueueEnqueue 把一条排队输入镜像落盘（同 requestID 重放幂等）。
-- `func (store *SessionGranularStore) QueueMarkConsumed(projectID, sessionID, turnID string) error` — QueueMarkConsumed 把 lifecycle 队列中全部待发送项标记为被 turnID 消费。
-- `func (store *SessionGranularStore) QueueConfirmConsumed(projectID, sessionID, turnID string) error` — QueueConfirmConsumed 该轮已发布 → 消费项出队。
-- `func (store *SessionGranularStore) QueueFailConsumed(projectID, sessionID, turnID string) error` — QueueFailConsumed 该轮未发布 → 消费项内容回草稿并出队。
-- `func (store *SessionGranularStore) QueueItems(projectID, sessionID string) ([]QueueItem, bool, error)` — QueueItems 读 lifecycle 队列投影。
-- `func (store *SessionGranularStore) QueueRecoverItems(projectID, sessionID string) (QueueRecoveryReport, bool, error)` — QueueRecoverItems 重启恢复队列（条目级结果）。
-- `func (store *SessionGranularStore) PendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error)` — PendingMessageTail 探测 message 通道草稿尾部（只读；v8 未装配返回
-- `func (store *SessionGranularStore) RecoverPendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error)` — RecoverPendingMessageTail 显式恢复草稿尾部（基座一致才发布）。
-- `func (store *SessionGranularStore) DiscardPendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error)` — DiscardPendingMessageTail 显式丢弃草稿尾部。
 - `func (store *SessionGranularStore) Delete(projectID, sessionID string) error` — Delete 以会话粒度删除会话（record/history/transcript/toolresults/context
 - `func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, error)` — SessionsOf 按项目索引枚举会话（project = 会话集合；物理实现 = Router
 - `func (store *SessionGranularStore) loadSessionLiteral(projectID, sessionID string) (Record, bool)` — loadSessionLiteral 以字面项目 ID 读取会话记录（不替换 "" 为活跃作用域；

@@ -211,7 +211,7 @@ go test . -run '^TestGUI' -count=1
 ### store_ddd_m10_facade_gate_test.go
 
 - `func TestStoreDDDM10FacadeGate(t *testing.T)` — TestStoreDDDM10FacadeGate locks the M10 endpoint: capability-discovery exits
-- `func readRootImportAllowlist(t *testing.T, path string) map[string]struct`
+- `func readRootImportAllowlist(t *testing.T, path string) (map[string]struct{}, int)`
 - `func scanPackageMethods(t *testing.T, dir string) map[string]struct`
 - `func scanPackageFunctions(t *testing.T, dir string) map[string]struct`
 - `func productionGoFiles(t *testing.T, dir string) []string`

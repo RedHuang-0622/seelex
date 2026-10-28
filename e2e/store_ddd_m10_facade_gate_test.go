@@ -49,10 +49,21 @@ func TestStoreDDDM10FacadeGate(t *testing.T) {
 		t.Errorf("生产代码直接 import 根 store 的文件数 %d 超过 M10 上限 80：\n%s",
 			len(productionImports), strings.Join(productionImports, "\n"))
 	}
-	allowed := readRootImportAllowlist(t, filepath.Join(repo, "store", "testdata", "m10_root_store_import_allowlist.json"))
+	allowed, declaredCount := readRootImportAllowlist(t, filepath.Join(repo, "store", "testdata", "m10_root_store_import_allowlist.json"))
+	if declaredCount != len(allowed) {
+		t.Errorf("root-store import allowlist count=%d，但唯一文件数=%d（重复条目不计数）",
+			declaredCount, len(allowed))
+	}
+	actual := make(map[string]struct{}, len(productionImports))
 	for _, relative := range productionImports {
+		actual[relative] = struct{}{}
 		if _, ok := allowed[relative]; !ok {
 			t.Errorf("生产文件 %s 新增了根 store import：M10 import ratchet 只许收缩", relative)
+		}
+	}
+	for relative := range allowed {
+		if _, ok := actual[relative]; !ok {
+			t.Errorf("root-store import allowlist 含陈旧条目 %s：该文件已不再 import 根 store，请从 allowlist 删除", relative)
 		}
 	}
 
@@ -73,9 +84,10 @@ func TestStoreDDDM10FacadeGate(t *testing.T) {
 	}
 }
 
-func readRootImportAllowlist(t *testing.T, path string) map[string]struct{} {
+func readRootImportAllowlist(t *testing.T, path string) (map[string]struct{}, int) {
 	t.Helper()
 	var manifest struct {
+		Count           int      `json:"count"`
 		ProductionFiles []string `json:"production_files"`
 	}
 	if err := json.Unmarshal([]byte(readText(t, path)), &manifest); err != nil {
@@ -85,7 +97,7 @@ func readRootImportAllowlist(t *testing.T, path string) map[string]struct{} {
 	for _, file := range manifest.ProductionFiles {
 		allowed[file] = struct{}{}
 	}
-	return allowed
+	return allowed, manifest.Count
 }
 
 func scanPackageMethods(t *testing.T, dir string) map[string]struct{} {

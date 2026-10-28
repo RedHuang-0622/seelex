@@ -8,7 +8,7 @@
 |---|---:|---:|---:|
 | `Router` | 113 | 71 | 42 |
 | `jsonRepository` | 26 | 21 | 5 |
-| `SessionGranularStore` | 40 | 38 | 2 |
+| `SessionGranularStore` | 40 | 19 | 21 |
 
 ## 判据
 
@@ -173,32 +173,32 @@
 | `Bind` | retained | root Store persistence API |
 | `Context` | retained | root Store persistence API |
 | `ConversationRange` | migrated | Host raw event/range reads |
-| `CurrentGeneration` | retained | root Store persistence API |
+| `CurrentGeneration` | migrated | Router.CurrentGenerationWorkspace（Host adapter） |
 | `Delete` | retained | root Store persistence API |
-| `DiscardPendingMessageTail` | retained | root Store persistence API |
+| `DiscardPendingMessageTail` | migrated | Router.DiscardPendingMessageTailWorkspace（Host adapter） |
 | `EnsureIndexed` | retained | root Store persistence API |
-| `EventRange` | retained | root Store persistence API |
+| `EventRange` | migrated | Router.LoadEventRangeWorkspace（Host adapter） |
 | `FirstUserInputs` | retained | root Store persistence API |
 | `History` | retained | root Store persistence API |
-| `HistoryForProject` | retained | root Store persistence API |
-| `HistoryRange` | retained | root Store persistence API |
-| `ListToolResults` | retained | root Store persistence API |
-| `LoadCompactionRecords` | retained | root Store persistence API |
-| `LoadContextRaw` | retained | root Store persistence API |
+| `HistoryForProject` | migrated | store.NewDurableHistory + explicit workspace resolver（Host adapter） |
+| `HistoryRange` | migrated | Router.LoadRangeWorkspace（Host adapter） |
+| `ListToolResults` | migrated | Router.ListToolResultsWorkspace（Host adapter） |
+| `LoadCompactionRecords` | migrated | Router.LoadCompactionRecordsWorkspace（Host adapter） |
+| `LoadContextRaw` | migrated | Router.LoadContextStateWorkspace（Host adapter） |
 | `LoadRecordRaw` | retained | root Store persistence API |
 | `LoadSession` | retained | root Store persistence API |
-| `PendingMessageTail` | retained | root Store persistence API |
-| `QueueConfirmConsumed` | retained | root Store persistence API |
-| `QueueEnqueue` | retained | root Store persistence API |
-| `QueueFailConsumed` | retained | root Store persistence API |
-| `QueueItems` | retained | root Store persistence API |
-| `QueueMarkConsumed` | retained | root Store persistence API |
-| `QueueRecoverItems` | retained | root Store persistence API |
-| `RecoverPendingMessageTail` | retained | root Store persistence API |
+| `PendingMessageTail` | migrated | Router.PendingMessageTailWorkspace（Host adapter） |
+| `QueueConfirmConsumed` | migrated | Router.QueueConfirmConsumedWorkspace（Host adapter） |
+| `QueueEnqueue` | migrated | Router.QueueEnqueueWorkspace（Host adapter） |
+| `QueueFailConsumed` | migrated | Router.QueueFailConsumedWorkspace（Host adapter） |
+| `QueueItems` | migrated | Router.QueueItemsWorkspace（Host adapter） |
+| `QueueMarkConsumed` | migrated | Router.QueueMarkConsumedWorkspace（Host adapter） |
+| `QueueRecoverItems` | migrated | Router.QueueRecoverItemsWorkspace（Host adapter） |
+| `RecoverPendingMessageTail` | migrated | Router.RecoverPendingMessageTailWorkspace（Host adapter） |
 | `ResolveProjectForSession` | retained | root Store persistence API |
 | `SaveCommit` | retained | root Store persistence API |
-| `SaveContext` | retained | root Store persistence API |
-| `SaveHistory` | retained | root Store persistence API |
+| `SaveContext` | migrated | Router.SaveContextStateWorkspace（Host adapter） |
+| `SaveHistory` | migrated | DurableHistory.Save / Router.SaveWorkspace（consumer adapter） |
 | `SaveRecordRaw` | retained | root Store persistence API |
 | `SaveSession` | retained | root Store persistence API |
 | `SaveSessionTitle` | retained | root Store persistence API |
@@ -209,11 +209,11 @@
 | `ToolResult` | retained | root Store persistence API |
 | `ToolResults` | retained | root Store persistence API |
 | `Transcript` | migrated | Host raw event/range reads |
-| `TranscriptTail` | retained | root Store persistence API |
+| `TranscriptTail` | migrated | Router.LoadEventTailWorkspace（Host adapter） |
 
 ## 根包公开函数
 
-基线 43 个，当前保留 22 个。
+基线 43 个，当前保留 21 个。
 
 | 旧函数 | 状态 | 新 owner / 唯一入口 |
 |---|---|---|
@@ -223,7 +223,7 @@
 | `EventParagraphs` | retained | root Store persistence API |
 | `FoldProjectBoardRows` | migrated | store/board.Fold |
 | `IsParagraphBoundary` | retained | root Store persistence API |
-| `IsSessionNotFound` | retained | root Store persistence API |
+| `IsSessionNotFound` | migrated | store/session.IsSessionNotFound（root identity alias retained as variable） |
 | `MediaRefHash` | migrated | store/artifact.MediaRefHash |
 | `NewAttemptCache` | retained | root Store persistence API |
 | `NewCheckpointStore` | retained | root Store persistence API |

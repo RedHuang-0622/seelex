@@ -2,7 +2,7 @@ package obs
 
 // event_correlation_test.go 是 `event_correlation.go` 的域级用例（P21-9：从
 // `backend/engine/assemble/events_test.go` 随实现搬来，断言逐字不变），外加一条
-// **跨实现一致性**用例：同一份输入分别走 `store` 的两个入口，必须给出同一答案。
+// **跨实现一致性**用例：同一份输入分别走规范入口与根兼容入口，必须给出同一答案。
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 
 	"github.com/RedHuang-0622/seelex/store"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 // TestCorrelateMainSessionIDFillsMissingSession 验证短期事件桥：持久化前为
@@ -95,8 +96,8 @@ func TestCorrelateMainSessionIDReturnsDownstreamUnchanged(t *testing.T) {
 }
 
 // TestSessionIDProjectionIsSingleImplementation 是**跨实现一致性**用例：同一份输入
-// （带定位 / 无定位 / 有定位但 session_id 空）分别走 `store.SessionIDFromLocations` 与
-// `store.SessionIDFromEvent`，以及经 `UnifiedEventTopic` 的话题映射，三处必须给出同一归属。
+// （带定位 / 无定位 / 有定位但 session_id 空）分别走 `store/session` 的规范入口、
+// 根 `store` 兼容入口，以及经 `UnifiedEventTopic` 的话题映射，三处必须给出同一归属。
 // 这三处曾经各有一份逐字副本（assemble 的 eventSessionID、tool/plan 的 sessionIDFromLocations、
 // obs 话题映射里的内联循环），本用例是"只剩一份判据"的钉子。
 func TestSessionIDProjectionIsSingleImplementation(t *testing.T) {
@@ -143,8 +144,11 @@ func TestSessionIDProjectionIsSingleImplementation(t *testing.T) {
 				Type:      frameworkevent.TypeLifecycle,
 				Locations: testCase.locations,
 			}
-			fromLocations := store.SessionIDFromLocations(testCase.locations)
-			fromEvent := store.SessionIDFromEvent(event)
+			fromLocations := storesession.SessionIDFromLocations(testCase.locations)
+			fromEvent := storesession.SessionIDFromEvent(event)
+			if legacy := store.SessionIDFromEvent(event); legacy != fromEvent {
+				t.Fatalf("根兼容入口 = %q，规范入口 = %q", legacy, fromEvent)
+			}
 			_, topicSessionID, scoped := UnifiedEventTopic(event)
 			if fromLocations != testCase.want {
 				t.Fatalf("SessionIDFromLocations = %q, want %q", fromLocations, testCase.want)

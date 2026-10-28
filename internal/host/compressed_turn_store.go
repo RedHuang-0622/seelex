@@ -2,11 +2,12 @@ package host
 
 import (
 	applicationreference "github.com/RedHuang-0622/seelex/application/reference"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/protocol"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 type compressedTurnCommitStore interface {
-	SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error
+	SaveCommitWorkspace(projectID, sessionID string, commit storesession.Commit) error
 }
 
 type compressedTurnStore struct {
@@ -26,8 +27,8 @@ func NewCompressedTurnStore(target any) applicationreference.CompressedTurnStore
 }
 
 func (port compressedTurnStore) SaveCompressedTurn(projectID, sessionID, ref, content string) error {
-	return port.target.SaveCommitWorkspace(projectID, sessionID, store.Commit{
-		ToolResults: []store.ToolResult{{
+	return port.target.SaveCommitWorkspace(projectID, sessionID, storesession.Commit{
+		ToolResults: []model.ToolResultRecord{{
 			Ref: ref, Tool: "compact_frame", Content: content, Size: len(content),
 		}},
 	})

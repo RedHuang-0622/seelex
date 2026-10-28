@@ -49,7 +49,7 @@ import (
 	context_runtime "github.com/RedHuang-0622/seelex/kernel/context"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/kernel/task"
-	"github.com/RedHuang-0622/seelex/store"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storeproject "github.com/RedHuang-0622/seelex/store/project"
 	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
 	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
@@ -103,7 +103,7 @@ type Runtime struct {
 	activeSessionID string
 	// 跨会话共享装配：存储路由、轮次归档器与项目知识提供者。
 	historyRouterMu sync.RWMutex
-	historyRouter   *store.Router
+	historyRouter   *durableHistoryRouter
 	turnArchiverMu  sync.RWMutex
 	turnArchiver    seelexctx.TurnArchiver
 	projectMu       sync.RWMutex
@@ -782,17 +782,11 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	// 未装配 Router 时保持框架内存 history——仅测试可用；生产装配点
 	// （main.go）始终在会话创建前 AttachHistoryRouter(store)，不会走到
 	// 该兜底（存储双轨只读迁移语义，见解耦方案 §02.5）。
-	if router := r.HistoryRouter(); router != nil {
-		history := store.NewDurableHistory(router, sessionID)
-		history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
-		history.SetTailBudget(r.windowTailBudget())
-		// 真空区覆盖：滑动窗口与压缩内容之间未压缩轮次的断档填补
-		// （seelexctx/gap.go；压缩只随活跃期事件触发，会话结束后窗口外的
-		// 未压缩轮次会被尾窗装载丢弃——Load 时按尾窗起始单元下标，以完整
-		// 事件流补压合并帧）。
-		history.SetGapCoverer(r.coverHistoryGap)
+	if history := r.newConfiguredMainHistory(sessionID); history != nil {
 		components.History = history
-		bundle.binding.setMainHistory(history)
+		if mainHistory, ok := history.(mainHistoryPort); ok {
+			bundle.binding.setMainHistory(mainHistory)
+		}
 	}
 	sess, err := session.NewSession(components)
 	if err != nil {
@@ -989,13 +983,13 @@ type runtimeCompactStacks struct {
 	memory  seelexctx.CompactStackStore
 }
 
-func (s runtimeCompactStacks) CompactStackSnapshot() []store.CompactFrame {
+func (s runtimeCompactStacks) CompactStackSnapshot() []storecontext.CompactFrame {
 	if st := s.runtime.sessionContextStore(); st != nil {
 		return st.CompactStackSnapshot()
 	}
 	return s.memory.CompactStackSnapshot()
 }
-func (s runtimeCompactStacks) PushCompact(frame store.CompactFrame) error {
+func (s runtimeCompactStacks) PushCompact(frame storecontext.CompactFrame) error {
 	if st := s.runtime.sessionContextStore(); st != nil {
 		return st.PushCompact(frame)
 	}

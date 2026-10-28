@@ -3,7 +3,8 @@
 日期：2026-10-28
 分支：`codex/store-root-shrink`
 基线：`66f20702`
-状态：**领域 owner 与 God 类型收缩完成，根 Session engine 保留真实持久化机制**。
+状态：**领域 owner、God 类型收缩与 M11 生产 import 收尾完成；根 Session engine
+只保留真实持久化机制和 8 个显式组合/适配边界。**
 Session 状态/投影/seq、结构身份、Project、Artifact/Board/Teamwork/WorkUnit、
 Role draft/permission/registry/投影，以及 Role/Stack/Wire 显式适配器均已完成收口。
 

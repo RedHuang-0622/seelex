@@ -13,11 +13,16 @@ pending-tail 可恢复性判定；根 `store` 在迁移期保留 head 发布与�
 ## 文件索引
 
 - `session.go`：`PendingTailReport`、pending-tail 状态与分类、message/event 分片命名。
+- `commit.go`：原子会话提交 payload 的唯一实际 struct；根 `store.Commit` 仅保留 alias。
+- `event_identity.go`：从 Seele framework event 的 `agent.runtime` 定位读取会话归属；
+  事件持久化与观测查询共用这一份判据。
+- `session_not_found.go`：`IsSessionNotFound` 的唯一实现；根 `store` 只保留同身份变量 alias。
 - `session_test.go`：分类和文件名兼容回归。
 
 ## 依赖方向
 
-只依赖标准库与 `contract/protocol`；禁止 import 根 `store`、上层或其它 store 领域包。
+只依赖标准库、Seele event、`contract/protocol` 与 `store/internal/layout`；
+禁止 import 根 `store`、上层或其它 store 领域包。
 
 ## 并发与兼容
 
@@ -40,6 +45,11 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### event_identity.go
+
+- `func SessionIDFromEvent(event frameworkevent.Event) string` — SessionIDFromEvent returns the session identity carried by the framework
+- `func SessionIDFromLocations(locations []frameworkevent.Location) string` — SessionIDFromLocations is the location-slice form of SessionIDFromEvent.
 
 ### event_kind.go
 
@@ -81,6 +91,10 @@ go test ./store/session ./store -run 'Pending|Draft|Event|Message' -count=1
 - `func ParseMessageShardName(name string) (uint64, uint64, bool)` — ParseMessageShardName validates and parses a message shard name.
 - `func EventShardName(fromID, toID uint64) string` — EventShardName returns the stable event-shard filename.
 - `func ParseEventShardName(name string) (uint64, uint64, bool)` — ParseEventShardName validates and parses an event shard name.
+
+### session_not_found.go
+
+- `func IsSessionNotFound(err error) bool` — IsSessionNotFound is the single missing-session criterion. The JSON v8
 
 ### session_test.go
 

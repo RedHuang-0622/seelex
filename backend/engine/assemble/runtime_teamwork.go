@@ -37,7 +37,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
 	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
 )
 
@@ -863,7 +862,7 @@ func (r *Runtime) ResetSession(ctx context.Context, roleSessionID string) error 
 	} else if router := r.HistoryRouter(); router != nil {
 		// Cold work-item Session after restart: no live engine handle exists,
 		// so team_close must clear the independent durable transcript directly.
-		history := store.NewDurableHistory(router, roleSessionID)
+		history := r.newPreparedHistory(roleSessionID)
 		history.SetWorkspaceResolver(r.sessionWorkspaceFor(roleSessionID))
 		if err := history.Clear(ctx); err != nil {
 			return fmt.Errorf("teamwork: 清 WorkItem Session %q 的持久记录失败: %w", roleSessionID, err)

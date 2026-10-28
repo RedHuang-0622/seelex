@@ -127,8 +127,8 @@ ViewMu。
 
 ## 依赖方向
 
-依赖 `state.Core` + `TaskPersistencePort`（消费方接口）与装配注入的跨域纯
-函数端口；禁止反向依赖 core 根包。
+依赖 `state.Core` + `TaskPersistencePort`（消费方接口）、`store/session` 的规范判据
+与装配注入的跨域纯函数端口；禁止反向依赖 core 根包或根 `store`。
 
 ## 并发/安全语义
 

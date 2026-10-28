@@ -176,7 +176,7 @@ func TestForkToolResultsConcurrentDivergenceStayIsolated(t *testing.T) {
 					t.Errorf("parent commit %s: %v", parent.SessionID, err)
 					return
 				}
-				results, err := store.ListToolResults(project, parent.SessionID)
+				results, err := router.ListToolResultsWorkspace(project, parent.SessionID)
 				if err != nil {
 					t.Errorf("list parent results %s: %v", parent.SessionID, err)
 					return
@@ -210,7 +210,7 @@ func TestForkToolResultsConcurrentDivergenceStayIsolated(t *testing.T) {
 						child.SessionID, state, err)
 					return
 				}
-				events, err := store.EventRange(project, child.SessionID, 1, 1)
+				events, err := router.LoadEventRangeWorkspace(project, child.SessionID, 1, 1)
 				if err != nil || len(events) != 1 || events[0].Content != marker+" q" {
 					t.Errorf("child events %s = %#v err=%v", child.SessionID, events, err)
 					return

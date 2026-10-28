@@ -1,26 +1,15 @@
 {
-  "count": 19,
+  "count": 8,
   "schema_version": 1,
   "production_files": [
-    "backend/engine/assemble/runtime_context.go",
     "backend/engine/assemble/runtime_history.go",
-    "backend/engine/assemble/runtime_session.go",
-    "backend/engine/assemble/runtime_subagent_recovery.go",
-    "backend/engine/assemble/runtime_teamwork.go",
-    "backend/engine/assemble/runtime.go",
-    "backend/engine/context/seelectx/router_storage_conformance.go",
-    "backend/engine/obs/event_correlation.go",
-    "backend/engine/obs/unified_events.go",
     "boot/app.go",
     "boot/application.go",
     "boot/runtime.go",
     "boot/tools.go",
-    "internal/host/compressed_turn_store.go",
     "internal/host/session_manager.go",
     "internal/host/session_ssh_state_port.go",
-    "internal/host/session_workspace_ports.go",
-    "kernel/session/archive.go",
-    "kernel/session/fork.go"
+    "internal/host/session_workspace_ports.go"
   ],
   "milestone": "M10"
 }

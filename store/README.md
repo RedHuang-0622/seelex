@@ -21,9 +21,8 @@ into provider history. 会话存储只有**一种形态**（jsonl + json v8）�
 （Router、Artifact、Context、Board、Teamwork、Role、RolePermissions、
 ToolRecord、WorkUnits、Media）。组合根只把具体 owner 或消费方窄端口注入调用方；
 `BoardsFor*`、`TeamworkFor`、`ToolRecordFor` 与 `MediaStoreOf` 的运行期能力发现已删除。
-仍直接 import 根 `store` 的生产文件按 allowlist ratchet 管理
-是 M10 登记下来的兼容面，由 `e2e/TestStoreDDDM10FacadeGate` 的 allowlist ratchet
-钉住，只许收缩。
+仍直接 import 根 `store` 的生产文件按 allowlist ratchet 管理，已从 19 收紧到 8；
+由 `e2e/TestStoreDDDM10FacadeGate` 的 allowlist ratchet 钉住，只许收缩。
 
 可见投影规则只存在于 `kernel/session`：正文/reasoning、多 tool call、tool result、
 群聊归属、路由字段与消息 ID 共用一份实现。Store 不再派生 conversation，避免

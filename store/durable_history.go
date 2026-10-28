@@ -2,31 +2,18 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"math"
 	"strings"
 	"sync"
 
 	"github.com/RedHuang-0622/Seele/types"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
-// IsSessionNotFound 判断「会话不存在」错误——**全仓唯一判据**。会话恢复的语义是
-// 空历史/空记录，而不是失败，所以消费方在这里统一判定，不许各自复制一份
-// （AGENTS §8.3「同一判据 = 一处函数」；P10 判据漂移的收口点）。
-//
-// 判据只看 `fs.ErrNotExist`，依据是**编码者**在 store 自己：
-//
-//   - 会话存储只有一种形态（jsonl + json v8）：`store/sessionstore.go` 里没有
-//     后端分派，也没有 SQL/Redis 链路，因此没有任何代码路径能产生
-//     `sql.ErrNoRows`；「未找到」一律编码为 `fs.ErrNotExist`
-//     （见 `store/absent_state_reads_test.go` 的断言）。
-//   - 任何新增形态若换了「未找到」的编码，必须改这里一处，而不是让调用方
-//     各自兼容——这正是本函数导出的原因。
-func IsSessionNotFound(err error) bool {
-	return errors.Is(err, fs.ErrNotExist)
-}
+// IsSessionNotFound is the root-package identity alias for the canonical
+// store/session criterion.
+var IsSessionNotFound = storesession.IsSessionNotFound
 
 // GapCoverer 覆盖「滑动窗口与压缩内容之间」的真空区：事件流中最后一次
 // 压缩（CompactStack 顶帧 To）之后、本次尾窗装载之前、从未被压缩的轮次，

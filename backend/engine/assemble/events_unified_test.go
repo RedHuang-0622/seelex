@@ -86,11 +86,10 @@ func TestUnifiedEventsEndToEndPersistsSummaryAndMergesFacts(t *testing.T) {
 	}
 }
 
-// TestUnifiedEventsRequiresRouter 验证未装配 store Router 时统一查询返回可读错误
-// （不 panic、不静默降级），并**逐字钉住文案**：包名口径随 M3 的
-// `sessionstore` → `store` 改名同步（D-M3-12 / P9），两个入口共用同一句。
-func TestUnifiedEventsRequiresRouter(t *testing.T) {
-	const want = "unified events: store router is not attached"
+// TestUnifiedEventsRequiresReader 验证未装配事件读面时统一查询返回可读错误
+// （不 panic、不静默降级），两个入口共用同一句。
+func TestUnifiedEventsRequiresReader(t *testing.T) {
+	const want = "unified events: event reader is not attached"
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 

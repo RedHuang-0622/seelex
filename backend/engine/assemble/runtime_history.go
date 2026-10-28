@@ -8,12 +8,17 @@ import (
 	"context"
 	"errors"
 
+	frameworkevent "github.com/RedHuang-0622/Seele/event"
+
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession"
 	toolmedia "github.com/RedHuang-0622/seelex/backend/tool/io/media"
 	"github.com/RedHuang-0622/seelex/store"
 	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 )
+
+type durableHistoryRouter = store.Router
 
 type mediaStoreState struct{ store *storeartifact.SessionStore }
 
@@ -32,12 +37,52 @@ func (r *Runtime) HistoryRouter() *store.Router {
 	return r.historyRouter
 }
 
+func (r *Runtime) unifiedEventStore() (*store.EventStore, error) {
+	router := r.HistoryRouter()
+	if router == nil {
+		return nil, obs.ErrUnifiedEventsRouterMissing
+	}
+	return store.NewEventStore(router), nil
+}
+
+func (r *Runtime) loadUnifiedEvents(ctx context.Context, sessionID string) ([]frameworkevent.Event, error) {
+	eventStore, err := r.unifiedEventStore()
+	if err != nil {
+		return nil, err
+	}
+	return eventStore.Load(ctx, sessionID)
+}
+
+func (r *Runtime) loadUnifiedEventRange(ctx context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error) {
+	eventStore, err := r.unifiedEventStore()
+	if err != nil {
+		return nil, err
+	}
+	return eventStore.LoadRange(ctx, sessionID, fromSeq, toSeq)
+}
+
 func (r *Runtime) newPreparedHistory(sessionID string) agentsession.PreparedHistory {
 	router := r.HistoryRouter()
 	if router == nil {
 		return nil
 	}
 	return store.NewDurableHistory(router, sessionID)
+}
+
+func (r *Runtime) newConfiguredMainHistory(sessionID string) agentsession.PreparedHistory {
+	router := r.HistoryRouter()
+	if router == nil {
+		return nil
+	}
+	history := store.NewDurableHistory(router, sessionID)
+	history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
+	history.SetTailBudget(r.windowTailBudget())
+	// 真空区覆盖：滑动窗口与压缩内容之间未压缩轮次的断档填补
+	// （seelexctx/gap.go；压缩只随活跃期事件触发，会话结束后窗口外的
+	// 未压缩轮次会被尾窗装载丢弃——Load 时按尾窗起始单元下标，以完整
+	// 事件流补压合并帧）。
+	history.SetGapCoverer(r.coverHistoryGap)
+	return history
 }
 
 // WriteMediaWorkspace 是 media 域的宿主窄端口。

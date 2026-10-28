@@ -63,7 +63,7 @@ func TestDefaultProjectSessionPersistDoesNotFollowActiveScope(t *testing.T) {
 			if !foundDefault {
 				t.Fatalf("B missing from default project after view switch; listed=%+v", defaultListed)
 			}
-			history, total, err := store.HistoryRange("", bID, 0, 0)
+			history, total, err := router.LoadRangeWorkspace("", bID, 0, 0)
 			if err != nil {
 				t.Fatalf("history range default: %v", err)
 			}

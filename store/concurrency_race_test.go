@@ -42,10 +42,12 @@ func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
 		go func(index int) {
 			defer group.Done()
 			ctx := context.Background()
-			history := store.HistoryForProject(project, fmt.Sprintf("sess-h-%d", index))
+			sessionID := fmt.Sprintf("sess-h-%d", index)
+			history := NewDurableHistory(router, sessionID)
+			history.SetWorkspaceResolver(func() string { return project })
 			for round := 0; round < rounds; round++ {
 				marker := fmt.Sprintf("s%d-r%d", index, round)
-				if err := store.SaveCommit(project, fmt.Sprintf("sess-h-%d", index), Commit{
+				if err := store.SaveCommit(project, sessionID, Commit{
 					Events: []Event{
 						{Seq: uint64(round*2 + 1), Role: "user", Content: marker + "-0", MessageID: marker + "-0"},
 						{Seq: uint64(round*2 + 2), Role: "user", Content: marker + "-1", MessageID: marker + "-1"},
@@ -94,7 +96,9 @@ func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
 	for index := 0; index < sessions; index++ {
 		sessionID := fmt.Sprintf("sess-h-%d", index)
 		router.SetWorkspace("project-elsewhere")
-		storedHistory, err := store.HistoryForProject(project, sessionID).Load(context.Background())
+		history := NewDurableHistory(router, sessionID)
+		history.SetWorkspaceResolver(func() string { return project })
+		storedHistory, err := history.Load(context.Background())
 		wantCount := 2*rounds + 3
 		if err != nil || len(storedHistory) != wantCount ||
 			*storedHistory[0].Content != fmt.Sprintf("s%d-r0-0", index) ||
@@ -146,7 +150,7 @@ func TestRouterConcurrentProjectIsolation(t *testing.T) {
 						t.Errorf("save %s/%s: %v", project, sessionID, err)
 						return
 					}
-					history, _, err := store.HistoryRange(project, sessionID, 0, rounds+5)
+					history, _, err := router.LoadRangeWorkspace(project, sessionID, 0, rounds+5)
 					if err != nil || len(history) != round+1 {
 						t.Errorf("%s/%s round %d history = %d err=%v, want %d", project, sessionID, round, len(history), err, round+1)
 						return
@@ -268,7 +272,10 @@ func TestForkCopiesDoNotShareParentGeneration(t *testing.T) {
 	go func() {
 		defer group.Done()
 		for round := 0; round < 20; round++ {
-			listed, err := store.ListToolResults(project, parent)
+			listed, err := router.ListToolResultsWorkspace(project, parent)
+			if IsSessionNotFound(err) {
+				listed, err = nil, nil
+			}
 			if err != nil {
 				t.Errorf("list parent results: %v", err)
 				return
@@ -298,7 +305,10 @@ func TestForkCopiesDoNotShareParentGeneration(t *testing.T) {
 				t.Errorf("child commit %d: %v", round, err)
 				return
 			}
-			copied, err := store.ListToolResults(project, child)
+			copied, err := router.ListToolResultsWorkspace(project, child)
+			if IsSessionNotFound(err) {
+				copied, err = nil, nil
+			}
 			if err != nil {
 				t.Errorf("list child results: %v", err)
 				return

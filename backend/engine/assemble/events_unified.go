@@ -37,7 +37,8 @@ var errUnifiedEventsRouterMissing = obs.ErrUnifiedEventsRouterMissing
 // 保持"Router 可能后装配"与"tracer 可能未接线"的既有语义。
 func (r *Runtime) unifiedEvents() *obs.UnifiedEvents {
 	return obs.NewUnifiedEvents(obs.UnifiedEventsDeps{
-		Router: r.HistoryRouter,
+		Load:      r.loadUnifiedEvents,
+		LoadRange: r.loadUnifiedEventRange,
 		Live: func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error) {
 			if r.tracer == nil {
 				return frameworktelemetry.ViewModel{}, fmt.Errorf("unified events: tracer is unavailable")

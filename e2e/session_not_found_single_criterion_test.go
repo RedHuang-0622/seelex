@@ -20,14 +20,15 @@ import (
 //	wiring/adapters/session_workspace_ports.go               4 处内联（fs + sql.ErrNoRows）
 //
 // 收口方向：判据归「未找到」错误的**编码者** store——唯一实现是
-// `store.IsSessionNotFound`（store/durable_history.go），其余消费方改为调用它。
+// `store/session.IsSessionNotFound`，其余消费方改为调用它；根 store 只保留
+// 同身份变量 alias。
 // 为什么保留 store 的语义（fs-only）而不是 search 的：SQL 后端早已不存在
 // （store/sessionstore.go 只有 jsonl + json 一种形态），
 // 今天没有任何代码路径能产生 `sql.ErrNoRows`；多认它只会让同一份输入得到两种答案。
 //
 // 两条机械断言：
 //
-//	1. 全仓只有一个「会话不存在」判据函数，且它就是 store.IsSessionNotFound；
+//	1. 全仓只有一个「会话不存在」判据函数，且它就是 store/session.IsSessionNotFound；
 //	2. 退役后端的 `sql.ErrNoRows` 与 `database/sql` 不许再作为**代码**出现，
 //	   允许清单里只准放"把它当输入数据喂给判据"的用例文件（只许收缩）。
 //
@@ -38,7 +39,7 @@ import (
 
 const (
 	// sessionNotFoundCriterionPath 是唯一判据所在文件（相对仓库根）。
-	sessionNotFoundCriterionPath = "store/durable_history.go"
+	sessionNotFoundCriterionPath = "store/session/session_not_found.go"
 	// sessionNotFoundCriterionName 是唯一判据的函数名。
 	sessionNotFoundCriterionName = "IsSessionNotFound"
 	// sessionNotFoundCriterionAllowListMax 是 `sql.ErrNoRows` 用例数据允许清单上限。
@@ -64,7 +65,7 @@ var criterionDeclarationNames = []string{
 }
 
 // TestSessionNotFoundCriterionIsDeclaredExactlyOnce 钉判据唯一：全仓只允许一个
-// 「会话不存在」判据函数，且必须就是 store.IsSessionNotFound。
+// 「会话不存在」判据函数，且必须就是 store/session.IsSessionNotFound。
 func TestSessionNotFoundCriterionIsDeclaredExactlyOnce(t *testing.T) {
 	var found []string
 	for _, path := range repoGoSourceFiles(t) {
@@ -86,7 +87,7 @@ func TestSessionNotFoundCriterionIsDeclaredExactlyOnce(t *testing.T) {
 	}
 	t.Errorf("「会话不存在」判据必须只有一处，实测 %d 处：\n  %s\n期望恰好一处：%s\n"+
 		"同一判据、同一语义出现第二处即缺陷（AGENTS §8.3）。"+
-		"需要判定会话不存在时，调用 store.IsSessionNotFound，不要就地复制判据。",
+		"需要判定会话不存在时，调用 store/session.IsSessionNotFound，不要就地复制判据。",
 		len(found), strings.Join(found, "\n  "), want)
 }
 
@@ -129,7 +130,7 @@ func TestRetiredSQLNoRowsIsReferencedOnlyByListedTestData(t *testing.T) {
 	sort.Strings(unexpected)
 	if len(unexpected) > 0 {
 		t.Errorf("已退役的 SQL 后端错误码被代码引用（P10 收口后判据只看 fs.ErrNotExist）：\n  %s\n"+
-			"会话不存在一律经 store.IsSessionNotFound 判定；真的需要保留这类引用，"+
+			"会话不存在一律经 store/session.IsSessionNotFound 判定；真的需要保留这类引用，"+
 			"必须在 sessionNotFoundCriterionAllowList 里登记并写清为什么它不是第二份判据。",
 			strings.Join(unexpected, "\n  "))
 	}

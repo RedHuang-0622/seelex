@@ -23,7 +23,7 @@ import (
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 // SummaryEventSource 是 B 类摘要事件在统一事件库（store 事件库）中的**稳定 Source 标识**，
@@ -34,7 +34,7 @@ const SummaryEventSource = "seelex.telemetry.summary"
 // ErrUnifiedEventsRouterMissing 是"统一事件视图依赖的 store Router 未装配"的**唯一文案处**：
 // UnifiedEvents 与 UnifiedEventsRange 两个入口共用一句，避免两处各写一份而漂移。
 // 文案里的包名口径随 M3 的 `sessionstore` → `store` 改名同步（D-M3-12 / P9）。
-var ErrUnifiedEventsRouterMissing = errors.New("unified events: store router is not attached")
+var ErrUnifiedEventsRouterMissing = errors.New("unified events: event reader is not attached")
 
 // SummaryLog 是 B 类（llm/tool 意图-效果）脱敏摘要的统一日志：
 // 内存 append-only + 可选持久化钩子，形态镜像 plan.EventSink。
@@ -132,10 +132,12 @@ type UnifiedEventReader struct {
 	Live      func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error)
 }
 
-// UnifiedEventsDeps 是按调用装配的宿主面（每次查询取一次读数，保持"Router 可能后装配"的语义）。
+// UnifiedEventsDeps 是按调用装配的宿主面（每次查询取一次读数，保持
+// "事件读面可能后装配"的语义）。
 type UnifiedEventsDeps struct {
-	// Router 取 store 事件库路由；nil 返回值 → `ErrUnifiedEventsRouterMissing`。
-	Router func() *store.Router
+	// Load/LoadRange 读取事实轨；nil → `ErrUnifiedEventsRouterMissing`。
+	Load      func(ctx context.Context, sessionID string) ([]frameworkevent.Event, error)
+	LoadRange func(ctx context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error)
 	// Live 取 B 类实时遥测（宿主封装 tracer 查询与"未装配 tracer"的报错）。可为 nil。
 	Live func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error)
 }
@@ -152,14 +154,12 @@ func NewUnifiedEvents(deps UnifiedEventsDeps) *UnifiedEvents {
 
 // Query 按 sessionID/nodeID 查询统一事件视图（A 类事实 + B 类摘要 + B 类实时遥测）。
 func (events *UnifiedEvents) Query(ctx context.Context, sessionID, nodeID string, limit int) (UnifiedEventView, error) {
-	router := events.router()
-	if router == nil {
+	if events == nil || events.deps.Load == nil {
 		return UnifiedEventView{}, ErrUnifiedEventsRouterMissing
 	}
-	eventStore := store.NewEventStore(router)
 	reader := &UnifiedEventReader{
-		Load:      eventStore.Load,
-		LoadRange: eventStore.LoadRange,
+		Load:      events.deps.Load,
+		LoadRange: events.deps.LoadRange,
 		Live:      events.deps.Live,
 	}
 	return reader.Query(ctx, sessionID, nodeID, limit)
@@ -167,24 +167,15 @@ func (events *UnifiedEvents) Query(ctx context.Context, sessionID, nodeID string
 
 // QueryRange 按 Seq 区间查询统一事件视图（事实轨 LoadRange + 实时轨合并）。
 func (events *UnifiedEvents) QueryRange(ctx context.Context, sessionID, nodeID string, fromSeq, toSeq uint64, limit int) (UnifiedEventView, error) {
-	router := events.router()
-	if router == nil {
+	if events == nil || events.deps.LoadRange == nil {
 		return UnifiedEventView{}, ErrUnifiedEventsRouterMissing
 	}
-	eventStore := store.NewEventStore(router)
 	reader := &UnifiedEventReader{
-		LoadRange: eventStore.LoadRange,
+		Load:      events.deps.Load,
+		LoadRange: events.deps.LoadRange,
 		Live:      events.deps.Live,
 	}
 	return reader.QueryRange(ctx, sessionID, nodeID, fromSeq, toSeq, limit)
-}
-
-// router 取本次查询的事件库路由（deps 未装配或 Router 未接线 → nil）。
-func (events *UnifiedEvents) router() *store.Router {
-	if events == nil || events.deps.Router == nil {
-		return nil
-	}
-	return events.deps.Router()
 }
 
 // Query 按 sessionID/nodeID 返回统一事件视图。
@@ -238,8 +229,9 @@ func (reader *UnifiedEventReader) query(
 // 本函数只给出映射（纯函数），实际投递由装配层 adapter 完成——引擎侧在依赖方向下层，
 // 不反向 import middle/protocol/event。
 func UnifiedEventTopic(event frameworkevent.Event) (channel string, sessionID string, sessionScoped bool) {
-	// 会话归属判据只有一份（store.SessionIDFromEvent），本函数只做"有/无"的映射。
-	sessionID = store.SessionIDFromEvent(event)
+	// 会话归属判据只有一份（store/session.SessionIDFromEvent），本函数只做
+	// "有/无"的映射。
+	sessionID = storesession.SessionIDFromEvent(event)
 	return string(event.Type), sessionID, sessionID != ""
 }
 

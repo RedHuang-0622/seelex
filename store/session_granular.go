@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -292,17 +291,6 @@ func (store *SessionGranularStore) History(sessionID string) *DurableHistory {
 	return NewDurableHistory(store.router, sessionID)
 }
 
-// HistoryForProject 返回绑定到显式项目作用域的会话历史句柄（会话粒度
-// API 不再以 workspace 参数调用；项目解析由调用方/绑定提供）。
-func (store *SessionGranularStore) HistoryForProject(projectID, sessionID string) *DurableHistory {
-	if store == nil || store.router == nil {
-		return NewDurableHistory(nil, sessionID)
-	}
-	history := NewDurableHistory(store.router, sessionID)
-	history.SetWorkspaceResolver(func() string { return store.projectID(projectID) })
-	return history
-}
-
 // ResolveProjectForSession 返回会话归属项目，定序：
 //
 //	resolver（workspace.Repo 绑定，权威）→ record 自带 Binding →
@@ -337,54 +325,6 @@ func (store *SessionGranularStore) ResolveProjectForSession(sessionID string) st
 	return ""
 }
 
-// SaveHistory 以会话粒度原子写 provider 历史（session:<id>:history；
-// 幂等：同键重写不漂移）。
-func (store *SessionGranularStore) SaveHistory(projectID, sessionID string, messages []types.Message) error {
-	if store == nil || store.router == nil {
-		return nil
-	}
-	return store.router.SaveWorkspace(store.projectID(projectID), sessionID, messages)
-}
-
-// HistoryRange 按窗口读取会话 provider 历史，返回 [offset, offset+limit)
-// 与总数（会话粒度键）。
-func (store *SessionGranularStore) HistoryRange(projectID, sessionID string, offset, limit int) ([]types.Message, int, error) {
-	if store == nil || store.router == nil {
-		return nil, 0, nil
-	}
-	return store.router.LoadRangeWorkspace(store.projectID(projectID), sessionID, offset, limit)
-}
-
-// TranscriptTail 读取会话事件日志尾部窗口（token + 单元上限；会话粒度键）。
-func (store *SessionGranularStore) TranscriptTail(projectID, sessionID string, tokenBudget, maxUnits int) ([]Event, error) {
-	if store == nil || store.router == nil {
-		return []Event{}, nil
-	}
-	events, err := store.router.LoadEventTailWorkspace(store.projectID(projectID), sessionID, tokenBudget, maxUnits)
-	if err != nil {
-		if IsSessionNotFound(err) {
-			return []Event{}, nil
-		}
-		return nil, err
-	}
-	return events, nil
-}
-
-// EventRange 按 EventSeq 范围读取会话事件流（fork 切断点解析用）。
-func (store *SessionGranularStore) EventRange(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error) {
-	if store == nil || store.router == nil {
-		return []Event{}, nil
-	}
-	events, err := store.router.LoadEventRangeWorkspace(store.projectID(projectID), sessionID, fromSeq, toSeq)
-	if err != nil {
-		if IsSessionNotFound(err) {
-			return []Event{}, nil
-		}
-		return nil, err
-	}
-	return events, nil
-}
-
 // ToolResults 读取会话工具结果归档引用（session:<id>:toolresults）。
 func (store *SessionGranularStore) ToolResults(projectID, sessionID string) ([]ToolResultRef, error) {
 	if store == nil || store.router == nil {
@@ -416,21 +356,6 @@ func (store *SessionGranularStore) ToolResult(projectID, sessionID, resultRef st
 	return store.router.LoadToolResultWorkspace(store.projectID(projectID), sessionID, resultRef)
 }
 
-// ListToolResults 读取会话 tool-results 通道全量（fork 深拷贝物理复制用）。
-func (store *SessionGranularStore) ListToolResults(projectID, sessionID string) ([]ToolResult, error) {
-	if store == nil || store.router == nil {
-		return []ToolResult{}, nil
-	}
-	results, err := store.router.ListToolResultsWorkspace(store.projectID(projectID), sessionID)
-	if err != nil {
-		if IsSessionNotFound(err) {
-			return []ToolResult{}, nil
-		}
-		return nil, err
-	}
-	return results, nil
-}
-
 // Context 读取会话上下文四栈（session:<id>:context）。
 func (store *SessionGranularStore) Context(projectID, sessionID string) (ContextStack, error) {
 	if store == nil || store.router == nil {
@@ -450,124 +375,12 @@ func (store *SessionGranularStore) Context(projectID, sessionID string) (Context
 	return stack, nil
 }
 
-// SaveContext 保存会话上下文四栈（session:<id>:context；幂等）。
-func (store *SessionGranularStore) SaveContext(projectID, sessionID string, payload []byte) error {
-	if store == nil || store.router == nil {
-		return nil
-	}
-	return store.router.SaveContextStateWorkspace(store.projectID(projectID), sessionID, payload)
-}
-
-// LoadContextRaw 读取会话上下文模块原始字节（fork 四栈深拷贝用）；不存在
-// 原样返回 fs.ErrNotExist（fork 据此走默认上下文分支）。
-func (store *SessionGranularStore) LoadContextRaw(projectID, sessionID string) ([]byte, error) {
-	if store == nil || store.router == nil {
-		return []byte{}, nil
-	}
-	return store.router.LoadContextStateWorkspace(store.projectID(projectID), sessionID)
-}
-
 // SaveCommit 以会话粒度原子提交快照（record + transcript + tool-results）。
 func (store *SessionGranularStore) SaveCommit(projectID, sessionID string, commit Commit) error {
 	if store == nil || store.router == nil {
 		return nil
 	}
 	return store.router.SaveCommitWorkspace(store.projectID(projectID), sessionID, commit)
-}
-
-// LoadCompactionRecords 读取该会话的压缩记录（应用侧记录原文，按写入顺序）。
-// 空结果 = 该会话从未压缩过（或后端未 v8 化，调用方回退 record 通道）。
-func (store *SessionGranularStore) LoadCompactionRecords(projectID, sessionID string) ([]json.RawMessage, error) {
-	if store == nil || store.router == nil {
-		// 显式零值：没有 store/router = nil 记录（调用方一律看 len）；门禁禁的是裸 `return nil, nil`。
-		return []json.RawMessage(nil), nil
-	}
-	records, _, err := store.router.LoadCompactionRecordsWorkspace(store.projectID(projectID), sessionID)
-	if err != nil {
-		return nil, err
-	}
-	return records, nil
-}
-
-// CurrentGeneration 返回会话当前已发布 generation（fork 血缘来源）。
-func (store *SessionGranularStore) CurrentGeneration(projectID, sessionID string) (string, error) {
-	if store == nil || store.router == nil {
-		return "", nil
-	}
-	return store.router.CurrentGenerationWorkspace(store.projectID(projectID), sessionID)
-}
-
-// QueueEnqueue 把一条排队输入镜像落盘（同 requestID 重放幂等）。
-func (store *SessionGranularStore) QueueEnqueue(projectID, sessionID, requestID, content string) error {
-	if store == nil || store.router == nil {
-		return nil
-	}
-	return store.router.QueueEnqueueWorkspace(store.projectID(projectID), sessionID, requestID, content)
-}
-
-// QueueMarkConsumed 把 lifecycle 队列中全部待发送项标记为被 turnID 消费。
-func (store *SessionGranularStore) QueueMarkConsumed(projectID, sessionID, turnID string) error {
-	if store == nil || store.router == nil {
-		return nil
-	}
-	return store.router.QueueMarkConsumedWorkspace(store.projectID(projectID), sessionID, turnID)
-}
-
-// QueueConfirmConsumed 该轮已发布 → 消费项出队。
-func (store *SessionGranularStore) QueueConfirmConsumed(projectID, sessionID, turnID string) error {
-	if store == nil || store.router == nil {
-		return nil
-	}
-	return store.router.QueueConfirmConsumedWorkspace(store.projectID(projectID), sessionID, turnID)
-}
-
-// QueueFailConsumed 该轮未发布 → 消费项内容回草稿并出队。
-func (store *SessionGranularStore) QueueFailConsumed(projectID, sessionID, turnID string) error {
-	if store == nil || store.router == nil {
-		return nil
-	}
-	return store.router.QueueFailConsumedWorkspace(store.projectID(projectID), sessionID, turnID)
-}
-
-// QueueItems 读 lifecycle 队列投影。
-func (store *SessionGranularStore) QueueItems(projectID, sessionID string) ([]QueueItem, bool, error) {
-	if store == nil || store.router == nil {
-		return nil, false, nil
-	}
-	return store.router.QueueItemsWorkspace(store.projectID(projectID), sessionID)
-}
-
-// QueueRecoverItems 重启恢复队列（条目级结果）。
-func (store *SessionGranularStore) QueueRecoverItems(projectID, sessionID string) (QueueRecoveryReport, bool, error) {
-	if store == nil || store.router == nil {
-		return QueueRecoveryReport{}, false, nil
-	}
-	return store.router.QueueRecoverItemsWorkspace(store.projectID(projectID), sessionID)
-}
-
-// PendingMessageTail 探测 message 通道草稿尾部（只读；v8 未装配返回
-// ok=false）。
-func (store *SessionGranularStore) PendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error) {
-	if store == nil || store.router == nil {
-		return PendingTailReport{}, false, nil
-	}
-	return store.router.PendingMessageTailWorkspace(store.projectID(projectID), sessionID)
-}
-
-// RecoverPendingMessageTail 显式恢复草稿尾部（基座一致才发布）。
-func (store *SessionGranularStore) RecoverPendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error) {
-	if store == nil || store.router == nil {
-		return PendingTailReport{}, false, nil
-	}
-	return store.router.RecoverPendingMessageTailWorkspace(store.projectID(projectID), sessionID)
-}
-
-// DiscardPendingMessageTail 显式丢弃草稿尾部。
-func (store *SessionGranularStore) DiscardPendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error) {
-	if store == nil || store.router == nil {
-		return PendingTailReport{}, false, nil
-	}
-	return store.router.DiscardPendingMessageTailWorkspace(store.projectID(projectID), sessionID)
 }
 
 // Delete 以会话粒度删除会话（record/history/transcript/toolresults/context

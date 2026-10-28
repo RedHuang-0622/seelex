@@ -46,7 +46,7 @@ func TestArchiveStatusRewriteKeepsFivePieces(t *testing.T) {
 				t.Fatalf("save snapshot commit: %v", err)
 			}
 			contextPayload := []byte(`{"plan":["plan-a"]}`)
-			if err := store.SaveContext(projectID, sessionID, contextPayload); err != nil {
+			if err := router.SaveContextStateWorkspace(projectID, sessionID, contextPayload); err != nil {
 				t.Fatalf("save context: %v", err)
 			}
 
@@ -91,11 +91,13 @@ func TestArchiveStatusRewriteKeepsFivePieces(t *testing.T) {
 			if loaded.Status != StatusArchived || loaded.Title != "归档前标题" {
 				t.Fatalf("reopened record = %+v", loaded)
 			}
-			loadedHistory, err := store.HistoryForProject(projectID, sessionID).Load(ctx)
+			history := NewDurableHistory(router, sessionID)
+			history.SetWorkspaceResolver(func() string { return projectID })
+			loadedHistory, err := history.Load(ctx)
 			if err != nil || len(loadedHistory) != 2 {
 				t.Fatalf("reopen history len=%d err=%v", len(loadedHistory), err)
 			}
-			transcript, err := store.EventRange(projectID, sessionID, 1, 0)
+			transcript, err := router.LoadEventRangeWorkspace(projectID, sessionID, 1, 0)
 			if err != nil || len(transcript) != 2 {
 				t.Fatalf("reopen transcript len=%d err=%v", len(transcript), err)
 			}

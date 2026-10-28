@@ -72,7 +72,7 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("save transcript: %v", err)
 			}
-			transcript, err := store.EventRange(projectID, mainID, 1, 0)
+			transcript, err := router.LoadEventRangeWorkspace(projectID, mainID, 1, 0)
 			if err != nil || len(transcript) != 2 {
 				t.Fatalf("transcript len=%d err=%v", len(transcript), err)
 			}

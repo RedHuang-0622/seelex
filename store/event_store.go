@@ -9,6 +9,7 @@ import (
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 // EventLogEntry 是执行事实事件库的持久化单元（追加顺序 = 落库顺序）。
@@ -145,19 +146,11 @@ func (store *EventStore) loadRange(ctx context.Context, sessionID string, fromSe
 // 被读成 B 会话"，所以不许各写一份（历史上装配层曾有一份逐字副本，
 // 2026-10-17 的 P21-9 收敛到此）。
 func SessionIDFromEvent(event frameworkevent.Event) string {
-	return SessionIDFromLocations(event.Locations)
+	return storesession.SessionIDFromEvent(event)
 }
 
 // SessionIDFromLocations 是上面那条判据在 Location 切片上的形态（给只有 Locations 的
 // 调用方用；语义与 SessionIDFromEvent 完全一致，两条入口共用下面这一份循环）。
 func SessionIDFromLocations(locations []frameworkevent.Location) string {
-	for _, location := range locations {
-		if location.Kind != "agent.runtime" {
-			continue
-		}
-		if sessionID := location.IDs["session_id"]; sessionID != "" {
-			return sessionID
-		}
-	}
-	return ""
+	return storesession.SessionIDFromLocations(locations)
 }

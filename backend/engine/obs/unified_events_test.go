@@ -116,6 +116,41 @@ func TestUnifiedEventReaderUnavailable(t *testing.T) {
 	}
 }
 
+func TestUnifiedEventsUsesInjectedReaders(t *testing.T) {
+	loaded := []frameworkevent.Event{{ID: "fact-1"}}
+	ranged := []frameworkevent.Event{{ID: "fact-ranged", Sequence: 12}}
+	events := NewUnifiedEvents(UnifiedEventsDeps{
+		Load: func(_ context.Context, sessionID string) ([]frameworkevent.Event, error) {
+			if sessionID != "sess-1" {
+				t.Fatalf("load session = %q", sessionID)
+			}
+			return loaded, nil
+		},
+		LoadRange: func(_ context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error) {
+			if sessionID != "sess-1" || fromSeq != 10 || toSeq != 20 {
+				t.Fatalf("range = %q/%d..%d", sessionID, fromSeq, toSeq)
+			}
+			return ranged, nil
+		},
+	})
+	view, err := events.Query(context.Background(), "sess-1", "", 0)
+	if err != nil || len(view.Events) != 1 || view.Events[0].ID != "fact-1" {
+		t.Fatalf("Query = %+v, %v", view, err)
+	}
+	view, err = events.QueryRange(context.Background(), "sess-1", "", 10, 20, 0)
+	if err != nil || len(view.Events) != 1 || view.Events[0].ID != "fact-ranged" {
+		t.Fatalf("QueryRange = %+v, %v", view, err)
+	}
+
+	missing := NewUnifiedEvents(UnifiedEventsDeps{})
+	if _, err := missing.Query(context.Background(), "sess-1", "", 0); !errors.Is(err, ErrUnifiedEventsRouterMissing) {
+		t.Fatalf("missing Query error = %v", err)
+	}
+	if _, err := missing.QueryRange(context.Background(), "sess-1", "", 1, 2, 0); !errors.Is(err, ErrUnifiedEventsRouterMissing) {
+		t.Fatalf("missing QueryRange error = %v", err)
+	}
+}
+
 // TestUnifiedEventReaderQueryRange G7：事实轨按 Seq 区间读回（不再整段
 // Load），node 过滤与 limit 语义与 Query 一致。
 func TestUnifiedEventReaderQueryRange(t *testing.T) {

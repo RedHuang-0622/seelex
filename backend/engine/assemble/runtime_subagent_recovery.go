@@ -9,7 +9,7 @@ import (
 
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
@@ -151,7 +151,11 @@ func (r *Runtime) recordBelongsToCurrentMain(record storeworkunit.Record) bool {
 }
 
 // loadSubagentConclusions 从主会话事件库读取子代理最终结论事件。
-func loadSubagentConclusions(ctx context.Context, router *store.Router, projectID, sessionID string) ([]storeworkunit.Record, error) {
+type frameworkEventReader interface {
+	ReadFrameworkEventsWorkspace(context.Context, string, string) ([]dto.EventLogEntry, error)
+}
+
+func loadSubagentConclusions(ctx context.Context, router frameworkEventReader, projectID, sessionID string) ([]storeworkunit.Record, error) {
 	entries, err := router.ReadFrameworkEventsWorkspace(ctx, projectID, sessionID)
 	if err != nil {
 		return nil, err

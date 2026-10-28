@@ -77,8 +77,32 @@ def destination(receiver: str, name: str) -> tuple[str, str]:
         return "migrated", "store/artifact"
     if receiver == "jsonRepository" and name == "ReadConversationRange":
         return "migrated", "kernel/session projection + Host raw reads"
-    if receiver == "SessionGranularStore" and name in {"ConversationRange", "Transcript"}:
-        return "migrated", "Host raw event/range reads"
+    if receiver == "SessionGranularStore":
+        destinations = {
+            "ConversationRange": "Host raw event/range reads",
+            "Transcript": "Host raw event/range reads",
+            "HistoryForProject": "store.NewDurableHistory + explicit workspace resolver（Host adapter）",
+            "HistoryRange": "Router.LoadRangeWorkspace（Host adapter）",
+            "EventRange": "Router.LoadEventRangeWorkspace（Host adapter）",
+            "ListToolResults": "Router.ListToolResultsWorkspace（Host adapter）",
+            "LoadContextRaw": "Router.LoadContextStateWorkspace（Host adapter）",
+            "SaveContext": "Router.SaveContextStateWorkspace（Host adapter）",
+            "CurrentGeneration": "Router.CurrentGenerationWorkspace（Host adapter）",
+            "TranscriptTail": "Router.LoadEventTailWorkspace（Host adapter）",
+            "LoadCompactionRecords": "Router.LoadCompactionRecordsWorkspace（Host adapter）",
+            "DiscardPendingMessageTail": "Router.DiscardPendingMessageTailWorkspace（Host adapter）",
+            "PendingMessageTail": "Router.PendingMessageTailWorkspace（Host adapter）",
+            "RecoverPendingMessageTail": "Router.RecoverPendingMessageTailWorkspace（Host adapter）",
+            "QueueConfirmConsumed": "Router.QueueConfirmConsumedWorkspace（Host adapter）",
+            "QueueEnqueue": "Router.QueueEnqueueWorkspace（Host adapter）",
+            "QueueFailConsumed": "Router.QueueFailConsumedWorkspace（Host adapter）",
+            "QueueItems": "Router.QueueItemsWorkspace（Host adapter）",
+            "QueueMarkConsumed": "Router.QueueMarkConsumedWorkspace（Host adapter）",
+            "QueueRecoverItems": "Router.QueueRecoverItemsWorkspace（Host adapter）",
+            "SaveHistory": "DurableHistory.Save / Router.SaveWorkspace（consumer adapter）",
+        }
+        if name in destinations:
+            return "migrated", destinations[name]
     raise SystemExit(f"unclassified removed operation: {receiver}.{name}")
 
 
@@ -86,6 +110,7 @@ def package_destination(name: str) -> tuple[str, str]:
     mappings = {
         "ApplyLimits": "store/project.ApplyLimits",
         "FoldProjectBoardRows": "store/board.Fold",
+        "IsSessionNotFound": "store/session.IsSessionNotFound（root identity alias retained as variable）",
         "MediaRefHash": "store/artifact.MediaRefHash",
         "NewNodeSessionRecordWriter": "store/workunit.NewWriter",
         "NewNodeSessionStore": "store/workunit.NewSessionStore",

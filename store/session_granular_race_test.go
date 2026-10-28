@@ -66,7 +66,7 @@ func TestSessionGranularStoreConcurrentProjectScope(t *testing.T) {
 							t.Errorf("commit %s: %v", sessionID, err)
 							return
 						}
-						if err := store.SaveHistory("project-A", sessionID, messages(round+1, "history")); err != nil {
+						if err := router.SaveWorkspace("project-A", sessionID, messages(round+1, "history")); err != nil {
 							t.Errorf("history %s: %v", sessionID, err)
 							return
 						}

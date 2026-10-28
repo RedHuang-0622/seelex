@@ -52,7 +52,6 @@ var backendEdgeBudget = map[string]string{
 	"backend/engine/assemble -> backend/tool/worktree":                                      "装配根能力接线",
 	"backend/engine/assemble -> backend/workunit":                                           "装配根能力接线",
 	"backend/engine/context/seelectx -> backend/engine/context/seelectx/compactor":          "上下文字包协作",
-	"backend/engine/context/seelectx -> backend/engine/context/seelectx/lifecycle":          "上下文字包协作",
 	"backend/engine/context/seelectx -> backend/engine/context/seelectx/provider":           "上下文字包协作",
 	"backend/engine/context/seelectx -> backend/engine/context/seelectx/snapshot":           "上下文字包协作",
 	"backend/engine/context/seelectx -> backend/engine/context/seelectx/tokens":             "上下文字包协作",

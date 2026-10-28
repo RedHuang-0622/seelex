@@ -449,8 +449,14 @@ func (port SessionPort) Delete(id string) error {
 }
 
 func (port SessionPort) LoadHistory(id string) ([]contract.EngineMessage, error) {
-	granular := port.granular()
-	messages, err := granular.HistoryForProject(granular.ResolveProjectForSession(id), id).Load(context.Background())
+	router := port.Manager.Router()
+	if router == nil {
+		return nil, nil
+	}
+	projectID := port.granular().ResolveProjectForSession(id)
+	history := store.NewDurableHistory(router, id)
+	history.SetWorkspaceResolver(func() string { return projectID })
+	messages, err := history.Load(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -458,8 +464,12 @@ func (port SessionPort) LoadHistory(id string) ([]contract.EngineMessage, error)
 }
 
 func (port SessionPort) LoadHistoryRange(id string, offset, limit int) ([]contract.EngineMessage, int, error) {
-	granular := port.granular()
-	messages, total, err := granular.HistoryRange(granular.ResolveProjectForSession(id), id, offset, limit)
+	router := port.Manager.Router()
+	if router == nil {
+		return nil, 0, nil
+	}
+	projectID := port.granular().ResolveProjectForSession(id)
+	messages, total, err := router.LoadRangeWorkspace(projectID, id, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -552,13 +562,33 @@ func (port SessionPort) SaveSessionSnapshot(
 
 // LoadEventRangeWorkspace 按 EventSeq 范围读取事件流（fork 切断点解析用）。
 func (port SessionPort) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
-	return port.granular().EventRange(projectID, sessionID, fromSeq, toSeq)
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return []store.Event{}, nil
+	}
+	events, err := port.Manager.Router().LoadEventRangeWorkspace(projectID, sessionID, fromSeq, toSeq)
+	if err != nil {
+		if store.IsSessionNotFound(err) {
+			return []store.Event{}, nil
+		}
+		return nil, err
+	}
+	return events, nil
 }
 
 // LoadToolResultsWorkspace 枚举会话 tool-results 通道全部结果（fork 深拷贝
 // 物理复制用）。
 func (port SessionPort) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error) {
-	return port.granular().ListToolResults(projectID, sessionID)
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return []store.ToolResult{}, nil
+	}
+	results, err := port.Manager.Router().ListToolResultsWorkspace(projectID, sessionID)
+	if err != nil {
+		if store.IsSessionNotFound(err) {
+			return []store.ToolResult{}, nil
+		}
+		return nil, err
+	}
+	return results, nil
 }
 
 // SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入会话快照
@@ -586,24 +616,39 @@ func (port SessionPort) SaveSessionSnapshotWorkspace(
 
 // LoadContextStateWorkspace 读取会话 context 模块（显式项目作用域）。
 func (port SessionPort) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error) {
-	return port.granular().LoadContextRaw(projectID, sessionID)
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return []byte{}, nil
+	}
+	return port.Manager.Router().LoadContextStateWorkspace(projectID, sessionID)
 }
 
 // SaveContextStateWorkspace 保存会话 context 模块（显式项目作用域；fork
 // 四栈深拷贝写入子会话用）。
 func (port SessionPort) SaveContextStateWorkspace(projectID, sessionID string, state []byte) error {
-	return port.granular().SaveContext(projectID, sessionID, state)
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return nil
+	}
+	return port.Manager.Router().SaveContextStateWorkspace(projectID, sessionID, state)
 }
 
 // CurrentGenerationWorkspace 返回会话当前已发布 generation（fork 血缘
 // forked_from_generation 来源）。
 func (port SessionPort) CurrentGenerationWorkspace(projectID, sessionID string) (string, error) {
-	return port.granular().CurrentGeneration(projectID, sessionID)
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return "", nil
+	}
+	return port.Manager.Router().CurrentGenerationWorkspace(projectID, sessionID)
 }
 
 func (port SessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, tokenBudget, maxUnits int) ([]model.TranscriptEvent, error) {
-	events, err := port.granular().TranscriptTail(workspaceID, id, tokenBudget, maxUnits)
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return []model.TranscriptEvent{}, nil
+	}
+	events, err := port.Manager.Router().LoadEventTailWorkspace(workspaceID, id, tokenBudget, maxUnits)
 	if err != nil {
+		if store.IsSessionNotFound(err) {
+			return []model.TranscriptEvent{}, nil
+		}
 		return nil, err
 	}
 	return adaptTranscriptEvents(events), nil
@@ -1139,7 +1184,10 @@ func adaptCompactionRecords(payloads []json.RawMessage) []model.ContextCompactio
 // LoadCompactionRecordsWorkspace 读取会话的持久压缩记录（应用侧可见面事实源）。
 // 读不出来返回空列表：冷恢复按「这个会话还没压过」处理，绝不因此让恢复整体失败。
 func (port SessionPort) LoadCompactionRecordsWorkspace(workspaceID, id string) ([]model.ContextCompaction, error) {
-	records, err := port.granular().LoadCompactionRecords(workspaceID, id)
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return []model.ContextCompaction(nil), nil
+	}
+	records, _, err := port.Manager.Router().LoadCompactionRecordsWorkspace(workspaceID, id)
 	if err != nil {
 		if store.IsSessionNotFound(err) {
 			// 显式零值：记录不存在 = nil（调用方一律看 len / range）；门禁禁的是裸 `return nil, nil`。

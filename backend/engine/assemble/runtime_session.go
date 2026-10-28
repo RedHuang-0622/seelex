@@ -8,7 +8,6 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
-	"github.com/RedHuang-0622/seelex/store"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
 	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
@@ -21,12 +20,17 @@ import (
 // 只随 bundle 持有会话态；锁粒度随会话（决策契约 §1）。
 type sessionBindings struct {
 	mu          sync.RWMutex
-	ctxStore    *store.SessionContextStore
+	ctxStore    sessionContextStorePort
 	boards      *storeboard.BoundStore
-	mainHistory *store.DurableHistory
+	mainHistory mainHistoryPort
 
 	mainSessionMu sync.RWMutex
 	mainSessionID string
+}
+
+type mainHistoryPort interface {
+	SessionID() string
+	PrepareNextLoad([]types.Message)
 }
 
 func (b *sessionBindings) sessionID() string {
@@ -41,7 +45,7 @@ func (b *sessionBindings) setSessionID(id string) {
 	b.mainSessionMu.Unlock()
 }
 
-func (b *sessionBindings) setMainHistory(history *store.DurableHistory) {
+func (b *sessionBindings) setMainHistory(history mainHistoryPort) {
 	b.mu.Lock()
 	b.mainHistory = history
 	b.mu.Unlock()
@@ -58,14 +62,14 @@ func (b *sessionBindings) prepareMainSessionHistory(sessionID string, messages [
 	return true
 }
 
-func (b *sessionBindings) attachContextStore(st *store.SessionContextStore, boards *storeboard.BoundStore) {
+func (b *sessionBindings) attachContextStore(st sessionContextStorePort, boards *storeboard.BoundStore) {
 	b.mu.Lock()
 	b.ctxStore = st
 	b.boards = boards
 	b.mu.Unlock()
 }
 
-func (b *sessionBindings) contextStore() *store.SessionContextStore {
+func (b *sessionBindings) contextStore() sessionContextStorePort {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.ctxStore
@@ -79,7 +83,7 @@ func (b *sessionBindings) boardStore() *storeboard.BoundStore {
 
 // SessionContextStoreFor 返回指定会话的 SessionContextStore（goal 第五栈
 // 装配旁路；未实例化/未绑定 → nil）。
-func (r *Runtime) SessionContextStoreFor(sessionID string) *store.SessionContextStore {
+func (r *Runtime) SessionContextStoreFor(sessionID string) sessionContextStorePort {
 	if r == nil || sessionID == "" {
 		return nil
 	}

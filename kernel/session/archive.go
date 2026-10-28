@@ -13,7 +13,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 const (
@@ -334,7 +334,7 @@ func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (mo
 		return model.SessionRecord{}, false, nil
 	}
 	record, err := sessionStore.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID)
-	if store.IsSessionNotFound(err) {
+	if storesession.IsSessionNotFound(err) {
 		return model.SessionRecord{}, false, nil
 	}
 	if err != nil {

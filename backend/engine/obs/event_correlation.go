@@ -25,7 +25,7 @@ import (
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 
-	"github.com/RedHuang-0622/seelex/store"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 // CorrelateMainSessionID 包装持久化钩子：事件缺失 session_id 关联时补上当前主会话
@@ -42,7 +42,7 @@ func CorrelateMainSessionID(
 		return next
 	}
 	return func(ctx context.Context, event frameworkevent.Event) error {
-		if store.SessionIDFromEvent(event) == "" {
+		if storesession.SessionIDFromEvent(event) == "" {
 			if sessionID := mainSessionID(); sessionID != "" {
 				event.Locations = append(event.Locations, frameworkevent.Location{
 					Kind: "agent.runtime",

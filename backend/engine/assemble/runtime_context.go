@@ -11,15 +11,28 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
+	model "github.com/RedHuang-0622/seelex/contract/protocol"
 	contextruntime "github.com/RedHuang-0622/seelex/kernel/context"
-	"github.com/RedHuang-0622/seelex/store"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
+	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
 
+type sessionContextStorePort interface {
+	Load(context.Context) error
+	PromptStackSnapshot() storecontext.PromptStackSnapshot
+	CompactStackSnapshot() []storecontext.CompactFrame
+	PushCompact(storecontext.CompactFrame) error
+	SystemPrompt() string
+	GoalStackSnapshot() []storecontext.GoalFrame
+	ReplaceGoalStack([]storecontext.GoalFrame) error
+	AppendGoalAudit(storecontext.GoalAuditEntry) error
+	GoalAuditSnapshot() []storecontext.GoalAuditEntry
+}
+
 // AttachSessionContextStore 绑定会话上下文存储（state blob，plan.md §3.7.2）。
 // 会话恢复流程接线时由调用方注入（router + sessionID 就绪后）。
-func (r *Runtime) AttachSessionContextStore(st *store.SessionContextStore, boards ...*storeboard.BoundStore) {
+func (r *Runtime) AttachSessionContextStore(st sessionContextStorePort, boards ...*storeboard.BoundStore) {
 	if bundle := r.activeBundle(); bundle != nil {
 		bundle.mu.Lock()
 		var boardStore *storeboard.BoundStore
@@ -53,7 +66,7 @@ func (r *Runtime) compressionSnapshot(_ string) *snapshot.ContextSnapshot {
 // 起点 tailStartUnit 直接对齐，[栈顶To+1, tailStartUnit-1] 即未覆盖区间；它
 // 压入会话压缩栈（state blob / 内存兜底），原文经 TurnArchiver 归档
 // （read_compressed_turn 可读回）。无真空区 → 无副作用。
-func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []store.Event, tailStartUnit int) error {
+func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []model.TranscriptEvent, tailStartUnit int) error {
 	// 判据（"没有压缩基线就不补"）在域包 context_runtime.CoverHistoryGap；本层只把
 	// "当前会话的压缩栈 / 轮次归档器 / 会话号 / 传递上限"接成那一跳的读数。
 	deps := contextruntime.GapCoverageDeps{
@@ -257,7 +270,7 @@ func (r *Runtime) MainCompactionDAG() *seelexctx.CompactionDAG {
 }
 
 // sessionContextStore 返回绑定的会话上下文存储（nil = 未绑定）。
-func (r *Runtime) sessionContextStore() *store.SessionContextStore {
+func (r *Runtime) sessionContextStore() sessionContextStorePort {
 	if bundle := r.activeBundle(); bundle != nil {
 		return bundle.binding.contextStore()
 	}

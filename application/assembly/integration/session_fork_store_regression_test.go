@@ -48,7 +48,7 @@ func (s *routerForkSessions) saveParentFixture(t *testing.T, record model.Sessio
 	}); err != nil {
 		t.Fatalf("save parent fixture: %v", err)
 	}
-	if err := s.granular.SaveContext("", record.ID, contextPayload); err != nil {
+	if err := s.router.SaveContextStateWorkspace("", record.ID, contextPayload); err != nil {
 		t.Fatalf("save parent context: %v", err)
 	}
 }
@@ -120,7 +120,7 @@ func (s *routerForkSessions) LoadSessionRecordWorkspace(projectID, sessionID str
 		if !store.IsSessionNotFound(err) {
 			return model.SessionRecord{}, err
 		}
-		events, eventErr := s.granular.EventRange(projectID, sessionID, 1, ^uint64(0))
+		events, eventErr := s.router.LoadEventRangeWorkspace(projectID, sessionID, 1, ^uint64(0))
 		if eventErr != nil {
 			return model.SessionRecord{}, eventErr
 		}
@@ -174,27 +174,27 @@ func (s *routerForkSessions) SaveSessionSnapshotWorkspace(
 }
 
 func (s *routerForkSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
-	return s.granular.EventRange(projectID, sessionID, fromSeq, toSeq)
+	return s.router.LoadEventRangeWorkspace(projectID, sessionID, fromSeq, toSeq)
 }
 
 func (s *routerForkSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error) {
-	return s.granular.ListToolResults(projectID, sessionID)
+	return s.router.ListToolResultsWorkspace(projectID, sessionID)
 }
 
 func (s *routerForkSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error) {
-	return s.granular.LoadContextRaw(projectID, sessionID)
+	return s.router.LoadContextStateWorkspace(projectID, sessionID)
 }
 
 func (s *routerForkSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error {
-	return s.granular.SaveContext(projectID, sessionID, payload)
+	return s.router.SaveContextStateWorkspace(projectID, sessionID, payload)
 }
 
 func (s *routerForkSessions) CurrentGenerationWorkspace(projectID, sessionID string) (string, error) {
-	return s.granular.CurrentGeneration(projectID, sessionID)
+	return s.router.CurrentGenerationWorkspace(projectID, sessionID)
 }
 
 func (s *routerForkSessions) LoadTranscriptTailWorkspace(projectID, sessionID string, _, _ int) ([]model.TranscriptEvent, error) {
-	events, err := s.granular.TranscriptTail(projectID, sessionID, 1<<20, 4)
+	events, err := s.router.LoadEventTailWorkspace(projectID, sessionID, 1<<20, 4)
 	if err != nil {
 		return nil, err
 	}

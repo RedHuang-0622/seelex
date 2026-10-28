@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
-	"github.com/RedHuang-0622/seelex/store"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 )
 
@@ -123,7 +123,7 @@ func (c *Coordinator) PrepareFork(location Location, childID, parentID string, r
 		ForkPoint: model.ForkPoint{
 			EventSeq:     cut,
 			EventCount:   uint64(len(inherited)),
-			Round:        uint64(len(store.EventParagraphs(inherited))),
+			Round:        uint64(len(model.EventParagraphs(inherited))),
 			RequestID:    requestID,
 			MessageID:    cutMessageID,
 			MessageCount: messageCount,
@@ -165,14 +165,14 @@ func (c *Coordinator) LatestForkCut(location Location, parentID string) (uint64,
 	if err != nil {
 		return 0, fmt.Errorf("session fork: load parent transcript: %w", err)
 	}
-	paragraphs := store.EventParagraphs(events)
+	paragraphs := model.EventParagraphs(events)
 	if len(paragraphs) == 0 {
 		return 0, nil
 	}
 	return paragraphs[len(paragraphs)-1].EventTo, nil
 }
 
-func forkTranscriptEvents(events []store.Event) []model.TranscriptEvent {
+func forkTranscriptEvents(events []model.TranscriptEvent) []model.TranscriptEvent {
 	adapted := make([]model.TranscriptEvent, len(events))
 	for index, event := range events {
 		calls := make([]model.TranscriptToolCall, len(event.ToolCalls))
@@ -192,7 +192,7 @@ func forkTranscriptEvents(events []store.Event) []model.TranscriptEvent {
 	return adapted
 }
 
-func forkStoredToolResults(results []store.ToolResult) []model.StoredToolResult {
+func forkStoredToolResults(results []model.ToolResultRecord) []model.StoredToolResult {
 	stored := make([]model.StoredToolResult, len(results))
 	for index, result := range results {
 		stored[index] = model.StoredToolResult{
@@ -209,7 +209,7 @@ func forkStoredToolResults(results []store.ToolResult) []model.StoredToolResult 
 // resolveForkCut 解析 fork 切断点（EventSeq 含端点，段落边界语义）。
 // RequestID 解析为该轮完整单元的最后 EventSeq；显式 EventSeq 必须落在
 // 段落边界，否则拒绝并提示最近边界。
-func resolveForkCut(events []store.Event, request model.ForkRequest) (uint64, *store.Event, error) {
+func resolveForkCut(events []model.TranscriptEvent, request model.ForkRequest) (uint64, *model.TranscriptEvent, error) {
 	requestID := strings.TrimSpace(request.RequestID)
 	if requestID != "" && request.EventSeq != 0 {
 		return 0, nil, errors.New("session fork: request_id and event_seq are mutually exclusive")
@@ -217,7 +217,7 @@ func resolveForkCut(events []store.Event, request model.ForkRequest) (uint64, *s
 	if requestID != "" {
 		cut := uint64(0)
 		found := false
-		for _, paragraph := range store.EventParagraphs(events) {
+		for _, paragraph := range model.EventParagraphs(events) {
 			if paragraph.RequestID == requestID && paragraph.EventTo > cut {
 				cut = paragraph.EventTo
 				found = true
@@ -231,7 +231,7 @@ func resolveForkCut(events []store.Event, request model.ForkRequest) (uint64, *s
 	if request.EventSeq == 0 {
 		return 0, nil, nil // fork 起点：空继承
 	}
-	end, ok := store.ParagraphEnd(events, request.EventSeq)
+	end, ok := model.ParagraphEnd(events, request.EventSeq)
 	if !ok {
 		return 0, nil, fmt.Errorf("session fork: event_seq %d is not inside a complete paragraph", request.EventSeq)
 	}
@@ -241,7 +241,7 @@ func resolveForkCut(events []store.Event, request model.ForkRequest) (uint64, *s
 	return request.EventSeq, eventAt(events, request.EventSeq), nil
 }
 
-func eventAt(events []store.Event, seq uint64) *store.Event {
+func eventAt(events []model.TranscriptEvent, seq uint64) *model.TranscriptEvent {
 	for index := range events {
 		if events[index].Seq == seq {
 			return &events[index]
@@ -250,11 +250,11 @@ func eventAt(events []store.Event, seq uint64) *store.Event {
 	return nil
 }
 
-func forkInheritedEvents(events []store.Event, cut uint64) []store.Event {
+func forkInheritedEvents(events []model.TranscriptEvent, cut uint64) []model.TranscriptEvent {
 	if cut == 0 {
 		return nil
 	}
-	inherited := make([]store.Event, 0)
+	inherited := make([]model.TranscriptEvent, 0)
 	for _, event := range events {
 		if event.Seq <= cut {
 			inherited = append(inherited, event)
@@ -274,7 +274,7 @@ func forkInheritedEvents(events []store.Event, cut uint64) []store.Event {
 //
 // 压缩记录（ContextCompactions）按**整批历史证据**继承：结论（状态/计划）晚于
 // 切断点会被清空，压缩记录连同其 FrameRef 保留，见下方可达集合。
-func truncateForkRecord(record model.SessionRecord, events []store.Event, frames []store.CompactFrame, cutTime time.Time, displayUserInput func(string) string) model.SessionRecord {
+func truncateForkRecord(record model.SessionRecord, events []model.TranscriptEvent, frames []storecontext.CompactFrame, cutTime time.Time, displayUserInput func(string) string) model.SessionRecord {
 	now := time.Now().UTC()
 	cut := forkCutSeq(events)
 	truncated := model.SessionRecord{
@@ -312,7 +312,7 @@ func truncateForkRecord(record model.SessionRecord, events []store.Event, frames
 	return truncated
 }
 
-func forkCutSeq(events []store.Event) uint64 {
+func forkCutSeq(events []model.TranscriptEvent) uint64 {
 	if len(events) == 0 {
 		return 0
 	}
@@ -334,7 +334,7 @@ func inheritedForkTitle(title model.SessionTitle, messages []model.Message, now 
 	return model.SessionTitle{Value: "fork", Source: "fork", FinalizedAt: now}
 }
 
-func forkConversationMessages(messages []model.Message, events []store.Event, cutTime time.Time) []model.Message {
+func forkConversationMessages(messages []model.Message, events []model.TranscriptEvent, cutTime time.Time) []model.Message {
 	if len(events) == 0 {
 		return nil
 	}
@@ -460,7 +460,7 @@ func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFil
 // 注册表只保留可达 ref，防止子会话通过 read_tool_result 提示触达 fork 点
 // 之后的内容。（ForkSubagent 不经过这里——子代理派发链不调用本函数；
 // 两条路的存储形态见 `store/fork_store.go` 头部与 my_design §8。）
-func reachableToolResultRefs(events []store.Event, record model.SessionRecord, frames []store.CompactFrame) map[string]struct{} {
+func reachableToolResultRefs(events []model.TranscriptEvent, record model.SessionRecord, frames []storecontext.CompactFrame) map[string]struct{} {
 	reachable := make(map[string]struct{})
 	for _, event := range events {
 		if event.ResultRef != "" {
@@ -496,7 +496,7 @@ func reachableToolResultRefs(events []store.Event, record model.SessionRecord, f
 	}
 	for _, frame := range frames {
 		if frame.SegmentID != "" {
-			reachable[store.CompressedTurnRefPrefix+frame.SegmentID] = struct{}{}
+			reachable[contract.CompressedTurnRefPrefix+frame.SegmentID] = struct{}{}
 		}
 		for _, evidence := range frame.Evidence {
 			if evidence.Ref != "" {
@@ -522,7 +522,7 @@ func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]str
 // goal）不在这里处理——它们的权威是 §2.4 栈通道，fork 时由存储层按 message
 // 锚重建（storeEngine.stackSnapshotAt）；GoalAudit 与 goal 治理状态默认不
 // 继承（D4）。
-func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string, forkedFrom json.RawMessage) ([]byte, []store.CompactFrame, error) {
+func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string, forkedFrom json.RawMessage) ([]byte, []storecontext.CompactFrame, error) {
 	forkPort, ok := c.Core.Deps.Sessions.(SessionForkPort)
 	if !ok {
 		return nil, nil, errors.New("session fork: durable fork storage is unavailable")
