@@ -12,7 +12,7 @@ import argparse
 
 
 def sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
 
 
 def git(*args: str) -> subprocess.CompletedProcess[bytes]:

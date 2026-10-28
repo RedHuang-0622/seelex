@@ -37,11 +37,9 @@ def run_git(worktree: Path, *args: str, check: bool = True) -> subprocess.Comple
 def sha256(path: Path) -> str | None:
     if not path.exists():
         return None
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    # Git text filters may materialize CRLF on Windows. Hash the canonical LF
+    # representation so pre/post/rollback agree across checkout policies.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def load_manifest(path: Path) -> dict:
