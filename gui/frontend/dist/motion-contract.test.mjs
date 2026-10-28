@@ -125,7 +125,7 @@ test("motion contract：所有 transition/animation 使用 token，不写任意�
 test("motion contract：工具名文字 shimmer 是唯一 1.8s、linear 的局部循环", () => {
   const shimmer = css.match(/@keyframes\s+loading-text-shimmer\s*\{([\s\S]*?)\n\}/);
   assert.ok(shimmer, "必须存在唯一文字 shimmer");
-  assert.match(shimmer[1], /transform:\s*translateX\(/);
+  assert.match(shimmer[1], /background-position:/);
   assert.doesNotMatch(shimmer[1], /\b(width|height|top|left|right|bottom|margin|padding|display)\s*:/);
   assert.match(css, /animation:\s*loading-text-shimmer\s+var\(--duration-shimmer\)\s+var\(--ease-linear\)/);
   assert.equal((css.match(/@keyframes\s+loading-text-shimmer/g) || []).length, 1);
@@ -133,18 +133,21 @@ test("motion contract：工具名文字 shimmer 是唯一 1.8s、linear 的局�
 });
 
 test("motion contract：shimmer 只在可读文字上叠加亮光，不把整段文字变透明", () => {
-  const base = css.match(/\.loading-shimmer,\s*\.tool-run\.is-running \.tool-call-name\s*\{([^}]*)\}/);
+  const base = css.match(/\.loading-shimmer,\s*\.tool-run\.is-running > \.tool-call-summary \.tool-call-name\s*\{([^}]*)\}/);
   assert.ok(base, "文字 shimmer 必须保留稳定底色层");
   assert.doesNotMatch(base[1], /color:\s*transparent/, "底层文字不得透明");
   assert.doesNotMatch(base[1], /-webkit-text-fill-color:\s*transparent/, "底层文字不得被透明填充");
 
-  const overlay = css.match(/\.loading-shimmer::after,\s*\.tool-run\.is-running \.tool-call-name::after\s*\{([^}]*)\}/);
+  const overlay = css.match(/\.loading-shimmer::after,\s*\.tool-run\.is-running > \.tool-call-summary \.tool-call-name::after\s*\{([^}]*)\}/);
   assert.ok(overlay, "亮光必须由独立伪元素叠加");
-  assert.match(overlay[1], /content:\s*""/, "亮光通道必须是独立装饰层，不复制或覆盖文字");
+  assert.match(overlay[1], /background-clip:\s*text/, "亮光必须裁切为字形，不能出现矩形白带");
+  assert.match(overlay[1], /-webkit-text-fill-color:\s*transparent/, "亮光层只保留文字蒙版");
   assert.match(overlay[1], /linear-gradient\([\s\S]*transparent[\s\S]*var\(--shimmer-highlight\)[\s\S]*transparent/, "亮光两端必须透明，不能出现暗色扫尾");
-  assert.match(overlay[1], /transform:\s*translateX\(/, "亮光只允许通过 transform 扫动");
-  assert.doesNotMatch(overlay[1], /background-clip:\s*text/, "底层文字不得被亮光裁切替换");
+  assert.doesNotMatch(overlay[1], /\b(?:width|height|left|right|mix-blend-mode)\s*:/, "亮光不得退化为矩形滤镜或独立色带");
   assert.doesNotMatch(overlay[1], /var\(--muted\)/, "亮光渐变不得混入会遮字的暗色");
+  assert.match(css, /\.loading-shimmer::after\s*\{[^}]*content:\s*attr\(data-shimmer-text\)/s);
+  assert.match(css, /\.tool-run\.is-running > \.tool-call-summary \.tool-call-name::after\s*\{[^}]*content:\s*attr\(data-tool-label\)/s);
+  assert.doesNotMatch(css, /\.tool-run\.is-running \.tool-call-name/, "父工具域运行态不得让已完成子工具继承 shimmer");
 });
 
 test("motion contract：reduced-motion 保留静态活动线与焦点终态", () => {

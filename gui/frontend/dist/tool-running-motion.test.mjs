@@ -74,8 +74,9 @@ test("对话尾部使用 Thinking 文字 shimmer，不再注入 spinner", async 
 test("工具名与尾部文字共用文字 shimmer，Pico busy spinner 被关闭", async () => {
   const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /\.tool-run-activity/);
-  assert.match(css, /\.loading-shimmer::after,\s*\.tool-run\.is-running \.tool-call-name::after\s*\{[^}]*linear-gradient\([^}]*var\(--shimmer-highlight\)[^}]*transform:/s);
-  assert.doesNotMatch(css, /\.tool-run\.is-running \.tool-call-name\s*\{[^}]*color:\s*transparent/s);
+  assert.match(css, /\.loading-shimmer::after,\s*\.tool-run\.is-running > \.tool-call-summary \.tool-call-name::after\s*\{[^}]*linear-gradient\([^}]*var\(--shimmer-highlight\)[^}]*background-clip:\s*text/s);
+  assert.doesNotMatch(css, /\.tool-run\.is-running > \.tool-call-summary \.tool-call-name\s*\{[^}]*color:\s*transparent/s);
+  assert.doesNotMatch(css, /\.tool-run\.is-running \.tool-call-name/, "运行中的工具域不能让所有子工具继承 shimmer");
   assert.match(css, /\.conversation\[aria-busy="true"\]::before[\s\S]{0,500}display:\s*none/s);
   assert.match(css, /\.conversation\[aria-busy="true"\][\s\S]{0,220}white-space:\s*normal/s);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.loading-shimmer[\s\S]{0,120}animation:\s*none/s);

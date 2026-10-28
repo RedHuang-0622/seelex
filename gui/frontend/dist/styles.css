@@ -1066,7 +1066,7 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 */
 .runtime-activity-copy { color: var(--status-info); }
 .loading-shimmer,
-.tool-run.is-running .tool-call-name {
+.tool-run.is-running > .tool-call-summary .tool-call-name {
   position: relative;
   display: inline-block;
   max-width: 100%;
@@ -1074,26 +1074,32 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   vertical-align: bottom;
 }
 .loading-shimmer::after,
-.tool-run.is-running .tool-call-name::after {
-  content: "";
+.tool-run.is-running > .tool-call-summary .tool-call-name::after {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: -32%;
-  width: 28%;
+  inset: 0;
+  content: "";
+  overflow: hidden;
+  color: transparent;
   background-image: linear-gradient(
-    100deg,
+    90deg,
     transparent 0%,
-    color-mix(in srgb, var(--shimmer-highlight) 24%, transparent) 35%,
+    transparent 38%,
+    color-mix(in srgb, var(--shimmer-highlight) 42%, transparent) 47%,
     var(--shimmer-highlight) 50%,
-    color-mix(in srgb, var(--shimmer-highlight) 24%, transparent) 65%,
+    color-mix(in srgb, var(--shimmer-highlight) 42%, transparent) 53%,
+    transparent 62%,
     transparent 100%
   );
-  transform: translateX(-150%) skewX(-18deg);
-  mix-blend-mode: screen;
+  background-size: 260% 100%;
+  background-position: 115% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
   pointer-events: none;
   animation: loading-text-shimmer var(--duration-shimmer) var(--ease-linear) infinite;
 }
+.loading-shimmer::after { content: attr(data-shimmer-text); }
+.tool-run.is-running > .tool-call-summary .tool-call-name::after { content: attr(data-tool-label); }
 /* 消息队列 = 贴在聊天框上沿的一叠「单行条」（用户口径：形状照 Qoder 的队列做法）。
    一条一行：折返箭头 + 单行正文（超长省略号）+ 右侧动作。不再是一张带表头
    （"排队 01 / 等待"）与正文区的卡片——那张卡片又高又空，正文区还自带
@@ -1422,8 +1428,8 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .tool-call-drawer pre::-webkit-scrollbar-thumb { border-radius: 999px; background: transparent; }
 .tool-call-drawer:hover pre::-webkit-scrollbar-thumb { background: var(--border-strong); }
 @keyframes loading-text-shimmer {
-  from { transform: translateX(-150%) skewX(-18deg); }
-  to { transform: translateX(500%) skewX(-18deg); }
+  from { background-position: 115% 0; }
+  to { background-position: -115% 0; }
 }
 .tool-io-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .io-panel { min-width: 0; background: var(--surface-2); }
@@ -6464,10 +6470,9 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
   .scroll-shadows { transition: none; }
   .conversation-loading-row::after { animation: none; opacity: 0; }
   .loading-shimmer::after,
-  .tool-run.is-running .tool-call-name::after {
+  .tool-run.is-running > .tool-call-summary .tool-call-name::after {
     animation: none;
     display: none;
-    transform: none;
   }
 }
 

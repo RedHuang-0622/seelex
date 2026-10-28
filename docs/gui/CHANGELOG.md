@@ -66,7 +66,9 @@
   三处旋转圏（会话容器、运行中工具行、runtime activity），保留无障碍语义；尾部
   按状态显示 `Thinking… / Loading… / Loading tool…`，工具调用只让工具名字段播放
   1.8s 文字 Shimmer。文字节点保持正常不透明色，流光由独立伪元素绘制两端透明的
-  窄亮光带，只做 `transform` 扫动，不再把整段文字设为透明或用渐变替换字面。
+  字形蒙版，只提亮经过的笔画，不出现矩形白带，也不再替换底层文字材质。
+  shimmer 作用域收紧到 running 工具自己的摘要行，父工具域运行不会让展开区里的
+  completed/error/cancelled 子工具继承动画。
   对话容器与正文显式恢复 `white-space: normal`、
   `overflow-wrap:anywhere` 与容器宽高约束，修复 busy 状态继承 `nowrap` 导致的
   横向裁切和自动换行失效。

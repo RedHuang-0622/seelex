@@ -14,9 +14,9 @@ token（旧 `--dur-*` 只做 alias），流式的 50/100/150ms cadence 只由
 runtime 交互的物理手感由 `spring-motion.js` 以 `stiffness` / `damping` / `mass`
 供源：按压与状态切换用临界阻尼，进入用轻欠阻尼，退出用过阻尼，CSS `linear()`
 由阶跃响应生成并钉死终值。对话尾部显示带文字 Shimmer 的 `Thinking… / Loading…`
-状态，不再使用通用 spinner；工具 running 只让工具名字段播放 1.8s 文字流光。
-文字节点始终保留正常、不透明的文本色，亮光由独立伪元素以两端透明的窄带
-`transform` 扫过，不再用 `background-clip: text` 替换文字材质。
+状态，不再使用通用 spinner；工具 running 只让当前工具自己的名字字段播放
+1.8s 文字流光。文字节点始终保留正常、不透明的文本色，亮光由独立伪元素复制
+字形并裁切到笔画上，不出现矩形白带；父工具域运行不会让已完成子工具继承动画。
 `aria-busy` 仅保留无障碍语义，Pico 自动注入的 busy 伪 spinner 必须关闭。圆角容器不得用
 单侧厚 margin 定位，间距归父布局的 `gap` / `padding` 或对称 `margin-block`。
 
@@ -170,7 +170,7 @@ flowchart TB
   气泡（`#ui-tooltip`，一条 DOM、`[data-tip]` 委托触发、`\n` 分行）一起给出；
   ⋯ 段同一时刻只开一条，点空白 / Esc / 执行动作即收起。置顶行只把前导图标换成
   单一星标并提高标题层级，不再附加左侧竖条，也不与消息图标叠用。
-- 动效克制：对话尾部是带文字 Shimmer 的 `Thinking… / Loading… / Loading tool…`，工具 running 只让工具名字段流光；底层文字保持不透明，独立亮光带以两端透明的 `transform` 扫过。通用 spinner、底部光条、3D 翻转、`top`/`width`/`left` 等布局属性动画已移除。`prefers-reduced-motion` 下文字动画静态化，状态、焦点与操作保持可用。
+- 动效克制：对话尾部是带文字 Shimmer 的 `Thinking… / Loading… / Loading tool…`，只有真正 running 的工具名字段会出现字形流光；底层文字保持不透明，亮光层通过 `background-clip: text` 只提亮笔画。父工具域不会把动画传给已完成子条目。通用 spinner、底部光条、3D 翻转、`top`/`width`/`left` 等布局属性动画已移除。`prefers-reduced-motion` 下文字动画静态化，状态、焦点与操作保持可用。
 - 交互口径（拟物但克制：北欧家居式极简 + 锤子式短促回弹）：
   - 焦点提示只作用于**外框**：`1px solid var(--focus-ring)` + `box-shadow: var(--focus-glow)`（`0 0 12px 1px`，零偏移、纯发散模糊）；内部 `textarea` 的 focus ring 显式清掉。
     **例外（用户口径）**：聊天框是**卡片**，它的「点击激活」不再加聚光——卡片一旦发光就像"被选中/报错"，不像"正在输入"。`.composer:focus-within` 改成卡片抬升 `--shadow-lift`（两套皮肤各一档）＋ 一点点 accent 描边提示焦点在哪；

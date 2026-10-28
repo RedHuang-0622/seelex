@@ -281,9 +281,11 @@ idle
 
 ### 4.5 属性白名单
 
-新动效只允许：
+普通动效只允许：
 
 `opacity` / `transform` / `color` / `background-color` / `box-shadow`
+
+唯一例外是 A09 文字 shimmer：字形蒙版层可以用 `background-position` 移动亮光，其它组件不得借这个例外动画背景。
 
 `border-color` 新代码应作为静态颜色切换处理，不加入 transition 列表。现有 `border-color` transition 属于迁移债务，下一轮按受影响组件逐步移除。
 
@@ -308,14 +310,16 @@ Shimmer 只用于工具调用处于 `running` 的加载动画，以及结构已�
 - Trigger：`state change`
 - 开始：工具状态从 queued/waiting 进入 running
 - 停止：工具进入 success/error/cancelled，或视图卸载
-- 作用对象：工具名字段；流光只作为独立亮光带经过完整文字，不替换文字材质、不遮住点击热区
+- 作用对象：只有该工具条目自己的工具名字段；父工具域运行不得让展开区里的 completed/error/cancelled 子条目继承动画
+- 表现：底层文字保留正常不透明色，独立字形蒙版层只提亮经过的笔画；不得出现矩形亮带，也不得遮住点击热区
 - 静止元素：行高、列宽、相邻内容、任务列表
 
 ### 5.3 动效规格
 
 - 周期：1.8s。
 - 缓动：linear。
-- 实现：文字节点始终保持正常、不透明的文本色；独立伪元素绘制两端透明的窄亮光，只用 `transform: translateX()` 扫过。禁止把底层文字设为 `color: transparent` 或用 `background-clip: text` 替换整段文字；不使用 `background-position`，不改变 `width`、`height` 或 `top`。
+- 实现：文字节点始终保持正常、不透明的文本色；独立伪元素复制当前文字作为字形蒙版，以 `background-clip: text` 叠加两端透明的亮光，并通过 `background-position` 扫过。禁止把底层文字设为 `color: transparent`，也禁止用矩形背景、`width`、`height` 或 `top` 伪造扫光。
+- 作用域：选择器必须钉在 `running` 工具自己的 `.tool-call-summary` 上；不能使用会命中工具域所有后代的宽选择器。
 - 基线可见度：渐变峰值与底层对比可辨，但不能盖过状态文字。
 - 同一工具摘要行同时最多一条 shimmer。
 - 收束态行内只写工具类型；运行状态由可访问名称/`aria-busy` 与工具名文字 shimmer 表达，展开后显示完整状态。对话尾部只保留带文字 shimmer 的 `Thinking… / Loading… / Loading tool…`，不显示 Pico busy spinner 或活动线。
