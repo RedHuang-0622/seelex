@@ -219,6 +219,7 @@ go test . -run '^TestGUI' -count=1
 - `func repositoryRoot(t *testing.T) string`
 - `func readText(t *testing.T, path string) string`
 - `func assertSourceExcludes(t *testing.T, path string, forbidden ...string)`
+- `func assertFileAbsent(t *testing.T, path string)`
 
 ### store_ddd_role_workunit_ownership_gate_test.go
 
