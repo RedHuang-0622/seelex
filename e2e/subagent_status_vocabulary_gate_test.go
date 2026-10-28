@@ -26,7 +26,7 @@ package e2e
 //     `dto.SubagentToolEvent.Status`，后者是快照/存档/事件 wire 上的 `model.ToolCall.Status`。
 //     两处现已都进本清单（工具事件状态 / 工具调用视图词）；后者是**落盘**格，读回经具名转换点
 //     `model.ToolCallStatusOfRecord`（未知词落 unknown，不折成成功），存储面那名词由
-//     `wiring/adapters` 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁；
+//     `store` 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁；
 //   - 计划节点状态（queued|running|completed|failed|skipped|canceled|aborted|panicked）来自
 //     框架 workplan 的 `NodeBase.Status`，**不是我们这一格的词**——所以
 //     `application/assembly/plan_tools.go`（同一文件里既读计划批次结果、又读节点状态）**故意不进
@@ -63,7 +63,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "单元身份",
 		files: map[string]string{
-			"store/node_session_store.go":                      "定义：记录快照里的身份那一格（NodeUnitRecord.Kind，契约之下的 wire）",
+			"store/workunit/record.go":                         "定义：记录快照里的身份那一格（UnitRecord.Kind，契约之下的 wire）",
 			"backend/multiagent/subagent/subagent_sessions.go": "写：子代理那一环（只填空缺——身份已经有了就不动）",
 			"backend/engine/assemble/workunit_team_records.go": "写：teammate 那一环（写下自己这一层的身份）",
 			"backend/engine/assemble/runtime_unit_recovery.go": "读：恢复链按身份分派策略（唯一转换点 unitKindOf）",
@@ -134,7 +134,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		},
 		// 这一格的取值面 = dto.ToolEvent*（model.ToolCall.Status；与工具事件状态同格）。
 		// store 那一侧（store.ConversationToolCall.Status）是契约之下的 wire，本层不 import
-		// 契约包；它写出的词由 wiring/adapters 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁。
+		// 契约包；它写出的词由 store 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{"running": true, "success": true, "error": true},
 	},
 	{
@@ -185,7 +185,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		},
 		// 这一格的取值面 = dto.SessionStatus*（SessionState/SessionInfo.Status）。
 		// 落盘那一侧（store.Status）是契约之下的 wire，取值面是这里的**持久子集**，
-		// 两包同一份词由 wiring/adapters 的 TestSessionStatusOfRecordLocksTheStoreVocabulary 互锁。
+		// 两包同一份词由 store 的 TestSessionStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{
 			"draft": true, "idle": true, "running": true, "queued": true,
 			"awaiting_approval": true, "archived": true, "restoring": true,

@@ -41,10 +41,8 @@ func TestStoreDDDM10FacadeGate(t *testing.T) {
 		}
 	}
 
-	assertSourceExcludes(t, filepath.Join(repo, "store", "board.go"),
-		"json.Marshal", "json.Unmarshal", "os.OpenFile", "os.ReadFile", "os.MkdirAll")
-	assertSourceExcludes(t, filepath.Join(repo, "store", "tool_record.go"),
-		"json.Marshal", "json.Unmarshal", "os.OpenFile", "os.ReadFile", "os.MkdirAll")
+	assertFileAbsent(t, filepath.Join(repo, "store", "board.go"))
+	assertFileAbsent(t, filepath.Join(repo, "store", "tool_record.go"))
 
 	productionImports := directRootStoreImports(t, repo, false)
 	if len(productionImports) > 80 {
@@ -148,14 +146,16 @@ func productionGoFiles(t *testing.T, dir string) []string {
 func directRootStoreImports(t *testing.T, repo string, tests bool) []string {
 	t.Helper()
 	var files []string
+	skipDirs := map[string]bool{
+		"store": true, "tmp": true, "_tmp": true, "_scratch": true,
+		"dist": true, "vendor": true, "node_modules": true, "local": true,
+	}
 	err := filepath.WalkDir(repo, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if entry.IsDir() {
-			relative, _ := filepath.Rel(repo, path)
-			switch filepath.ToSlash(relative) {
-			case ".git", "store", "tmp", "dist":
+			if path != repo && (strings.HasPrefix(entry.Name(), ".") || skipDirs[entry.Name()]) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -204,5 +204,12 @@ func assertSourceExcludes(t *testing.T, path string, forbidden ...string) {
 		if strings.Contains(text, token) {
 			t.Errorf("%s 仍包含领域实现 %q；I/O 与判据必须留在领域 owner", path, token)
 		}
+	}
+}
+
+func assertFileAbsent(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("兼容文件应已物理删除：%s（err=%v）", path, err)
 	}
 }
