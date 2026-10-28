@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	storerole "github.com/RedHuang-0622/seelex/store/role"
 )
 
 // CreateRoleSessionWorkspace 创建非 main 角色会话（TL/agent-team）。main 角色
@@ -19,7 +21,7 @@ func (router *Router) CreateRoleSessionWorkspace(projectID, mainSessionID, roleN
 			return fmt.Errorf("session storage: role sessions require session layout")
 		}
 		mainKey := Key{ProjectID: projectID, SessionID: mainSessionID}
-		_, key, err := layout.layout.createRoleSession(mainKey, roleName, roleSessionID, joinSeq)
+		_, key, err := createRoleSession(layout.layout, mainKey, roleName, roleSessionID, joinSeq)
 		if err != nil {
 			return err
 		}
@@ -27,7 +29,7 @@ func (router *Router) CreateRoleSessionWorkspace(projectID, mainSessionID, roleN
 			MainSessionID: mainSessionID,
 			RoleName:      roleName,
 			RoleSessionID: roleSessionID,
-			Root:          layout.layout.roleSessionRoot(mainKey, roleName, roleSessionID),
+			Root:          roleSessionRoot(layout.layout, mainKey, roleName, roleSessionID),
 		}
 		_ = key
 		return nil
@@ -38,7 +40,7 @@ func (router *Router) CreateRoleSessionWorkspace(projectID, mainSessionID, roleN
 // AppendRoleDraftWorkspace 向角色自己的 draft 追加未同步行。
 func (router *Router) AppendRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID string, rows []RoleDraftRow) error {
 	return router.withRoleStore(projectID, mainSessionID, roleName, roleSessionID, func(roleStore *storeEngine, roleKey Key) error {
-		return appendRoleDraft(roleStore, roleKey, roleName, rows)
+		return storerole.AppendDraft(roleStore.sessionRoot(roleKey), roleName, roleSessionID, rows)
 	})
 }
 
@@ -47,7 +49,7 @@ func (router *Router) ReadRoleDraftWorkspace(projectID, mainSessionID, roleName,
 	var rows []RoleDraftRow
 	err := router.withRoleStore(projectID, mainSessionID, roleName, roleSessionID, func(roleStore *storeEngine, roleKey Key) error {
 		var err error
-		rows, err = readRoleDraft(roleStore, roleKey, roleName)
+		rows, err = storerole.ReadDraft(roleStore.sessionRoot(roleKey), roleName)
 		return err
 	})
 	return rows, err
@@ -63,7 +65,7 @@ func (router *Router) SyncRoleDraftWorkspace(projectID, mainSessionID, roleName,
 			return fmt.Errorf("session storage: role draft sync requires session layout")
 		}
 		var err error
-		result, err = layout.layout.syncRoleDraft(Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID, order)
+		result, err = syncRoleDraft(layout.layout, Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID, order)
 		return err
 	})
 	return result, err
@@ -77,7 +79,7 @@ func (router *Router) AppendRoleSessionRowsWorkspace(projectID, mainSessionID, r
 		if !ok {
 			return fmt.Errorf("session storage: role session rows require session layout")
 		}
-		return layout.layout.appendRoleSessionRows(Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID, rows)
+		return appendRoleSessionRows(layout.layout, Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID, rows)
 	})
 }
 
@@ -90,7 +92,7 @@ func (router *Router) ReadRoleSessionRowsWorkspace(projectID, mainSessionID, rol
 			return fmt.Errorf("session storage: role session rows require session layout")
 		}
 		var err error
-		rows, err = layout.layout.readRoleSessionRows(Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID)
+		rows, err = readRoleSessionRows(layout.layout, Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID)
 		return err
 	})
 	return rows, err
@@ -105,7 +107,7 @@ func (router *Router) RoleSnapshotWorkspace(projectID, mainSessionID, roleName, 
 			return fmt.Errorf("session storage: role snapshot requires session layout")
 		}
 		var err error
-		snapshot, err = layout.layout.readRoleSnapshot(Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID)
+		snapshot, err = readRoleSnapshot(layout.layout, Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID)
 		return err
 	})
 	return snapshot, err
@@ -121,7 +123,7 @@ func (router *Router) AssembleRoleWireWorkspace(projectID, mainSessionID, roleNa
 			return fmt.Errorf("session storage: role wire requires session layout")
 		}
 		var err error
-		snapshot, err = layout.layout.assembleRoleWire(Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID, budget, k)
+		snapshot, err = assembleRoleWire(layout.layout, Key{ProjectID: projectID, SessionID: mainSessionID}, roleName, roleSessionID, budget, k)
 		return err
 	})
 	return snapshot, err
@@ -152,7 +154,7 @@ func (router *Router) withRoleStore(projectID, mainSessionID, roleName, roleSess
 			return fmt.Errorf("session storage: role session operations require session layout")
 		}
 		mainKey := Key{ProjectID: projectID, SessionID: strings.TrimSpace(mainSessionID)}
-		roleStore, roleKey := layout.layout.roleStore(mainKey, roleName, roleSessionID)
+		roleStore, roleKey := roleSessionEngine(layout.layout, mainKey, roleName, roleSessionID)
 		return fn(roleStore, roleKey)
 	})
 }

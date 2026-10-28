@@ -27,8 +27,8 @@ commit；不 push。M7 外部调用点窄化已获得 commit 授权，作为当�
 | M5 | Session 核心 | 已完成 | 见 §2.9 |
 | M6 | Session 状态机 | 已完成 | 见 §2.10 |
 | M7 | Context | 已完成 | 见 §2.11，含外部批次重放与回滚演练 |
-| M8 | Teamwork | 进行中 | 纯模型/校验/折叠已下沉，见 §2.12 |
-| M9 | Role/WorkUnit | 未开始 | — |
+| M8 | Teamwork | 已完成 | 见 §2.12 |
+| M9 | Role/WorkUnit | 已完成 | 见 §2.13 |
 | M10 | Facade 清零 | 未开始 | — |
 | M11 | 全仓验收 | 未开始 | — |
 
@@ -826,6 +826,69 @@ floor-message lifecycle，新建 `store/workunit`；sequencer 仍是主会话 me
 go test ./store/... ./store/role/... ./store/workunit/... ./backend/multiagent/... ./test/ -count=1
 ```
 
+## 2.13 M9：Role / WorkUnit（已完成）
+
+### 2.13.1 已完成切片
+
+- `store/role` 承接 team registry、role draft WAL、permission 登记、角色会话
+  路径与提交身份。
+- Role draft sync 由 store/role 的 `SyncDraft` 唯一判定：排序 → main message
+  原子提交 head/floor → 成功后才删 draft；commit/head 失败均保留 draft。
+- `store/workunit` 承接 node/subagent/teammate 记录形状、`subagents/` 布局、
+  原子写、枚举、删除、终态更新与写侧责任链。
+- 根 `storeEngine` 删除 `roleStore`、`createRoleSession`、`newSubagent`、
+  `appendRoleSessionRows`、`syncRoleDraft` 等 10 个领域方法；根 `jsonRepository`
+  删除 node session 与 role permission 的 7 个落盘方法。
+- 子树统一由 `newSubsessionEngine` 装配，只含 layout/message/event/lifecycle
+  机制，不再递归装配 artifact/context/teamwork/role 同型子引擎。
+- transcript EventKind 判据唯一化到 `store/session.EventKindOf`，根包只留旧 API
+  转发与 contract protocol 常量。
+
+### 2.13.2 红测与门禁
+
+首次 M9 所有权门禁在 owner 文件缺失时失败；Qoder 中途实现后仍存在生产编译红灯：
+
+```text
+undefined: appendRoleDraft
+undefined: readRoleDraft
+layout.layout.createRoleSession undefined
+root tests still reference removed roleStore/newSubagent/NodeSession internals
+```
+
+接管后修复 root 到新 owner 的单层转发、role draft 的会话根、permission 窄端口，
+并把旧测试迁到领域 API。完整验收：
+
+```text
+go test ./store/... ./store/role/... ./store/workunit/... ./backend/multiagent/... ./test/ -count=1
+go test ./e2e -run 'TestStoreDDDM9RoleWorkUnitOwnershipGate|TestStoreDDDMTeamworkIOOwnershipGate|TestStoreDDDMTeamworkModelOwnershipGate' -count=1
+go build ./...
+go vet ./...
+```
+
+全部 PASS。
+
+### 2.13.3 删除/合并清单
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `store/role_session.go` draft 文件锁/追加/残尾/排序/commit-id/sync | `store/role/draft.go` |
+| `store/role_session.go` 角色子树路径与提交身份 | `store/role/session_path.go` |
+| `store/role_permission.go` 权限文件形状、规范化、缓存、锁序 | `store/role/permission.go` |
+| `store/node_session_store.go` 记录形状与 JSON 文件 I/O | `store/workunit/record.go` / `store/workunit/store.go` |
+| `store/unit_record_writer.go` 写侧责任链 | `store/workunit.Writer` |
+| 根 `store.sessionstore.go` EventKind fallback | `store/session.EventKindOf` |
+| 根 `storeEngine` 上角色/子代理领域方法 | `newSubsessionEngine` + `store/role` / `store/workunit` free functions |
+
+### 2.13.4 结构指标与数据兼容
+
+- `storeEngine` 172 → 162；`jsonRepository` 90 → 83；`Router` 与
+  `SessionGranularStore` 未增长。ratchet 基线已同步收紧。
+- `store/role` 与 `store/workunit` 均不 import 根 `store`；根包只保留 alias、
+  单层转发与组合根 lifecycle。
+- 路径零迁移：`subagents/`、role draft、`role-permissions.json`、角色会话
+  `goal_*` / `role_*` 目录名逐字不变。
+- JSON tag、schema、floor/head 发布顺序与冷恢复语义不变；未触碰用户数据。
+
 ## 3. 未决风险
 
 1. **冷读语义必须先裁决再改**。当前 `ReadRange(ctx, key, offset, limit)` 的
@@ -951,6 +1014,7 @@ grep -rl --include='*.go' '"github.com/RedHuang-0622/seelex/store"' . \
 
 ## 5. 下一步
 
-进入 M8 Teamwork：先做领域归属、当前 teamwork 契约迁移落定检查、事件/绑定/
-team registry 的读写矩阵，再写红灯所有权门禁。每个里程碑完成后执行全仓门禁
-并创建本地 commit，不 push。
+进入 M10 Facade 清零：先建立当前 Router / jsonRepository / storeEngine /
+SessionGranularStore 与生产 import 根 store 的精确基线，逐个把调用方切到消费方
+窄端口，再删除 `*For` 能力发现口和领域转发。每批完成全仓门禁并创建本地 commit，
+不 push。

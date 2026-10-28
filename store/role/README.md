@@ -2,18 +2,17 @@
 
 ## 生态位
 
-角色身份与策略的限界上下文实现。M8 首先把 team registry（`session/team/roles.json`）
-迁入本包；M9 继续把 role draft、角色会话子树、permission 与 floor/message lifecycle
-收进同一子树。主要调用方是根 `store.Router` 的迁移期单层转发
-（`ReadTeamRegistryWorkspace` / `WriteTeamRegistryWorkspace` / `RemoveTeamRegistryWorkspace`）
-与后续的 Middle/Backend 角色用例。
+角色身份、策略、draft、权限与角色会话路径的限界上下文实现。M8 把 team registry
+（`session/team/roles.json`）迁入本包；M9 完成 role draft、角色会话子树、
+permission 与 floor/message sync 端口。主要调用方是根 `store.Router` 的迁移期
+单层转发及 Middle/Backend 角色用例。
 
 ## 职责与非职责
 
-- 职责：team registry 的整份原子替换、规范化、存在性读取与幂等删除；角色条目
-  （`RoleSpec`）的身份与策略形状。
-- 非职责：团队计划的成员/里程碑编排（归 `store/teamwork`）、worker 执行、job 调度、
-  会话消息写入、跨域事务。本包不创建第二份落盘，也不决定"哪个角色该上场"。
+- 职责：team registry 整份原子替换；role draft WAL 与残尾修复；permission
+  文件/缓存/锁序；角色会话路径与提交身份；sync 的“先发布后删 draft”判据。
+- 非职责：团队计划编排（归 `store/teamwork`）、主 message head/floor 的底层
+  提交机制、worker 执行、job 调度或跨域事务。
 
 ### 为什么是 `store/role` 而不是 `store/teamwork`
 
@@ -29,8 +28,10 @@
 ## 目录结构
 
 - `registry.go`：常量、`RoleSpec` / `Registry` 形状、`Normalize` 判据与 `Store` 读写删除。
-- `registry_test.go`：路径身份、缺失即未配置、规范化、整份替换、幂等删除、损坏文件、
-  旧 schema 冷读与并发写整份性。
+- `draft.go`：append-only draft WAL、残尾修复、排序、commit id、`SyncDraft`。
+- `permission.go`：会话/角色默认权限、账号/继承/SSH 白名单的持久化与缓存。
+- `session_path.go`：`goal_*` / `role_*` 子树路径、session/backup commit identity。
+- 对应 `_test.go`：registry、draft 半失败、permission 三态/并发、路径与身份稳定性。
 
 ## 核心实现
 
@@ -40,6 +41,10 @@
 可比较形态（`role_kind` 兜底 `agent`，字符串集合去空去重排序），按
 `OrderPriority` → `RoleName` 稳定排序；空 `role_name` 与重复 `role_name` 显式报错。
 `Store.Path` 是 `<sessionRoot>/team/roles.json` 的唯一定义。
+
+`SyncDraft` 先读 draft、稳定排序并计算 commit id；main message 端口成功发布
+head/floor 后才删除 draft。端口失败或 head 读取失败时 draft 必须保留，重跑通过
+`AlreadySynced` 分支只清理半同步窗口。
 
 ## 数据流与生命周期
 
@@ -77,7 +82,8 @@ M9 的角色会话子树、draft、permission 与 floor/message lifecycle 应新
 
 ```text
 go test ./store/role -count=1
-go test ./store ./e2e -count=1
+go test ./store -run 'Role|Draft|Permission|Subagent' -count=1
+go test ./e2e -run 'TestStoreDDDM9RoleWorkUnitOwnershipGate' -count=1
 ```
 
 `e2e/store_ddd_teamwork_io_ownership_gate_test.go` 验证本包是 registry 的 owner，根包

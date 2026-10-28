@@ -343,7 +343,7 @@ func TestForkStoreConsistentSnapshot(t *testing.T) {
 func TestForkStoreSubagentTree(t *testing.T) {
 	store, key := lifecycleFixture(t)
 	commitRoundRows(t, store, key, roundRows(30))
-	childStore, childKey, err := store.newSubagent(key, "sub-1", 20)
+	childStore, childKey, err := newSubagentSession(store, key, "sub-1", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestForkStoreSubagentReusesMainBlob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	childStore, childKey, err := store.newSubagent(key, "sub-2", 10)
+	childStore, childKey, err := newSubagentSession(store, key, "sub-2", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestForkStoreChildSurvivesParentDelete(t *testing.T) {
 func TestForkStoreArchiveSubagentParentOK(t *testing.T) {
 	store, key := lifecycleFixture(t)
 	commitRoundRows(t, store, key, roundRows(10))
-	if _, _, err := store.newSubagent(key, "sub-3", 10); err != nil {
+	if _, _, err := newSubagentSession(store, key, "sub-3", 10); err != nil {
 		t.Fatal(err)
 	}
 	items, err := store.readSubagents(key)

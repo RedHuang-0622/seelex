@@ -122,11 +122,11 @@ func (router *Router) EnsureRoleSessionWorkspace(projectID, mainSessionID, roleN
 			return fmt.Errorf("session storage: role sessions require session layout")
 		}
 		mainKey := Key{ProjectID: projectID, SessionID: strings.TrimSpace(mainSessionID)}
-		roleStore, roleKey := layout.layout.roleStore(mainKey, roleName, roleSessionID)
+		roleStore, roleKey := roleSessionEngine(layout.layout, mainKey, roleName, roleSessionID)
 		if roleStore.sessionExists(roleKey) {
 			return nil
 		}
-		if _, _, err := layout.layout.createRoleSession(mainKey, roleName, roleSessionID, joinSeq); err != nil {
+		if _, _, err := createRoleSession(layout.layout, mainKey, roleName, roleSessionID, joinSeq); err != nil {
 			// 并发装配时另一方可能已经建好：再查一次，存在即视为成功。
 			if roleStore.sessionExists(roleKey) {
 				return nil

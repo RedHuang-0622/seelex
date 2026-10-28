@@ -17,6 +17,8 @@ import (
 	"errors"
 	"io/fs"
 	"testing"
+
+	"github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 func TestAbsentHeadReadsReturnStateNotIOError(t *testing.T) {
@@ -40,14 +42,14 @@ func TestAbsentHeadReadsReturnStateNotIOError(t *testing.T) {
 		if snapshot, ok, err := repository.ReadToolRecordSnapshot(ctx, key); err != nil || ok || snapshot != nil {
 			t.Fatalf("ReadToolRecordSnapshot = (%q, %v, %v)，want (nil, false, nil)", snapshot, ok, err)
 		}
-		if records, err := repository.ListNodeSessions(ctx, key); err != nil || len(records) != 0 {
+		if records, err := workunit.New(repository.sessionDir(key)).List(); err != nil || len(records) != 0 {
 			t.Fatalf("ListNodeSessions = (%v, %v)，want 空集 + nil", records, err)
 		}
 	})
 
 	// ── ② 哨兵档：调用方点名了应当存在的东西 / 压缩链要区分"没有"与"读坏" ──
 	t.Run("哨兵档", func(t *testing.T) {
-		if _, err := repository.ReadNodeSession(ctx, key, "sub-1"); !errors.Is(err, ErrNodeSessionNotFound) {
+		if _, err := workunit.New(repository.sessionDir(key)).Read(key.SessionID, "sub-1"); !errors.Is(err, ErrNodeSessionNotFound) {
 			t.Fatalf("ReadNodeSession(缺失) = %v，want ErrNodeSessionNotFound", err)
 		}
 		if _, err := repository.readCheckpointLayout(key); !errors.Is(err, fs.ErrNotExist) {

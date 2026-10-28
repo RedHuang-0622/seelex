@@ -138,23 +138,29 @@ type sessionModuleLocks struct {
 // 调用（生产路径不设置；测试用它模拟 writer 在两次读取之间完成原子替换）。
 var readSelfHealHook func()
 
-// newStoreEngine 构造 会话存储布局引擎。root 不存在时延后到首个会话提交再创建
-// （与 jsonRepository 惰性建目录一致）。
-func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
-	resolved := storeroot.ResolveSettings(settings)
-	sharedLayout := storelayout.New(root)
+// newSubsessionEngine 构造**只含机制**的引擎：数据根、布局、锁分片、message/
+// event/lifecycle 通道与归因累加器。子树（subagent / role）只需要这些能力，
+// 因此组合根用它，而不是递归地再装配一份 artifact/context/teamwork/role。
+// root 不存在时延后到首个会话提交再创建（与 jsonRepository 惰性建目录一致）。
+func newSubsessionEngine(root string, settings storeroot.Settings) *storeEngine {
 	return &storeEngine{
 		root:      filepath.Clean(root),
-		settings:  resolved,
-		layout:    sharedLayout,
-		artifacts: storeartifact.New(sharedLayout, resolved),
-		contexts:  storecontext.New(sharedLayout),
-		teamwork:  storeteamwork.New(sharedLayout),
-		roles:     storerole.New(sharedLayout),
+		settings:  storeroot.ResolveSettings(settings),
+		layout:    storelayout.New(root),
 		sessionMu: make(map[string]*sessionModuleLocks),
 		stack:     &stackStats{},
 		event:     &eventStats{},
 	}
+}
+
+// newStoreEngine 构造会话存储布局引擎：= 机制（newSubsessionEngine）+ 领域面。
+func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
+	store := newSubsessionEngine(root, settings)
+	store.artifacts = storeartifact.New(store.layout, store.settings)
+	store.contexts = storecontext.New(store.layout)
+	store.teamwork = storeteamwork.New(store.layout)
+	store.roles = storerole.New(store.layout)
+	return store
 }
 
 // locks 返回（必要时创建）该会话的模块锁与短临界区状态集合。

@@ -32,7 +32,7 @@ func TestRoleSnapshotForTeammateCarriesMainRowsWithNoOwnRows(t *testing.T) {
 	// 前半段 / DefaultRoleSessionID）。它的角色子树**从未被创建**——这正是 worker 回合的
 	// 形态：进程内执行面，不写存储。
 	const roleSessionID = "main-session-team-exec"
-	snapshot, err := store.readRoleSnapshot(mainKey, "exec", roleSessionID)
+	snapshot, err := readRoleSnapshot(store, mainKey, "exec", roleSessionID)
 	if err != nil {
 		t.Fatalf("读 teammate 的角色会话：%v（读面必须能读出来，否则入口会报错而不是给错内容）", err)
 	}

@@ -179,12 +179,13 @@ func (store *storeEngine) sessionExists(key Key) bool {
 }
 
 // subagentRoot 返回子代理子树根（主会话目录下 subagent_<hash>/）。
-func (store *storeEngine) subagentRoot(parentKey Key, subagentID string) string {
+func subagentRoot(store *storeEngine, parentKey Key, subagentID string) string {
 	return filepath.Join(store.sessionRoot(parentKey), "subagent_"+storeroot.Hash(subagentID))
 }
 
-// newSubagent 创建子代理现场（同构子树 + 无独立 blob）。
-func (store *storeEngine) newSubagent(parentKey Key, subagentID string, fromSeq uint64) (*storeEngine, Key, error) {
+// newSubagentSession 创建子代理现场（同构子树 + 无独立 blob）。子树只装配
+// 机制（newSubsessionEngine），不递归再建一份领域面。
+func newSubagentSession(store *storeEngine, parentKey Key, subagentID string, fromSeq uint64) (*storeEngine, Key, error) {
 	retention, err := store.readRetentionHead(parentKey)
 	if err != nil {
 		return nil, Key{}, err
@@ -192,8 +193,8 @@ func (store *storeEngine) newSubagent(parentKey Key, subagentID string, fromSeq 
 	if fromSeq < retention.WatermarkSeq {
 		return nil, Key{}, ErrForkBeforeWatermark
 	}
-	subRoot := store.subagentRoot(parentKey, subagentID)
-	childStore := newStoreEngine(subRoot, store.settings)
+	subRoot := subagentRoot(store, parentKey, subagentID)
+	childStore := newSubsessionEngine(subRoot, store.settings)
 	childKey := Key{SessionID: subagentID}
 	if childStore.sessionExists(childKey) {
 		return nil, Key{}, errors.New("session storage: subagent session already exists")

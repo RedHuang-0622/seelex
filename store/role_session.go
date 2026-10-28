@@ -1,37 +1,39 @@
-// 群聊角色会话与 role draft 基建（my_design §8.3 / 提示词 R2+R4）。
+// 群聊角色会话的根包兼容面（M9）。
 //
-// 本文件只提供存储侧接口与落盘形态，不接应用层 EVENT 生产者/actor；应用层
-// 后续按这些入口装配 TL/agent-team 会话、写 draft 并触发 sequencer sync。
-//
-// 关键语义：
-//   - main 会话是群聊正文唯一权威；非 main 角色会话是备份/冷恢复来源；
-//   - role draft = append-only 未同步 WAL，文件存在即待同步；sync 成功后
-//     立即删除，无保留窗口；
-//   - sequencer 唯一写 message，floor 随 message head 原子发布。
+// 唯一实现在 store/role：draft WAL（append-only、文件存在即待同步、sync 成功
+// 后立即删除、崩溃残尾截断）、角色会话子树路径与提交身份、permission 登记。
+// 本文件只保留四类东西：
+//   - 同身份 alias（类型与角色常量）；
+//   - 组合根 lifecycle：建角色子树的装配步骤（建目录 → message 提交 →
+//     role_session 结构化事件 → join_seq_id）；
+//   - 观察面（RoleSnapshot / RoleWireSnapshot）：需要根包既有的 message、event、
+//     compact 读通道，领域包不持这些机制；
+//   - 向 store/role 的单层转发与 main message 端口适配（sequencer 唯一写入口）。
 package store
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
-	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"slices"
-	"sort"
-	"strings"
-	"sync"
-	"time"
+
+	storerole "github.com/RedHuang-0622/seelex/store/role"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 const (
-	RoleUser = "user"
-	RoleMain = "main"
-	RoleTL   = "tl"
+	// RoleUser / RoleMain / RoleTL 是角色名常量（身份由 store/role 定义）。
+	RoleUser = storerole.RoleUser
+	RoleMain = storerole.RoleMain
+	RoleTL   = storerole.RoleTL
 )
+
+// RoleDraftRow 是一行未同步角色草稿（= store/role.DraftRow，落盘 tag 不变）。
+type RoleDraftRow = storerole.DraftRow
+
+// RoleDraftSyncResult 是一次 sequencer sync 的结果（= store/role.SyncResult）。
+type RoleDraftSyncResult = storerole.SyncResult
 
 // RoleSessionInfo 是角色会话的基础信息（接口返回，不含引擎内部对象）。
 type RoleSessionInfo struct {
@@ -39,28 +41,6 @@ type RoleSessionInfo struct {
 	RoleName      string `json:"role_name"`
 	RoleSessionID string `json:"role_session_id"`
 	Root          string `json:"root"`
-}
-
-// RoleDraftRow 是一行未同步角色草稿。Event 是最终要 append 进 message 的
-// 事件行；round_id/role_name/role_session_id/unit_seq/message_id 是 sequencer
-// 排序与幂等凭据的一部分。
-type RoleDraftRow struct {
-	RoundID       uint64 `json:"round_id"`
-	RoleName      string `json:"role_name"`
-	RoleSessionID string `json:"role_session_id"`
-	UnitSeq       uint64 `json:"unit_seq"`
-	MessageID     string `json:"message_id,omitempty"`
-	Event         Event  `json:"event"`
-}
-
-// RoleDraftSyncResult 是一次 sequencer sync 的结果。AlreadySynced 表示该批
-// draft 之前已由同一 commit_id 发布，本次只清理残留 draft，未重复 append。
-type RoleDraftSyncResult struct {
-	CommitID      string `json:"commit_id"`
-	SyncedRows    int    `json:"synced_rows"`
-	LastSeq       uint64 `json:"last_seq"`
-	LastMessageID string `json:"last_message_id,omitempty"`
-	AlreadySynced bool   `json:"already_synced"`
 }
 
 // RoleSnapshot 是 headless/巡检用的角色会话只读观察面：把 main 正文、
@@ -137,40 +117,53 @@ type RoleWireSnapshot struct {
 	DesignWarnings []string `json:"design_warnings,omitempty"`
 }
 
-var roleDraftLocks sync.Map // path -> *sync.Mutex
-
-func roleDraftLock(path string) *sync.Mutex {
-	value, _ := roleDraftLocks.LoadOrStore(path, &sync.Mutex{})
-	return value.(*sync.Mutex)
-}
-
-// roleSessionRoot 返回角色会话子树的物理根。main 直接使用主会话根；tl 使用
-// goal_<hash>/；其它未来 agent-team 角色使用 role_<hash>/。
-func (store *storeEngine) roleSessionRoot(mainKey Key, roleName, roleSessionID string) string {
-	mainRoot := store.sessionRoot(mainKey)
-	if roleName == RoleMain {
-		return mainRoot
-	}
-	prefix := "role_"
-	if roleName == RoleTL {
-		prefix = "goal_"
-	}
-	return filepath.Join(mainRoot, prefix+storeroot.Hash(roleSessionID))
-}
-
-// roleStore 返回指定角色会话的引擎与 key。main 复用当前引擎；非 main 以角色
-// 子树为根创建轻量子引擎（与 subagent 子树机制同构）。
-func (store *storeEngine) roleStore(mainKey Key, roleName, roleSessionID string) (*storeEngine, Key) {
+// roleSessionEngine 返回角色会话的引擎与 key：main 复用当前引擎；非 main 以
+// 角色子树为根装配**只含机制**的子引擎。子树不再递归装配 artifact/context/
+// teamwork/role —— 那是同型子引擎的复制（M10 归零）。
+func roleSessionEngine(store *storeEngine, mainKey Key, roleName, roleSessionID string) (*storeEngine, Key) {
 	if roleName == RoleMain {
 		return store, mainKey
 	}
-	root := store.roleSessionRoot(mainKey, roleName, roleSessionID)
-	return newStoreEngine(root, store.settings), Key{SessionID: roleSessionID}
+	root := storerole.SessionRoot(store.sessionRoot(mainKey), roleName, roleSessionID)
+	return newSubsessionEngine(root, store.settings), Key{SessionID: roleSessionID}
+}
+
+// roleSessionRoot 返回角色会话子树的物理根（路径规则唯一实现在 store/role）。
+func roleSessionRoot(store *storeEngine, mainKey Key, roleName, roleSessionID string) string {
+	return storerole.SessionRoot(store.sessionRoot(mainKey), roleName, roleSessionID)
+}
+
+// mainSessionPort 把根 store 的 message 通道适配成 role.SessionPort：sequencer
+// 唯一写 main message 的入口，floor 与 head 在同一提交内发布。
+type mainSessionPort struct {
+	store *storeEngine
+	key   Key
+}
+
+func (port mainSessionPort) MessageHead() (storesession.MessageHead, error) {
+	return port.store.readMessageHead(port.key)
+}
+
+func (port mainSessionPort) CommitSync(commitID string, rows []Event, floor *storesession.Floor) (storesession.MessageHead, error) {
+	return port.store.messageCommitSync(port.key, commitID, rows, floor)
+}
+
+// syncRoleDraft 是 sequencer 的存储侧同步入口：读该角色 draft → 排序 → 幂等
+// 判定 → append 进 main message 并原子发布 head + floor → 成功后删除 draft。
+// 判据与写序全部在 store/role；本函数只把 main message 通道接成端口。
+func syncRoleDraft(store *storeEngine, mainKey Key, roleName, roleSessionID string, order []string) (RoleDraftSyncResult, error) {
+	roleStore, roleKey := roleSessionEngine(store, mainKey, roleName, roleSessionID)
+	return storerole.SyncDraft(
+		roleStore.sessionRoot(roleKey),
+		roleName, roleSessionID, order,
+		mainSessionPort{store: store, key: mainKey},
+	)
 }
 
 // createRoleSession 创建非 main 角色会话（message/event/metadata 同构空现场），
-// 并写 join_seq_id。main 角色不创建独立子树。
-func (store *storeEngine) createRoleSession(mainKey Key, roleName, roleSessionID string, joinSeq uint64) (*storeEngine, Key, error) {
+// 并写 join_seq_id。main 角色不创建独立子树。这是组合根 lifecycle：目录与
+// 提交顺序由这里定，draft/permission/路径判据都不在这里。
+func createRoleSession(store *storeEngine, mainKey Key, roleName, roleSessionID string, joinSeq uint64) (*storeEngine, Key, error) {
 	if roleName == "" || roleSessionID == "" {
 		return nil, Key{}, errors.New("session storage: role_name and role_session_id are required")
 	}
@@ -180,25 +173,20 @@ func (store *storeEngine) createRoleSession(mainKey Key, roleName, roleSessionID
 	if _, err := store.ensureLayoutGuide(mainKey); err != nil {
 		return nil, Key{}, err
 	}
-	root := store.roleSessionRoot(mainKey, roleName, roleSessionID)
-	childStore := newStoreEngine(root, store.settings)
+	root := roleSessionRoot(store, mainKey, roleName, roleSessionID)
+	childStore := newSubsessionEngine(root, store.settings)
 	childKey := Key{SessionID: roleSessionID}
 	if childStore.sessionExists(childKey) {
 		return nil, Key{}, errors.New("session storage: role session already exists")
 	}
-	commitID := roleSessionCommitID(roleName, roleSessionID)
+	commitID := storerole.SessionCommitID(roleName, roleSessionID)
 	if _, err := childStore.messageCommit(childKey, commitID, nil); err != nil {
 		_ = os.RemoveAll(root)
 		return nil, Key{}, err
 	}
-	payload, _ := json.Marshal(map[string]any{
-		"main_session_id": mainKey.SessionID,
-		"role_name":       roleName,
-		"role_session_id": roleSessionID,
-		"join_seq_id":     joinSeq,
-	})
 	if _, err := childStore.structuralEventCommit(childKey, commitID, []structuralEvent{{
-		Kind: structuralEventRoleSession, Payload: payload,
+		Kind:    structuralEventRoleSession,
+		Payload: storerole.JoinPayload(mainKey.SessionID, roleName, roleSessionID, joinSeq),
 	}}); err != nil {
 		_ = os.RemoveAll(root)
 		return nil, Key{}, err
@@ -210,218 +198,18 @@ func (store *storeEngine) createRoleSession(mainKey Key, roleName, roleSessionID
 	return childStore, childKey, nil
 }
 
-func roleSessionCommitID(roleName, roleSessionID string) string {
-	return "role-session-" + roleName + "-" + storeroot.Hash(roleSessionID)
-}
-
-func roleDraftPath(roleStore *storeEngine, key Key, roleName string) string {
-	return filepath.Join(roleStore.sessionRoot(key), "draft", roleName+".jsonl")
-}
-
-// appendRoleDraft 追加未同步 role draft。每个角色独立锁，互不阻塞。
-func appendRoleDraft(roleStore *storeEngine, key Key, roleName string, rows []RoleDraftRow) error {
-	if roleName == "" {
-		return errors.New("session storage: role draft requires role_name")
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	for index := range rows {
-		if rows[index].RoleName == "" {
-			rows[index].RoleName = roleName
-		}
-		if rows[index].RoleSessionID == "" {
-			rows[index].RoleSessionID = key.SessionID
-		}
-	}
-	path := roleDraftPath(roleStore, key, roleName)
-	lock := roleDraftLock(path)
-	lock.Lock()
-	defer lock.Unlock()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
-	}
-	if err := storeroot.TruncateCrashTail(file); err != nil {
-		file.Close()
-		return err
-	}
-	if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		file.Close()
-		return err
-	}
-	buffer := make([]byte, 0, len(rows)*256)
-	for _, row := range rows {
-		data, err := json.Marshal(row)
-		if err != nil {
-			file.Close()
-			return err
-		}
-		buffer = append(buffer, data...)
-		buffer = append(buffer, '\n')
-	}
-	if _, err := file.Write(buffer); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return err
-	}
-	return file.Close()
-}
-
-func readRoleDraft(roleStore *storeEngine, key Key, roleName string) ([]RoleDraftRow, error) {
-	path := roleDraftPath(roleStore, key, roleName)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return []RoleDraftRow{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	segments := bytes.Split(data, []byte{'\n'})
-	rows := make([]RoleDraftRow, 0, len(segments))
-	for index, segment := range segments {
-		if index == len(segments)-1 && len(bytes.TrimSpace(segment)) > 0 {
-			continue // 崩溃残尾
-		}
-		segment = bytes.TrimSpace(segment)
-		if len(segment) == 0 {
-			continue
-		}
-		var row RoleDraftRow
-		if err := json.Unmarshal(segment, &row); err != nil {
-			continue
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
-func deleteRoleDraft(roleStore *storeEngine, key Key, roleName string) error {
-	return os.Remove(roleDraftPath(roleStore, key, roleName))
-}
-
-// sortRoleDraftRows 按 round_id → role 顺序 → unit_seq 稳定排序。这是
-// sequencer 的排序键（§8.3）；同一 unit 内调用方应已按 CompleteEventUnits
-// 排好 tool_call→tool→final。
-func sortRoleDraftRows(rows []RoleDraftRow, order []string) []RoleDraftRow {
-	out := append([]RoleDraftRow(nil), rows...)
-	rank := make(map[string]int, len(order))
-	for index, role := range order {
-		rank[role] = index
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].RoundID != out[j].RoundID {
-			return out[i].RoundID < out[j].RoundID
-		}
-		leftRank, leftOK := rank[out[i].RoleName]
-		rightRank, rightOK := rank[out[j].RoleName]
-		if leftOK != rightOK {
-			return leftOK
-		}
-		if leftOK && rightOK && leftRank != rightRank {
-			return leftRank < rightRank
-		}
-		if out[i].RoleName != out[j].RoleName {
-			return out[i].RoleName < out[j].RoleName
-		}
-		return out[i].UnitSeq < out[j].UnitSeq
-	})
-	return out
-}
-
-func roleDraftCommitID(roleName, roleSessionID string, rows []RoleDraftRow) string {
-	identity := make([]string, 0, len(rows))
-	for _, row := range rows {
-		identity = append(identity, fmt.Sprintf("%d|%s|%s|%d|%s",
-			row.RoundID, row.RoleName, row.RoleSessionID, row.UnitSeq, row.MessageID))
-		identity = append(identity, string(row.Event.Kind)+"|"+row.Event.Role+"|"+
-			row.Event.MessageID+"|"+row.Event.ToolCallID+"|"+row.Event.Name+"|"+
-			row.Event.Content+"|"+row.Event.ResultRef)
-	}
-	slices.Sort(identity)
-	return "role-draft-" + roleName + "-" + storeroot.Hash(roleSessionID+"|"+strings.Join(identity, "\n"))
-}
-
-func roleDraftRowsToEvents(rows []RoleDraftRow) []Event {
-	events := make([]Event, 0, len(rows))
-	for _, row := range rows {
-		event := row.Event
-		event.RoleName = row.RoleName
-		event.RoleSessionID = row.RoleSessionID
-		event.RoundID = row.RoundID
-		event.UnitSeq = row.UnitSeq
-		if event.MessageID == "" {
-			event.MessageID = row.MessageID
-		}
-		if event.Kind == "" {
-			event.Kind = EventKindOf(event)
-		}
-		events = append(events, event)
-	}
-	return events
-}
-
-// syncRoleDraft 是 sequencer 的存储侧同步入口：读该角色 draft → 排序 → 幂等
-// 判定 → append 进 main message 并原子发布 head + floor → 成功后删除 draft。
-func (store *storeEngine) syncRoleDraft(mainKey Key, roleName, roleSessionID string, order []string) (RoleDraftSyncResult, error) {
-	roleStore, roleKey := store.roleStore(mainKey, roleName, roleSessionID)
-	rows, err := readRoleDraft(roleStore, roleKey, roleName)
-	if err != nil {
-		return RoleDraftSyncResult{}, err
-	}
-	if len(rows) == 0 {
-		return RoleDraftSyncResult{}, nil
-	}
-	rows = sortRoleDraftRows(rows, order)
-	commitID := roleDraftCommitID(roleName, roleSessionID, rows)
-	head, err := store.readMessageHead(mainKey)
-	if err != nil {
-		return RoleDraftSyncResult{}, err
-	}
-	if head.LastCommitID == commitID {
-		// 半同步窗口：head 已发布、draft 未删；幂等删除，不重复 append。
-		_ = deleteRoleDraft(roleStore, roleKey, roleName)
-		return RoleDraftSyncResult{
-			CommitID: commitID, SyncedRows: len(rows), LastSeq: head.LastSeq,
-			LastMessageID: head.LastMessageID, AlreadySynced: true,
-		}, nil
-	}
-	events := roleDraftRowsToEvents(rows)
-	floor := Floor{
-		RoleName: roleName, RoleSessionID: roleSessionID,
-		RoundID: rows[len(rows)-1].RoundID, UpdatedAt: time.Now().UTC(),
-	}
-	syncedHead, err := store.messageCommitSync(mainKey, commitID, events, &floor)
-	if err != nil {
-		return RoleDraftSyncResult{}, err
-	}
-	if err := deleteRoleDraft(roleStore, roleKey, roleName); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return RoleDraftSyncResult{}, fmt.Errorf("session storage: sync published but draft cleanup failed: %w", err)
-	}
-	return RoleDraftSyncResult{
-		CommitID: commitID, SyncedRows: len(events), LastSeq: syncedHead.LastSeq,
-		LastMessageID: syncedHead.LastMessageID,
-	}, nil
-}
-
 // readRoleSessionRows 读取角色会话备份行（冷恢复/审计用）。main 角色读主会话。
-func (store *storeEngine) readRoleSessionRows(mainKey Key, roleName, roleSessionID string) ([]Event, error) {
-	roleStore, roleKey := store.roleStore(mainKey, roleName, roleSessionID)
+func readRoleSessionRows(store *storeEngine, mainKey Key, roleName, roleSessionID string) ([]Event, error) {
+	roleStore, roleKey := roleSessionEngine(store, mainKey, roleName, roleSessionID)
 	return roleStore.readAllRows(roleKey)
 }
 
 // readRoleSnapshot 汇总角色会话观察面（只读）。
-func (store *storeEngine) readRoleSnapshot(mainKey Key, roleName, roleSessionID string) (RoleSnapshot, error) {
+func readRoleSnapshot(store *storeEngine, mainKey Key, roleName, roleSessionID string) (RoleSnapshot, error) {
 	if roleName == "" || roleSessionID == "" {
 		return RoleSnapshot{}, errors.New("session storage: role_name and role_session_id are required")
 	}
-	roleStore, roleKey := store.roleStore(mainKey, roleName, roleSessionID)
+	roleStore, roleKey := roleSessionEngine(store, mainKey, roleName, roleSessionID)
 	roleLifecycle, err := roleStore.readLifecycleHead(roleKey)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return RoleSnapshot{}, err
@@ -442,7 +230,7 @@ func (store *storeEngine) readRoleSnapshot(mainKey Key, roleName, roleSessionID 
 	if err != nil {
 		return RoleSnapshot{}, err
 	}
-	draftRows, err := readRoleDraft(roleStore, roleKey, roleName)
+	draftRows, err := storerole.ReadDraft(roleStore.sessionRoot(roleKey), roleName)
 	if err != nil {
 		return RoleSnapshot{}, err
 	}
@@ -450,7 +238,7 @@ func (store *storeEngine) readRoleSnapshot(mainKey Key, roleName, roleSessionID 
 		MainSessionID:    mainKey.SessionID,
 		RoleName:         roleName,
 		RoleSessionID:    roleSessionID,
-		Root:             store.roleSessionRoot(mainKey, roleName, roleSessionID),
+		Root:             roleSessionRoot(store, mainKey, roleName, roleSessionID),
 		JoinSeqID:        roleLifecycle.JoinSeqID,
 		CompactRef:       cloneCompactRef(roleLifecycle.CompactRef),
 		OrderPolicy:      mainLifecycle.OrderPolicy,
@@ -487,11 +275,11 @@ func (store *storeEngine) readRoleSnapshot(mainKey Key, roleName, roleSessionID 
 
 // assembleRoleWire 构造角色可见 wire：main compact_ref + seq > 切点的 main 行
 // + 该角色自身 pending draft（未 sync 不进主文档）。user draft 不在此路径。
-func (store *storeEngine) assembleRoleWire(mainKey Key, roleName, roleSessionID string, budget, k int) (RoleWireSnapshot, error) {
+func assembleRoleWire(store *storeEngine, mainKey Key, roleName, roleSessionID string, budget, k int) (RoleWireSnapshot, error) {
 	if roleName == RoleUser {
 		return RoleWireSnapshot{}, errors.New("session storage: user draft is input-box material, not role wire")
 	}
-	roleStore, roleKey := store.roleStore(mainKey, roleName, roleSessionID)
+	roleStore, roleKey := roleSessionEngine(store, mainKey, roleName, roleSessionID)
 	lifecycle, err := roleStore.readLifecycleHead(roleKey)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return RoleWireSnapshot{}, err
@@ -529,12 +317,12 @@ func (store *storeEngine) assembleRoleWire(mainKey Key, roleName, roleSessionID 
 	if err != nil {
 		return RoleWireSnapshot{}, err
 	}
-	draftRows, err := readRoleDraft(roleStore, roleKey, roleName)
+	draftRows, err := storerole.ReadDraft(roleStore.sessionRoot(roleKey), roleName)
 	if err != nil {
 		return RoleWireSnapshot{}, err
 	}
-	draftRows = sortRoleDraftRows(draftRows, nil)
-	pending := roleDraftRowsToEvents(draftRows)
+	draftRows = storerole.SortDraftRows(draftRows, nil)
+	pending := storerole.RowsToEvents(draftRows)
 	for index := range pending {
 		// 只为本次装配提供稳定序号；真正全局 seq 只能由 sequencer 在 sync 时
 		// 分配，pending 行不得写回 message。
@@ -644,16 +432,12 @@ func roleSnapshotWarnings(snapshot RoleSnapshot) []string {
 
 // appendRoleSessionRows 向角色会话写备份行。main 角色写主会话 message；非 main
 // 写各自子树。调用方保证只写该角色自己的行。
-func (store *storeEngine) appendRoleSessionRows(mainKey Key, roleName, roleSessionID string, rows []Event) error {
+func appendRoleSessionRows(store *storeEngine, mainKey Key, roleName, roleSessionID string, rows []Event) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	roleStore, roleKey := store.roleStore(mainKey, roleName, roleSessionID)
-	commitID := roleBackupCommitID(roleName, roleSessionID, rows)
+	roleStore, roleKey := roleSessionEngine(store, mainKey, roleName, roleSessionID)
+	commitID := storerole.BackupCommitID(roleName, roleSessionID, rows)
 	_, err := roleStore.messageCommit(roleKey, commitID, rows)
 	return err
-}
-
-func roleBackupCommitID(roleName, roleSessionID string, rows []Event) string {
-	return "role-backup-" + roleName + "-" + storeroot.Hash(roleSessionID+"|"+messageRowsCommitID(rows))
 }

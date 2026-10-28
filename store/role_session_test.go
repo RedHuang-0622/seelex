@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	storerole "github.com/RedHuang-0622/seelex/store/role"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
@@ -22,11 +23,11 @@ func roleSessionFixture(t *testing.T) (*storeEngine, Key) {
 
 func TestRoleSessionCreateBackupAndLifecycle(t *testing.T) {
 	store, mainKey := roleSessionFixture(t)
-	childStore, childKey, err := store.createRoleSession(mainKey, RoleTL, "tl-1", 1)
+	childStore, childKey, err := createRoleSession(store, mainKey, RoleTL, "tl-1", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	roleRoot := store.roleSessionRoot(mainKey, RoleTL, "tl-1")
+	roleRoot := roleSessionRoot(store, mainKey, RoleTL, "tl-1")
 	if _, err := os.Stat(filepath.Join(childStore.sessionRoot(childKey), "metadata")); err != nil {
 		t.Fatalf("role session metadata missing: %v", err)
 	}
@@ -40,7 +41,7 @@ func TestRoleSessionCreateBackupAndLifecycle(t *testing.T) {
 	if head.JoinSeqID != 1 {
 		t.Fatalf("join_seq_id = %d, want 1", head.JoinSeqID)
 	}
-	if err := store.appendRoleSessionRows(mainKey, RoleTL, "tl-1", []Event{{
+	if err := appendRoleSessionRows(store, mainKey, RoleTL, "tl-1", []Event{{
 		Role: "assistant", Content: "TL 备份", Kind: EventKindLLM,
 	}}); err != nil {
 		t.Fatal(err)
@@ -49,7 +50,7 @@ func TestRoleSessionCreateBackupAndLifecycle(t *testing.T) {
 	if err := store.deleteModule(mainKey, moduleMessage); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := store.readRoleSessionRows(mainKey, RoleTL, "tl-1")
+	rows, err := readRoleSessionRows(store, mainKey, RoleTL, "tl-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ func TestGoalStackRecordsRoleSessionAnchor(t *testing.T) {
 
 func TestRoleDraftSyncOrderFloorAndIdempotency(t *testing.T) {
 	store, mainKey := roleSessionFixture(t)
-	if _, _, err := store.createRoleSession(mainKey, RoleTL, "tl-1", 1); err != nil {
+	if _, _, err := createRoleSession(store, mainKey, RoleTL, "tl-1", 1); err != nil {
 		t.Fatal(err)
 	}
 	rows := []RoleDraftRow{
@@ -106,7 +107,7 @@ func TestRoleDraftSyncOrderFloorAndIdempotency(t *testing.T) {
 	if err := store.syncRoleDraftAndEnsureNoRows(mainKey, "tl", "tl-1", []string{"user", "main", "tl"}, rows); err != nil {
 		t.Fatal(err)
 	}
-	result, err := store.syncRoleDraft(mainKey, "tl", "tl-1", []string{"user", "main", "tl"})
+	result, err := syncRoleDraft(store, mainKey, "tl", "tl-1", []string{"user", "main", "tl"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestRoleDraftSyncOrderFloorAndIdempotency(t *testing.T) {
 	if err := store.appendRoleDraftForTest(mainKey, "tl", "tl-1", rows); err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := store.syncRoleDraft(mainKey, "tl", "tl-1", []string{"user", "main", "tl"})
+	replayed, err := syncRoleDraft(store, mainKey, "tl", "tl-1", []string{"user", "main", "tl"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +171,7 @@ func TestRoleDraftSyncOrderFloorAndIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire, err := store.assembleRoleWire(mainKey, "tl", "tl-1", 200_000, 3)
+	wire, err := assembleRoleWire(store, mainKey, "tl", "tl-1", 200_000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,22 +196,22 @@ func TestRoleDraftSyncOrderFloorAndIdempotency(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.assembleRoleWire(mainKey, "tl", "tl-1", 200_000, 3); err == nil {
+	if _, err := assembleRoleWire(store, mainKey, "tl", "tl-1", 200_000, 3); err == nil {
 		t.Fatal("missing compact_ref should fail explicitly")
 	}
 	// 写入引用后角色 wire 使用 main 帧，不生成第二份帧。
-	roleStore, roleKey := store.roleStore(mainKey, "tl", "tl-1")
+	roleStore, roleKey := roleSessionEngine(store, mainKey, "tl", "tl-1")
 	if err := roleStore.setRoleLifecycle(roleKey, 1, &CompactRef{FrameID: "frame-1", AppliedSeq: 3}); err != nil {
 		t.Fatal(err)
 	}
-	framed, err := store.assembleRoleWire(mainKey, "tl", "tl-1", 200_000, 3)
+	framed, err := assembleRoleWire(store, mainKey, "tl", "tl-1", 200_000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !framed.FrameApplied || len(framed.Messages) == 0 || framed.Messages[0].Content != "summary" {
 		t.Fatalf("role wire did not apply main compact frame: %+v", framed)
 	}
-	if _, err := store.assembleRoleWire(mainKey, RoleUser, "user", 200_000, 3); err == nil {
+	if _, err := assembleRoleWire(store, mainKey, RoleUser, "user", 200_000, 3); err == nil {
 		t.Fatal("user draft must not enter role wire")
 	}
 }
@@ -227,7 +228,7 @@ func TestRoleDraftSyncOrderFloorAndIdempotency(t *testing.T) {
 // 分开渲染的：它拿不到也不推演"同步后的样子"，草稿区消失只由 draft_rows 变空驱动。
 func TestRoleSnapshotProjectsPendingDraftUntilSync(t *testing.T) {
 	store, mainKey := roleSessionFixture(t)
-	if _, _, err := store.createRoleSession(mainKey, RoleTL, "tl-1", 1); err != nil {
+	if _, _, err := createRoleSession(store, mainKey, RoleTL, "tl-1", 1); err != nil {
 		t.Fatal(err)
 	}
 	// 形状与 application/core/goal_team_recorder.go:RecordTLRound 一致：一次 append
@@ -245,7 +246,7 @@ func TestRoleSnapshotProjectsPendingDraftUntilSync(t *testing.T) {
 	if err := store.appendRoleDraftForTest(mainKey, RoleTL, "tl-1", pending); err != nil {
 		t.Fatal(err)
 	}
-	before, err := store.readRoleSnapshot(mainKey, RoleTL, "tl-1")
+	before, err := readRoleSnapshot(store, mainKey, RoleTL, "tl-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,14 +270,14 @@ func TestRoleSnapshotProjectsPendingDraftUntilSync(t *testing.T) {
 
 	// 本轮结束：sync 发布 → 草稿文件被删（收敛），快照里的草稿消失、同样的行成为
 	// message 行（这一步没有"丢内容"的分支：只有发布成功后才删草稿）。
-	result, err := store.syncRoleDraft(mainKey, RoleTL, "tl-1", []string{"user", "main", "tl"})
+	result, err := syncRoleDraft(store, mainKey, RoleTL, "tl-1", []string{"user", "main", "tl"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.SyncedRows != 2 || result.AlreadySynced {
 		t.Fatalf("首次 sync 结果 = %+v，want 2 行 / 非重放", result)
 	}
-	after, err := store.readRoleSnapshot(mainKey, RoleTL, "tl-1")
+	after, err := readRoleSnapshot(store, mainKey, RoleTL, "tl-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,14 +302,14 @@ func TestRoleSnapshotProjectsPendingDraftUntilSync(t *testing.T) {
 	if err := store.appendRoleDraftForTest(mainKey, RoleTL, "tl-1", pending); err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := store.syncRoleDraft(mainKey, RoleTL, "tl-1", []string{"user", "main", "tl"})
+	replayed, err := syncRoleDraft(store, mainKey, RoleTL, "tl-1", []string{"user", "main", "tl"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !replayed.AlreadySynced {
 		t.Fatalf("重放必须被识别为已同步（否则主文档出现重复行）：%+v", replayed)
 	}
-	replayedSnapshot, err := store.readRoleSnapshot(mainKey, RoleTL, "tl-1")
+	replayedSnapshot, err := readRoleSnapshot(store, mainKey, RoleTL, "tl-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +324,7 @@ func TestRoleSnapshotProjectsPendingDraftUntilSync(t *testing.T) {
 // 之前的行不属于它的记录（面板以占位呈现）；main 复用主会话本身，切点恒为 0。
 func TestRoleSnapshotMarksRowsOutsidePrefixMatch(t *testing.T) {
 	store, mainKey := roleSessionFixture(t)
-	if _, _, err := store.createRoleSession(mainKey, RoleTL, "tl-1", 1); err != nil {
+	if _, _, err := createRoleSession(store, mainKey, RoleTL, "tl-1", 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.messageCommit(mainKey, "turn-2", []Event{
@@ -333,7 +334,7 @@ func TestRoleSnapshotMarksRowsOutsidePrefixMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	role, err := store.readRoleSnapshot(mainKey, RoleTL, "tl-1")
+	role, err := readRoleSnapshot(store, mainKey, RoleTL, "tl-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +347,7 @@ func TestRoleSnapshotMarksRowsOutsidePrefixMatch(t *testing.T) {
 	}
 
 	// main 复用主会话本身：不受 join 闸门，整段都是它的上下文。
-	main, err := store.readRoleSnapshot(mainKey, RoleMain, mainKey.SessionID)
+	main, err := readRoleSnapshot(store, mainKey, RoleMain, mainKey.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +380,7 @@ func TestAssembleRoleWireForMainIsMainSessionContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire, err := store.assembleRoleWire(mainKey, RoleMain, mainKey.SessionID, 200_000, 3)
+	wire, err := assembleRoleWire(store, mainKey, RoleMain, mainKey.SessionID, 200_000, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,19 +411,19 @@ func TestAssembleRoleWireForMainIsMainSessionContext(t *testing.T) {
 }
 
 func (store *storeEngine) syncRoleDraftAndEnsureNoRows(mainKey Key, roleName, roleSessionID string, order []string, rows []RoleDraftRow) error {
-	roleStore, roleKey := store.roleStore(mainKey, roleName, roleSessionID)
-	if err := appendRoleDraft(roleStore, roleKey, roleName, rows); err != nil {
+	roleStore, roleKey := roleSessionEngine(store, mainKey, roleName, roleSessionID)
+	if err := storerole.AppendDraft(roleStore.sessionRoot(roleKey), roleName, roleSessionID, rows); err != nil {
 		return err
 	}
-	if got, err := readRoleDraft(roleStore, roleKey, roleName); err != nil || len(got) != 2 {
+	if got, err := storerole.ReadDraft(roleStore.sessionRoot(roleKey), roleName); err != nil || len(got) != 2 {
 		return err
 	}
 	return nil
 }
 
 func (store *storeEngine) appendRoleDraftForTest(mainKey Key, roleName, roleSessionID string, rows []RoleDraftRow) error {
-	roleStore, roleKey := store.roleStore(mainKey, roleName, roleSessionID)
-	return appendRoleDraft(roleStore, roleKey, roleName, rows)
+	roleStore, roleKey := roleSessionEngine(store, mainKey, roleName, roleSessionID)
+	return storerole.AppendDraft(roleStore.sessionRoot(roleKey), roleName, roleSessionID, rows)
 }
 
 func TestLifecycleOrderAndRoleRefSurviveDraftCommit(t *testing.T) {

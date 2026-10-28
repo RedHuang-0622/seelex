@@ -30,6 +30,11 @@ import (
 // sessionSSHFileName 是会话 SSH 状态的文件名（项目目录下）。
 const sessionSSHFileName = "session-ssh.jsonl"
 
+const (
+	sessionSSHDirMode  = 0o700
+	sessionSSHFileMode = 0o600
+)
+
 // SessionSSHState 是**一个会话**的 SSH 状态快照（回放后的最新一条）。
 //
 // 字段语义：
@@ -106,10 +111,10 @@ func (store *SessionSSHStateStore) Put(projectID string, state SessionSSHState) 
 			return errors.New("session ssh: state storage requires session layout")
 		}
 		path := filepath.Join(layout.projectDir(resolvedProjectID), sessionSSHFileName)
-		if err := os.MkdirAll(filepath.Dir(path), rolePermissionDirMode); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), sessionSSHDirMode); err != nil {
 			return err
 		}
-		file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, rolePermissionFileMode)
+		file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, sessionSSHFileMode)
 		if err != nil {
 			return err
 		}

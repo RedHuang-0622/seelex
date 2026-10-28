@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	"github.com/RedHuang-0622/seelex/store/workunit"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -40,7 +41,7 @@ func TestNodeSessionStoreRoundTrip(t *testing.T) {
 
 	// 文件路径符合用户约定：主会话目录 subagents/ 下 <main>-<sub>.json。
 	mainDir := filepath.Join(routerConfigPath(t, router), "project-"+storeroot.Hash("project-a"), "session-"+storeroot.Hash(mainID))
-	filePath := filepath.Join(mainDir, nodeSessionDirName, nodeSessionFileName(mainID, subID))
+	filePath := filepath.Join(mainDir, workunit.DirName, workunit.FileName(mainID, subID))
 	if _, err := os.Stat(filePath); err != nil {
 		t.Fatalf("expected node session file at %s: %v", filePath, err)
 	}

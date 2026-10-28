@@ -24,6 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	protocol "github.com/RedHuang-0622/seelex/contract/protocol"
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
+	storesession "github.com/RedHuang-0622/seelex/store/session"
 )
 
 const (
@@ -77,41 +78,21 @@ type Key = dto.SessionKey
 type EventToolCall = protocol.TranscriptToolCall
 
 // EventKind 是 transcript 事件的显式类别，供轨迹多线谱与有序日志直接区分
-// 工具调用/LLM/用户输入等，避免仅按 role 启发式判定。
+// 工具调用/LLM/用户输入等，避免仅按 role 启发式判定。词表事实源在
+// `contract/protocol`，唯一判据在 `store/session`；本包只留旧面。
 const (
-	EventKindUserInput  = "user_input"
-	EventKindInternal   = "internal"
-	EventKindLLM        = "llm"
-	EventKindToolCall   = "tool_call"
-	EventKindToolOutput = "tool_output"
-	EventKindSystem     = "system"
-	EventKindError      = "error"
-	EventKindNotice     = "notice"
+	EventKindUserInput  = protocol.TranscriptEventKindUserInput
+	EventKindInternal   = protocol.TranscriptEventKindInternal
+	EventKindLLM        = protocol.TranscriptEventKindLLM
+	EventKindToolCall   = protocol.TranscriptEventKindToolCall
+	EventKindToolOutput = protocol.TranscriptEventKindToolOutput
+	EventKindSystem     = protocol.TranscriptEventKindSystem
+	EventKindError      = protocol.TranscriptEventKindError
+	EventKindNotice     = protocol.TranscriptEventKindNotice
 )
 
-// EventKindOf 返回事件的显式类别；旧数据 Kind 为空时按 Role/ToolCalls 回退。
-func EventKindOf(event Event) string {
-	if event.Kind != "" {
-		return event.Kind
-	}
-	switch event.Role {
-	case "user":
-		return EventKindUserInput
-	case "assistant":
-		if len(event.ToolCalls) > 0 {
-			return EventKindToolCall
-		}
-		return EventKindLLM
-	case "tool":
-		return EventKindToolOutput
-	case "system":
-		return EventKindSystem
-	case "error":
-		return EventKindError
-	default:
-		return EventKindNotice
-	}
-}
+// EventKindOf 转发到 store/session（唯一实现在那里；根包只留旧面）。
+func EventKindOf(event Event) string { return storesession.EventKindOf(event) }
 
 // Event is the append-only transcript representation shared by every backend.
 type Event = protocol.TranscriptEvent
