@@ -89,7 +89,7 @@ sequenceDiagram
 
 ## 边界
 
-本包不执行工具、不实现 MCP transport，也不解析 Skill 指令语义；这些由 backend ports 完成。`plugins/` 是数据，`backend/engine/plugin/` 是运行时。插件根的**责任链**（`-plugins` > `$SEELEX_PLUGINS` > `<exe>/plugins` > `<exe>/../plugins` > CWD `plugins`）在 [`wiring/config`](../../../wiring/config/README.md)（`PluginRootChain`），本包只负责"多根 first-wins"地加载；"零插件"由 [`wiring/config.RequirePlugins`](../../../wiring/config/README.md) 显式拒绝启动。
+本包不执行工具、不实现 MCP transport，也不解析 Skill 指令语义；这些由 backend ports 完成。`plugins/` 是数据，`backend/engine/plugin/` 是运行时。插件根的**责任链**（`-plugins` > `$SEELEX_PLUGINS` > `<exe>/plugins` > `<exe>/../plugins` > CWD `plugins`）在 [`internal/startup`](../../../internal/startup/README.md)（`PluginRootChain`），本包只负责"多根 first-wins"地加载；"零插件"由 [`startup.RequirePlugins`](../../../internal/startup/README.md) 显式拒绝启动。
 
 ## Review 指南
 

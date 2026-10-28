@@ -30,7 +30,7 @@ commit；不 push。M7 外部调用点窄化已获得 commit 授权，作为当�
 | M8 | Teamwork | 已完成 | 见 §2.12 |
 | M9 | Role/WorkUnit | 已完成 | 见 §2.13 |
 | M10 | Facade 清零 | 已完成 | 见 §2.14 |
-| M11 | 全仓验收 | 未开始 | — |
+| M11 | 全仓验收 | 已完成 | 见 §2.15 |
 
 ## 2. M0：基线门禁（已完成）
 
@@ -969,6 +969,70 @@ git diff --check
 ```
 
 本里程碑最终本地 commit SHA 由交接报告记录；不 push。
+
+## 2.15 M11：拆分验收（已完成）
+
+### 2.15.1 融合最新 main
+
+`main` 在 M0 基线后已前进 4 个提交，包含 `boot/`、`internal/host/`、assembly
+瘦身与测试迁移。按“非 store 逻辑保持 main，store 引用适配 M10”的裁决完成融合：
+
+- merge commit：`8f2795db`
+- 保留 main 的 `boot` / `internal/host` 装配与业务顺序；
+- 将 M10 typed `store.Stores` 引用迁到新 owner；
+- `boot.Store` 同时暴露 `Router` 与领域 owner，旧 `wiring/*` 路径全部退场。
+
+### 2.15.2 发布候选门禁
+
+全部通过：
+
+```text
+gofmt -l .
+go build ./...
+go build -tags "gui,desktop,production" ./...
+go vet ./...
+go test ./... -count=1 -timeout=1200s
+go test ./test/ -count=1
+node --test gui/frontend/dist/*.test.mjs
+go test -race ./store/... ./backend/multiagent/subagent ./backend/tool/worktree -count=1
+git diff --check
+```
+
+- Node：874 tests / 874 passed。
+- `go list -deps ./store/...` 无 Application / Middle / Backend / boot / host 向上依赖。
+- 数据根多进程锁、陈旧锁恢复、冷读 fixture、fork、compaction、媒体回读、
+  subagent recovery、worktree prune 与关闭路径均在全仓测试中通过。
+
+详细报告：
+
+- [`test-report.md`](test-report.md)
+- [`finish-review.md`](finish-review.md)
+
+### 2.15.3 首轮失败与修复
+
+| 失败 | 根因 | 修复 |
+|---|---|---|
+| subagent tool-result 读回为空 | 节点读面将裸调用 ID 当成非 wire ref | `InMemoryToolResultArchiver.Read` 兼容裸调用 ID |
+| registry TempDir cleanup | 全仓并行负载下句柄释放时序 | 定向与后续全仓复跑通过 |
+| store 锁热点绝对耗时超限 | 全仓并行磁盘压力 | 定向与后续全仓复跑通过 |
+| contract DAG 文件多 1 行 | M7 窄快照 import 增加一行 | 合并 import 分组，行为不变 |
+| e2e 旧 wiring 路径 | main 已迁移到 boot/internal host | 跟随新 owner 更新门禁与 README |
+
+### 2.15.4 结构指标
+
+| 类型 / 指标 | M10 | M11 |
+|---|---:|---:|
+| `Router` | 126 | 126 |
+| `jsonRepository` | 70 | 70 |
+| `storeEngine` | 161 | 161 |
+| `SessionGranularStore` | 46 | 46 |
+| 根 store 生产 importer | 79 文件 / 17 包 | 79 文件 / 16 包 |
+
+### 2.15.5 数据兼容
+
+- 路径、JSON tag、schema、head、watermark、wire 与 teamwork 文件布局零变化。
+- 未读取、迁移、重写或清理 `.seelex`、config、dist 内用户数据。
+- 未发布、未 push；M11 完成后按用户要求合并到 `main`。
 
 ## 3. 未决风险
 

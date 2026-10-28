@@ -1,4 +1,6 @@
 {
+  "count": 79,
+  "schema_version": 1,
   "production_files": [
     "backend/engine/assemble/runtime_agent_conversation.go",
     "backend/engine/assemble/runtime_context.go",
@@ -58,6 +60,18 @@
     "backend/workunit/progress.go",
     "backend/workunit/recovery.go",
     "backend/workunit/session.go",
+    "boot/app.go",
+    "boot/application.go",
+    "boot/runtime.go",
+    "boot/tools.go",
+    "internal/host/compressed_turn_store.go",
+    "internal/host/goal_coordinator.go",
+    "internal/host/role_permission_port.go",
+    "internal/host/runtime_narrow_ports.go",
+    "internal/host/session_manager.go",
+    "internal/host/session_ssh_state_port.go",
+    "internal/host/session_status_record.go",
+    "internal/host/session_workspace_ports.go",
     "kernel/context/compaction_stack.go",
     "kernel/context/wiring.go",
     "kernel/goal/audit.go",
@@ -66,21 +80,7 @@
     "kernel/session/archive.go",
     "kernel/session/fork.go",
     "kernel/session/ports.go",
-    "kernel/session/transcript_range.go",
-    "wiring/adapters/compressed_turn_store.go",
-    "wiring/adapters/goal_coordinator.go",
-    "wiring/adapters/role_permission_port.go",
-    "wiring/adapters/runtime_narrow_ports.go",
-    "wiring/adapters/session_manager.go",
-    "wiring/adapters/session_ssh_state_port.go",
-    "wiring/adapters/session_status_record.go",
-    "wiring/adapters/session_workspace_ports.go",
-    "wiring/bootstrap/application.go",
-    "wiring/bootstrap/bootstrap.go",
-    "wiring/bootstrap/runtime.go",
-    "wiring/registry/registry.go"
+    "kernel/session/transcript_range.go"
   ],
-  "count": 79,
-  "schema_version": 1,
   "milestone": "M10"
 }

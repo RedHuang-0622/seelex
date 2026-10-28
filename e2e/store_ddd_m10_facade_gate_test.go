@@ -59,9 +59,10 @@ func TestStoreDDDM10FacadeGate(t *testing.T) {
 	}
 
 	for _, relative := range []string{
-		"wiring/bootstrap/bootstrap.go",
-		"wiring/bootstrap/runtime.go",
-		"wiring/adapters/goal_coordinator.go",
+		"boot/app.go",
+		"boot/application.go",
+		"boot/runtime.go",
+		"internal/host/goal_coordinator.go",
 	} {
 		text := readText(t, filepath.Join(repo, filepath.FromSlash(relative)))
 		for _, forbidden := range []string{

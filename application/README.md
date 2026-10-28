@@ -15,7 +15,7 @@
 - 不做：不实现 Agent 循环（归 Seele）、不实现存储原子写（归 `store`）、不实现工具路由与权限判定（归 `seelebridge`）、不渲染 UI（归 `tui`/`gui`）。
 - 不做：**不持有构造函数**。`New` / `NewEventHub` / `NewApprovalBroker` / `NewToolHookBridge` /
   `NewPromptStack` / `NewEffortManager` / `WebSearch` 已于 2026-10-16（M1-B）迁到
-  [`wiring/`](../wiring/README.md)：前端不得自造引擎，构造只发生在组合根。
+  [`boot/`](../boot/README.md)：前端不得自造引擎，构造只发生在组合根。
 
 ## 前端消费方依赖
 
@@ -726,7 +726,7 @@ Wiring 注入 adapter，`Service.ArchiveSession` 只保留一行转发。
 同一处）；
 `application/search` 已于 2026-08-22 迁至 `backend/tool/search/`（后端能力归位）；
 `application` 门面只保留 `WebSearchConfig` 类型别名；`WebSearch` 的执行入口（薄转发）已于
-2026-10-16 随 M1-B 迁到 [`wiring/`](../wiring/README.md)，其终局是 `backend/tool/websearch`（M4）。
+2026-10-16 随组合根迁移；当前入口见 [`boot/`](../boot/README.md)，其终局是 `backend/tool/websearch`（M4）。
 
 ### 门面再导出的 DTO（M1-C）
 

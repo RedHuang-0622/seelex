@@ -94,7 +94,8 @@ func (a *InMemoryToolResultArchiver) Read(ref string) (string, bool) {
 	}
 	callID, ok := model.WireToolResultCallID(ref)
 	if !ok {
-		return "", false
+		callID = ref
+		ok = ref != ""
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
