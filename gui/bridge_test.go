@@ -1808,22 +1808,27 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		t.Fatal(err)
 	}
 	componentSource := string(components)
-	if !strings.Contains(componentSource, `class="chat-chip is-tool"`) || !strings.Contains(componentSource, `data-trajectory-key`) || !strings.Contains(componentSource, `reasoning_content`) {
-		t.Fatal("chat view must collapse tool calls and thinking into one-line chips linked to the trajectory view")
+	if !strings.Contains(componentSource, `class="tool-call-summary"`) ||
+		!strings.Contains(componentSource, `data-tool-trajectory`) ||
+		!strings.Contains(componentSource, `renderToolIODetail`) ||
+		!strings.Contains(componentSource, `"入参 JSON"`) ||
+		!strings.Contains(componentSource, `"出参 JSON"`) ||
+		!strings.Contains(componentSource, `data-load-ref`) ||
+		!strings.Contains(componentSource, `class="trajectory-json-value"`) ||
+		!strings.Contains(componentSource, `reasoning_content`) {
+		t.Fatal("chat view must render one-line tool rows with an expandable IN/OUT drawer linked to the trajectory view")
 	}
 	trajectory, err := embeddedFrontend.ReadFile("frontend/dist/trajectory.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	trajectorySource := string(trajectory)
-	if !strings.Contains(trajectorySource, `class="io-label">入参 JSON`) ||
-		!strings.Contains(trajectorySource, `class="io-label">出参 JSON`) ||
+	if !strings.Contains(trajectorySource, `renderToolIODetail`) ||
 		!strings.Contains(trajectorySource, "renderTrajectoryInspector") ||
 		!strings.Contains(trajectorySource, "trajectory-inspector-shell") ||
 		!strings.Contains(trajectorySource, "limitText(output, 4000") ||
-		!strings.Contains(trajectorySource, `data-load-ref`) ||
-		!strings.Contains(trajectorySource, `io-collapse`) {
-		t.Fatal("trajectory inspector must expose input/output JSON, cap preview (4KB), and offer result_ref expansion for truncated output")
+		!strings.Contains(trajectorySource, "renderToolIODetail({") {
+		t.Fatal("trajectory inspector must reuse the shared input/output renderer and keep bounded previews")
 	}
 	if !strings.Contains(trajectorySource, "renderContextAxis") || !strings.Contains(trajectorySource, "trajectory-think") {
 		t.Fatal("trajectory view must include the context axis and the full THINK panel")
