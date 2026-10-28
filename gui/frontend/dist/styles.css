@@ -4742,10 +4742,12 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
    看板那一块（大 active seq + 小字最近输入）见下面的 .goal-board；席位轮转三个
    概念（轮次 / 座次 / 断环）已随 2026-10-03 阶段三 W3 整条退场，不再有样式。 */
 .goal-governance {
-  margin-top: 6px;
-  padding: 6px 8px;
-  border-left: 3px solid var(--accent);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -4756,7 +4758,16 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   align-items: baseline;
 }
 .goal-gov-status {
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-mid);
+  background: var(--surface-2);
+  font: 700 9.5px/18px var(--font-mono);
+  letter-spacing: .04em;
   text-transform: uppercase;
 }
 .goal-gov-directive {
@@ -6043,11 +6054,10 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 .goal-frame {
   padding: 7px 9px;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
   border-radius: var(--r-md);
   background: var(--panel);
 }
-.goal-frame.is-active { border-left-color: var(--accent); background: var(--surface); }
+.goal-frame.is-active { background: var(--surface); }
 .goal-frame-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .goal-frame-status { flex: none; font: 700 10px var(--font-mono); letter-spacing: .04em; color: var(--text-dim); }
 .goal-frame-status.is-active { color: var(--accent); }
@@ -6079,7 +6089,6 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
   text-align: left;
   cursor: pointer;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
   border-radius: var(--r-md);
   background: var(--surface);
 }
@@ -6125,14 +6134,10 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
   min-width: 0;
   padding: 3px 6px;
   border: 1px solid var(--border);
-  border-left-width: 2px;
-  border-left-color: var(--status-idle);
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   background: var(--code-bg);
   font-size: 11px;
 }
-.goal-history-row[data-goal-history-status="completed"] { border-left-color: var(--status-done); }
-.goal-history-row[data-goal-history-status="aborted"] { border-left-color: var(--status-failed); }
 .goal-history-id { flex: none; color: var(--text-mid); font-family: var(--font-mono); font-size: 10px; }
 .goal-history-title { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--text-strong); text-overflow: ellipsis; white-space: nowrap; }
 .goal-history-meta { flex: none; margin-left: auto; color: var(--text-dim); font: 10px var(--font-mono); }
@@ -6162,11 +6167,10 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 .goal-detail-frame {
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
   border-radius: var(--r-md);
   background: var(--panel);
 }
-.goal-detail-frame.is-active { border-left-color: var(--accent); background: var(--surface); }
+.goal-detail-frame.is-active { border-color: var(--border-strong); background: var(--surface); }
 .goal-detail-frame-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 6px; }
 .goal-detail-frame-title { overflow: hidden; color: var(--text-strong); font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .goal-detail-table { width: 100%; border-collapse: collapse; }

@@ -81,3 +81,31 @@ test("轨迹使用左表右详情的 Network 主从布局", () => {
   assert.match(css, /\.trajectory-results\s*\{[^}]*border-right:/s);
   assert.match(css, /\.trajectory-inspector\s*\{[^}]*overflow:\s*auto/s);
 });
+
+test("目标状态信号收进条目内部：不得使用单侧粗边或整块状态底", () => {
+  const forbiddenSelectors = [
+    ".goal-frame",
+    ".goal-board-card",
+    ".goal-governance",
+    ".goal-history-row",
+    ".goal-detail-frame"
+  ];
+  const failures = [];
+  for (const rule of cssRules(css)) {
+    const selectors = rule.selector.split(",").map(selector => selector.trim());
+    if (!selectors.some(selector => forbiddenSelectors.some(base => selector === base || selector.startsWith(`${base}.`)))) continue;
+    if (/border-left(?:-width|-color)?\s*:\s*(?!0(?:px)?\s*(?:;|$))/.test(rule.body)) {
+      failures.push(`${rule.selector}: ${rule.body.match(/border-left[^;]*;/)?.[0]?.trim() || "单侧状态轨"}`);
+    }
+  }
+  assert.deepEqual(failures, [], `目标卡片不得拼接左侧状态轨：\n${failures.join("\n")}`);
+
+  const governance = cssRules(css).find(rule => rule.selector === ".goal-governance");
+  assert.ok(governance, "必须保留目标治理区");
+  assert.match(governance.body, /background:\s*transparent/, "治理区不得铺整块状态底");
+
+  const status = cssRules(css).find(rule => rule.selector === ".goal-gov-status");
+  assert.ok(status, "治理状态必须使用行内状态件");
+  assert.match(status.body, /border:\s*1px solid var\(--border\)/);
+  assert.match(status.body, /border-radius:\s*var\(--r-sm\)/);
+});
