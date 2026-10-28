@@ -26,7 +26,7 @@ function textOf(html) {
   return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-test("running 工具行让 1.8s shimmer 扫过整条摘要，并保留可读状态", () => {
+test("running 工具行只在工具名字段上播放 shimmer", () => {
   const html = toolHTML("running");
   assert.match(html, /class="tool-run is-running tool-call-row/);
   assert.equal((html.match(/class="tool-run-activity"/g) || []).length, 0);
@@ -62,21 +62,23 @@ test("success/error/canceled 立即停止工具 shimmer", () => {
   }
 });
 
-test("对话尾部 spinner 改成可读状态与 aria-busy；无图标旋转", async () => {
+test("对话尾部使用 Thinking 文字 shimmer，不再注入 spinner", async () => {
   const html = renderConversationComponent([], { running: true }).html;
   assert.match(html, /aria-busy="true"/);
   assert.match(html, /role="status"/);
-  assert.match(html, /正在生成回复|等待模型响应/);
+  assert.match(html, /data-shimmer-text="Thinking…"/);
+  assert.doesNotMatch(html, /runtime-activity-line/);
   assert.doesNotMatch(html, /runtime-spinner/);
 });
 
-test("tool CSS 的文字 shimmer 只靠 transform 扫动，reduced-motion 停止动画", async () => {
+test("工具名与尾部文字共用文字 shimmer，Pico busy spinner 被关闭", async () => {
   const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /\.tool-run-activity/);
-  assert.match(css, /\.tool-run\.is-running > \.tool-call-summary::after\s*\{[^}]*transform:/s);
-  assert.match(css, /@keyframes\s+tool-row-shimmer/);
-  assert.match(css, /\.tool-run\.is-running > \.tool-call-summary::after\s*\{[^}]*inset:\s*0/s);
-  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.tool-run\.is-running > \.tool-call-summary::after\s*\{[^}]*animation:\s*none/s);
+  assert.match(css, /\.loading-shimmer::after,\s*\.tool-run\.is-running \.tool-call-name::after\s*\{[^}]*linear-gradient\([^}]*var\(--shimmer-highlight\)[^}]*transform:/s);
+  assert.doesNotMatch(css, /\.tool-run\.is-running \.tool-call-name\s*\{[^}]*color:\s*transparent/s);
+  assert.match(css, /\.conversation\[aria-busy="true"\]::before[\s\S]{0,500}display:\s*none/s);
+  assert.match(css, /\.conversation\[aria-busy="true"\][\s\S]{0,220}white-space:\s*normal/s);
+  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.loading-shimmer[\s\S]{0,120}animation:\s*none/s);
 });
 
 test("工具运行与对话运行同时存在时，同一视口只保留工具卡 activity", () => {
@@ -89,5 +91,5 @@ test("工具运行与对话运行同时存在时，同一视口只保留工具�
   ], { running: true }).html;
   assert.equal((html.match(/class="tool-run-activity"/g) || []).length, 0);
   assert.equal((html.match(/class="runtime-activity-line"/g) || []).length, 0);
-  assert.match(html, /工具执行中/);
+  assert.match(html, /data-shimmer-text="Loading tool…"/);
 });

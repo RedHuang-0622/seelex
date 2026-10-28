@@ -251,10 +251,9 @@ export function renderChatActivity(chat = {}, streamPhase = "receiving", options
   if (!running) return "";
   const hasRunningTool = Boolean(options.hasRunningTool);
   const receiving = streamPhase === "receiving" && !hasRunningTool;
-  const label = hasRunningTool ? "工具执行中" : (receiving ? "正在生成回复" : "等待模型响应");
+  const label = hasRunningTool ? "Loading tool…" : (receiving ? "Thinking…" : "Loading…");
   return `<section class="runtime-activity" role="status" aria-live="polite" aria-busy="true" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="${receiving ? "receiving" : "waiting"}">
-    <strong class="runtime-activity-copy">${label}</strong>
-    ${receiving ? '<span class="runtime-activity-line" aria-hidden="true"></span>' : ""}
+    <strong class="runtime-activity-copy loading-shimmer" data-shimmer-text="${label}">${label}</strong>
   </section>`;
 }
 
@@ -272,6 +271,7 @@ export function renderConversationLoading(mode = "switching") {
   ].map((className, index) => `<div class="conversation-loading-row ${className}" style="--loading-index:${index}"><span></span><span></span></div>`).join("");
   return `<section class="conversation-switch-loading" data-session-loading="${restoring ? "restoring" : "switching"}" role="status" aria-label="${label}" aria-live="polite" aria-busy="true">
     <div class="conversation-loading-stack" aria-hidden="true">${rows}</div>
+    <strong class="conversation-loading-caption loading-shimmer" data-shimmer-text="Loading…">Loading…</strong>
   </section>`;
 }
 

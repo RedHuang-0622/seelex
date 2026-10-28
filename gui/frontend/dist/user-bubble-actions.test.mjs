@@ -25,6 +25,13 @@ test("会话标题和工具摘要都单行省略，轨迹主从区可调宽", ()
   assert.match(css, /\.trajectory-main\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*var\(--trajectory-results-width,\s*58%\)\)\s*7px\s*minmax\(220px,\s*1fr\)/s);
 });
 
+test("对话正文按容器宽度自动换行，不再继承 Pico busy 的 nowrap", () => {
+  assert.match(css, /\.message,\s*\.tool-run\s*\{[^}]*width:\s*min\(860px,\s*100%\)[^}]*max-width:\s*100%[^}]*min-width:\s*0/s);
+  assert.match(css, /\.message-body\s*\{[^}]*max-width:\s*100%[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere[^}]*word-break:\s*break-word/s);
+  assert.match(css, /\.conversation\[aria-busy="true"\][\s\S]{0,220}white-space:\s*normal/s);
+  assert.match(css, /\.conversation\[aria-busy="true"\]::before[\s\S]{0,500}display:\s*none/s);
+});
+
 test("Enter 提交先收起浮层再等待 RPC，避免输入瞬间错位或越界", () => {
   const handler = app.slice(
     app.indexOf('elements.composer.addEventListener("submit"'),

@@ -68,7 +68,7 @@ Seelex 借鉴 Codex 类工作台的状态语义，但不复制其具体外观：
 | `A06` | 切换会话、页签或主视图 | `Continuity` | `route change` / `state change` | 新视图 250ms 淡入；位移不超过 8px；旧视图在 150ms 内退出 | 顶栏、左栏、右栏、composer | 直接替换内容，不隐藏最终内容 |
 | `A07` | 列表首次插入新行 | `Continuity` | `state change` | 小批增量首次插入时 250ms 淡入并上移 6px；会话恢复/历史批量装载不逐行播放，同一 key 的内容替换不重播；兜底结束必须 cancel 动画 | 列表容器与滚动位置 | 新行立即可见 |
 | `A08` | 状态从 running 到 done/failed | `Feedback` | `state change` | 150ms 内切换语义底色、文字色和图标；不使用弹跳 | 行高、表格列宽 | 立即切换语义色与状态文字 |
-| `A09` | 工具调用运行中 | `Feedback` | `state change` | 整条工具摘要行一次 1.8s 横向流光；收束态只显示工具类型，展开后显示命令和状态 | 行高、列宽、相邻行 | 去掉扫光，保留工具类型、可访问状态与展开能力 |
+| `A09` | 工具调用运行中 | `Feedback` | `state change` | 工具名字段一次 1.8s 文字 Shimmer；收束态只显示工具类型，展开后显示命令和状态 | 行高、列宽、相邻行 | 去掉扫光，保留工具类型、可访问状态与展开能力 |
 | `A10` | 模型持续流式输出 | `Feedback` | `state change` | 按第 3 节的 cadence 合并刷新；不在每个 token 上播放 CSS 动画 | 消息位置、滚动锚点、输入框 | 保留内容更新，移除游标等装饰 |
 | `A11` | 长任务超过 10s | `Feedback` | `state change` | 确定性进度或阶段文字；提供取消或后台入口 | 任务归属容器 | 保留文字与进度数值 |
 | `A12` | 读取未知结构数据 | `Feedback` | `load` / `state change` | 100ms 延迟后显示状态文字和局部 activity；不伪造骨架结构 | 页面壳与操作区 | 只显示静态状态文字 |
@@ -239,7 +239,7 @@ idle
 | 进入 | `--ease-out` | 界面进入、展开、内容出现 |
 | 退出 | `--ease-in` | 界面关闭、内容退出 |
 | 场景内移动 | `--ease-in-out` | 同一对象在场景内 reposition |
-| 持续循环 | `--ease-linear` | 只用于 spinner、progress 和 running shimmer |
+| 持续循环 | `--ease-linear` | 只用于 progress 与 running 文字 shimmer |
 
 退出时长应短于对应进入时长，目标约为 75%；实现优先使用相邻 token，例如进入 250ms、退出 150ms。
 
@@ -308,21 +308,21 @@ Shimmer 只用于工具调用处于 `running` 的加载动画，以及结构已�
 - Trigger：`state change`
 - 开始：工具状态从 queued/waiting 进入 running
 - 停止：工具进入 success/error/cancelled，或视图卸载
-- 作用对象：整条工具摘要行；流光层只覆盖行内背景，不遮住工具类型和点击热区
+- 作用对象：工具名字段；流光只作为独立亮光带经过完整文字，不替换文字材质、不遮住点击热区
 - 静止元素：行高、列宽、相邻内容、任务列表
 
 ### 5.3 动效规格
 
 - 周期：1.8s。
 - 缓动：linear。
-- 实现：摘要行伪元素使用 `transform: translateX()` 扫过；不使用 `background-position`，不改变 `width`、`height` 或 `top`。
+- 实现：文字节点始终保持正常、不透明的文本色；独立伪元素绘制两端透明的窄亮光，只用 `transform: translateX()` 扫过。禁止把底层文字设为 `color: transparent` 或用 `background-clip: text` 替换整段文字；不使用 `background-position`，不改变 `width`、`height` 或 `top`。
 - 基线可见度：渐变峰值与底层对比可辨，但不能盖过状态文字。
 - 同一工具摘要行同时最多一条 shimmer。
-- 收束态行内只写工具类型；运行状态由可访问名称/`aria-busy` 与 shimmer 表达，展开后显示完整状态。
+- 收束态行内只写工具类型；运行状态由可访问名称/`aria-busy` 与工具名文字 shimmer 表达，展开后显示完整状态。对话尾部只保留带文字 shimmer 的 `Thinking… / Loading… / Loading tool…`，不显示 Pico busy spinner 或活动线。
 
 ### 5.4 reduced-motion
 
-`prefers-reduced-motion: reduce` 下移除整行扫光，保留工具类型、可访问状态、展开与取消能力。
+`prefers-reduced-motion: reduce` 下移除文字 shimmer，保留工具类型、可访问状态、展开与取消能力。
 
 ## 6. 组件规则
 
@@ -331,7 +331,7 @@ Shimmer 只用于工具调用处于 `running` 的加载动画，以及结构已�
 | 顶栏连接状态 | 状态反馈 | 100ms 后显示“正在连接/已连接/连接失败”；不旋转整枚图标 |
 | 左侧会话行 | 选择与反馈 | 选中由底色和文字层级表达；状态点不在静止行持续动画 |
 | 对话消息 | 内容连续 | 首次插入可 250ms 入场；已有消息流式更新不重播入场 |
-| 工具摘要行 | 运行反馈 | 收束态只显示工具类型；running 使用覆盖整行的单一 shimmer；完成/失败与命令、耗时在展开层可见 |
+| 工具摘要行 | 运行反馈 | 收束态只显示工具类型；running 只让工具名字段 shimmer；完成/失败与命令、耗时在展开层可见 |
 | Plan 节点 | 执行连续 | 不使用扫过整张卡片的 `top` 动画；running 活动限制在节点状态线或局部 activity 层 |
 | composer | 即时反馈 | 提交后按钮状态和状态文案立即变化；不因 loading 改变输入框高度 |
 | 消息队列 | 顺序连续 | 插入/重排应可中断；拖拽中使用直接手势反馈，不播放整屏位移 |

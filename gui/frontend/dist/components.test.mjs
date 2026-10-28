@@ -102,7 +102,7 @@ test("renders runtime activity only from active chat state", () => {
   assert.equal(renderChatActivity({ running: false }), "");
   const html = renderChatActivity({ running: true });
   assert.match(html, /class="runtime-activity"/);
-  assert.match(html, /正在生成回复/);
+  assert.match(html, /data-shimmer-text="Thinking…"/);
   assert.match(html, /aria-busy="true"/);
 });
 

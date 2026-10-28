@@ -69,6 +69,7 @@
   --status-failed: #d64545;
   --status-info: #2e6be6;
   --status-idle: #9aa0a8;
+  --shimmer-highlight: #ffffff;
 
   /* status tints & borders (derived, still tokenized) */
   --tint-running: rgba(178, 106, 0, .10);
@@ -686,11 +687,35 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable both-edges;
-  padding: 28px max(24px, calc((100% - 860px) / 2)) calc(20px + var(--composer-h, 56px) + var(--queue-h, 0px) + 12px);
+  padding: 28px max(16px, calc((100% - 860px) / 2)) calc(20px + var(--composer-h, 56px) + var(--queue-h, 0px) + 12px);
   scroll-behavior: auto;
+  white-space: normal;
 }
 .conversation-sentinel { width: 100%; height: 1px; pointer-events: none; }
-.message, .tool-run { max-width: 860px; margin: var(--sp-4) auto; }
+.message, .tool-run {
+  width: min(860px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  margin: var(--sp-4) auto;
+}
+/* Pico 会把任何 aria-busy=true 的原生元素变成自带 spinner 的 busy 控件，并设置
+   white-space:nowrap。会话容器和工具行使用 aria-busy 只为无障碍，不接管视觉：
+   关闭伪 spinner，正文恢复自动换行。 */
+.conversation[aria-busy="true"],
+.tool-run[aria-busy="true"],
+.runtime-activity[aria-busy="true"],
+.conversation-switch-loading[aria-busy="true"] {
+  white-space: normal;
+}
+.conversation[aria-busy="true"]::before,
+.tool-run[aria-busy="true"]::before,
+.runtime-activity[aria-busy="true"]::before,
+.conversation-switch-loading[aria-busy="true"]::before {
+  display: none;
+  content: none;
+  margin: 0;
+  background: none;
+}
 .conversation-switch-loading {
   display: grid;
   width: min(860px, 100%);
@@ -698,6 +723,12 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   padding: 4px 0;
 }
 .conversation-loading-stack { display: grid; gap: 18px; }
+.conversation-loading-caption {
+  justify-self: start;
+  margin-top: 10px;
+  font: 700 10px var(--font-mono);
+  letter-spacing: .08em;
+}
 .conversation-loading-row {
   position: relative;
   display: grid;
@@ -807,7 +838,27 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .message[data-role-name="tl"] .role-mark, .message[data-role-name="tl"] .message-head strong { color: var(--status-running); }
 .message[data-role-name="main"] .role-mark, .message[data-role-name="main"] .message-head strong { color: var(--text-strong); }
 .role-mark { display: inline-grid; place-items: center; color: var(--faint); }
-.message-body { color: var(--text-strong); font-size: var(--text-md); line-height: 1.72; overflow-wrap: anywhere; }
+.message-body {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  line-height: 1.72;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.message-body :where(p, li, blockquote, th, td, a, strong, em) {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.message-body :not(pre) > code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .message-user-cluster {
   width: fit-content;
   max-width: min(680px, 92%);
@@ -990,12 +1041,17 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .reasoning-empty { color: var(--faint); }
 
 /* ---------- 6. Runtime activity / queue ---------- */
-.runtime-activity, .message-queue { max-width: 860px; margin: var(--sp-3) auto; }
+.runtime-activity, .message-queue {
+  width: min(860px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  margin: var(--sp-3) auto;
+}
 .runtime-activity {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
+  min-height: 26px;
   color: var(--muted);
   font: 700 10px var(--font-mono);
   letter-spacing: .1em;
@@ -1009,13 +1065,34 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
    reduced-motion=static-activity-line
 */
 .runtime-activity-copy { color: var(--status-info); }
-.runtime-activity-line {
+.loading-shimmer,
+.tool-run.is-running .tool-call-name {
+  position: relative;
   display: inline-block;
-  width: 42px;
-  height: 2px;
+  max-width: 100%;
   overflow: hidden;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--status-info) 0 34%, var(--surface-3) 34% 100%);
+  vertical-align: bottom;
+}
+.loading-shimmer::after,
+.tool-run.is-running .tool-call-name::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: -32%;
+  width: 28%;
+  background-image: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, var(--shimmer-highlight) 24%, transparent) 35%,
+    var(--shimmer-highlight) 50%,
+    color-mix(in srgb, var(--shimmer-highlight) 24%, transparent) 65%,
+    transparent 100%
+  );
+  transform: translateX(-150%) skewX(-18deg);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: loading-text-shimmer var(--duration-shimmer) var(--ease-linear) infinite;
 }
 /* 消息队列 = 贴在聊天框上沿的一叠「单行条」（用户口径：形状照 Qoder 的队列做法）。
    一条一行：折返箭头 + 单行正文（超长省略号）+ 右侧动作。不再是一张带表头
@@ -1197,27 +1274,6 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
    choreography=single-row-shimmer
    reduced-motion=static-status-text
 */
-.tool-run.is-running > .tool-call-summary {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-}
-.tool-run.is-running > .tool-call-summary::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--text-bright) 12%, transparent) 45%,
-    color-mix(in srgb, var(--text-bright) 18%, transparent) 50%,
-    color-mix(in srgb, var(--text-bright) 12%, transparent) 55%,
-    transparent 100%);
-  transform: translateX(-100%);
-  pointer-events: none;
-  animation: tool-row-shimmer var(--duration-shimmer) var(--ease-linear) infinite;
-}
-.tool-run.is-running > .tool-call-summary > * { position: relative; z-index: 1; }
 .tool-call-row { margin: var(--sp-2) auto; overflow: visible; }
 .tool-call-summary {
   display: grid;
@@ -1365,9 +1421,9 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .tool-call-drawer pre::-webkit-scrollbar { width: 8px; height: 8px; }
 .tool-call-drawer pre::-webkit-scrollbar-thumb { border-radius: 999px; background: transparent; }
 .tool-call-drawer:hover pre::-webkit-scrollbar-thumb { background: var(--border-strong); }
-@keyframes tool-row-shimmer {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(100%); }
+@keyframes loading-text-shimmer {
+  from { transform: translateX(-150%) skewX(-18deg); }
+  to { transform: translateX(500%) skewX(-18deg); }
 }
 .tool-io-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .io-panel { min-width: 0; background: var(--surface-2); }
@@ -6403,10 +6459,11 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
   .is-rolling { transition: none; }
   .scroll-shadows { transition: none; }
   .conversation-loading-row::after { animation: none; opacity: 0; }
-  .tool-run.is-running > .tool-call-summary::after {
+  .loading-shimmer::after,
+  .tool-run.is-running .tool-call-name::after {
     animation: none;
+    display: none;
     transform: none;
-    opacity: 0;
   }
 }
 
