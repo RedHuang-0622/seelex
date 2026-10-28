@@ -44,6 +44,21 @@ func TestMediaRoundTripDedupAndPaths(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(store.MediaRoot(scope), first.Hash, "meta.json")); err != nil {
 		t.Fatalf("media meta path changed: %v", err)
 	}
+	// MediaPath 是「点开缩略图，用系统默认查看器看原图」的唯一取路径入口：
+	// 它必须指向真实落盘文件，且非法 ref 不能编出一条路径来。
+	path, err := store.MediaPath(scope, first.Ref)
+	if err != nil {
+		t.Fatalf("MediaPath: %v", err)
+	}
+	if stored, readErr := os.ReadFile(path); readErr != nil || !bytes.Equal(stored, data) {
+		t.Fatalf("MediaPath 指向的不是原图: %q err=%v", path, readErr)
+	}
+	if _, err := store.MediaPath(scope, "media:"); err == nil {
+		t.Fatal("非法 ref 必须显式失败")
+	}
+	if _, err := store.MediaPath(scope, "media:deadbeef"); err == nil {
+		t.Fatal("不存在的 ref 必须显式失败，不能编出一条路径")
+	}
 	head, err := store.ReadMediaHead(scope)
 	if err != nil || len(head.Items) != 1 || head.TotalBytes != len(data) {
 		t.Fatalf("media head=%+v err=%v", head, err)

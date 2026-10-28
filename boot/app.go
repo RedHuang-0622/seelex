@@ -86,7 +86,7 @@ func (a *App) fail(err error) error {
 
 // Serve 跑前端（tui/gui/headless/backend）——前端形态是入口选择，装配与它无关。
 func (a *App) Serve() error {
-	return StartFrontend(a.Flags, a.Application, a.BackendOutput, a.StartupWarning, a.Version)
+	return StartFrontend(a.Flags, a.Application, a.Runtime, a.BackendOutput, a.StartupWarning, a.Version)
 }
 
 // Run 装配一台完整的 Seelex。返回的 App 必须在 Serve 之后 Shutdown。

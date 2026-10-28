@@ -9,12 +9,13 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/assembly"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/tui"
 )
 
 func guiAvailable() bool { return false }
 
-func startGUI(*application.Service, string, string) error {
+func startGUI(*application.Service, *assemble.Runtime, string, string) error {
 	return fmt.Errorf(`当前二进制未包含 GUI；请使用 go run -tags "gui,desktop,production" . -frontend gui`)
 }
 

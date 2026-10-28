@@ -1826,6 +1826,60 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 /* 草稿区的 chip 条：贴输入框上沿（与消息队列同一族位置语言），空时整块收起。 */
 .composer-file-refs { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 7px; }
 .composer-file-refs:empty { display: none; }
+/* 图片附件条（拖拽 / 粘贴）：缩略图排一行，是「不打开」的预览——图只在这里显示，
+   点开才交给系统默认图片查看器；空时整块收起（与引用 chip 条同一条规矩）。 */
+.composer-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 7px; }
+.composer-attachments:empty { display: none; }
+.composer-attachment {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--panel-solid);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.composer-attachment:hover { border-color: var(--border-info); }
+.composer-attachment-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.composer-attachment-thumb { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* 没有本地缩略图（例如界面重建后列表里的旧条）时不画破图：给一个占位方块，
+   "点开原图"这条路照旧可用。 */
+.composer-attachment-thumb.is-blank {
+  background: repeating-linear-gradient(45deg, var(--panel) 0 4px, var(--panel-solid) 4px 8px);
+}
+.composer-attachment-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  /* 遮罩底色走 --overlay（深浅两轴各自声明），不硬编码纯黑：圆角块里的硬编码黑色
+     正是主题用例点名的"黑外框"写法。 */
+  background: var(--overlay);
+  color: var(--on-accent);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.composer-attachment:hover .composer-attachment-remove,
+.composer-attachment:focus-within .composer-attachment-remove { opacity: 1; }
+.composer-attachment-remove:hover { background: var(--status-failed); }
 /* `+` 加号的选择器：从工具条上方浮出的小面板（复用命令面板的行样式）。 */
 .composer-file-picker {
   position: absolute;

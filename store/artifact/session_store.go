@@ -52,6 +52,16 @@ func (s *SessionStore) ReadMedia(_ context.Context, projectID, sessionID, ref st
 	return s.store.ReadMedia(scope, ref)
 }
 
+// MediaPath resolves one stored media asset to its on-disk path (宿主用系统默认
+// 查看器打开原图；路径不回渲染层)。归属解析与其它媒体读写同一套 scope 规则。
+func (s *SessionStore) MediaPath(_ context.Context, projectID, sessionID, ref string) (string, error) {
+	scope, err := s.scope(projectID, sessionID)
+	if err != nil {
+		return "", err
+	}
+	return s.store.MediaPath(scope, ref)
+}
+
 // ListMedia lists media assets.
 func (s *SessionStore) ListMedia(_ context.Context, projectID, sessionID string) ([]MediaRef, error) {
 	scope, err := s.scope(projectID, sessionID)

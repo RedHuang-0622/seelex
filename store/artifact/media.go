@@ -75,6 +75,27 @@ func (s *Store) ReadMedia(scope storelayout.Scope, ref string) (MediaRef, []byte
 	return s.readMediaLocked(scope, ref)
 }
 
+// MediaPath returns one stored media asset's on-disk path inside the session
+// partition (read-only fact; the layout owner is this file).
+//
+// 用途与边界：GUI 的"点开缩略图，用系统默认图片查看器看原图"需要真实文件位置。
+// 路径只在宿主进程内使用，不回渲染层。ref 非法、或该分区里没有这条资产，都显式
+// 失败——绝不返回一条不存在的路径让上层去猜。
+func (s *Store) MediaPath(scope storelayout.Scope, ref string) (string, error) {
+	digest := MediaRefHash(ref)
+	if digest == "" {
+		return "", fmt.Errorf("%w: %q", ErrMediaRefInvalid, ref)
+	}
+	lock := s.lock(scope, MediaLockID)
+	lock.Lock()
+	defer lock.Unlock()
+	item, err := s.readMediaMetaFile(scope, digest)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(s.mediaItemDir(scope, digest), item.Name), nil
+}
+
 // ListMedia lists media assets in stable creation/hash order.
 func (s *Store) ListMedia(scope storelayout.Scope) ([]MediaRef, error) {
 	lock := s.lock(scope, MediaLockID)

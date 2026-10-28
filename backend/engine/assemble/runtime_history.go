@@ -10,6 +10,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/agentsession"
+	toolmedia "github.com/RedHuang-0622/seelex/backend/tool/io/media"
 	"github.com/RedHuang-0622/seelex/store"
 	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 )
@@ -61,6 +62,31 @@ func (r *Runtime) ReadMediaWorkspace(ctx context.Context, projectID, sessionID, 
 		return storeartifact.MediaRef{}, nil, errors.New("media: artifact store is unavailable")
 	}
 	return state.store.ReadMedia(ctx, projectID, sessionID, ref)
+}
+
+// MediaPathWorkspace 是 media 域的宿主窄端口（GUI「点开缩略图」要真实文件位置）。
+func (r *Runtime) MediaPathWorkspace(ctx context.Context, projectID, sessionID, ref string) (string, error) {
+	if r == nil {
+		return "", errors.New("media: runtime is unavailable")
+	}
+	state := r.mediaStore.Load()
+	if state == nil || state.store == nil {
+		return "", errors.New("media: artifact store is unavailable")
+	}
+	return state.store.MediaPath(ctx, projectID, sessionID, ref)
+}
+
+// ComposerMedia 把媒体面交给 GUI 装配（输入框图片附件的唯一 owner）。
+//
+// 为什么走这个 getter 而不是把 `*toolmedia.SessionMedia` 塞进
+// `application/assembly.Components`：媒体域属于 backend，应用层不该认识它；桌面宿主
+// 是组合根，它手里已经有 Runtime，取一格窄端口就够——端口形状由消费方（gui）声明，
+// 这里的返回值只是"结构上满足"，赋值语句本身就是编译期断言。
+func (r *Runtime) ComposerMedia() *toolmedia.SessionMedia {
+	if r == nil {
+		return nil
+	}
+	return r.media
 }
 
 // AttachMediaStore injects the artifact-owned session-scoped media entry.

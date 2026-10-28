@@ -1,6 +1,16 @@
 import { escapeHtml, hydrateIcons, icon, queueDragTarget, queueMoveTarget } from "./components.js";
 import { FILE_DRAG_MIME, dropPaths, dropPlan, fileDragPayload } from "./file-drop.js";
 import {
+  attachmentAdd,
+  attachmentFiles,
+  attachmentIsImage,
+  attachmentName,
+  attachmentReject,
+  attachmentRemove,
+  attachmentStripHTML,
+  attachmentThumbUrl
+} from "./composer-attachments.js";
+import {
   FILE_REF_CANDIDATE_LIMIT,
   FILE_REF_TRIGGER,
   applyFileReference,
@@ -152,6 +162,8 @@ const elements = Object.fromEntries([
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
   "composer-file-refs", "file-button", "composer-file-picker", "composer-file-close", "composer-file-search", "composer-file-results",
+  // 图片附件（拖拽 / 粘贴）：缩略图条（不打开的预览）。
+  "composer-attachments",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2", "new-project-drafts", "new-project-create",
   "interaction-question", "interaction-preview", "interaction-options",
@@ -893,6 +905,10 @@ function syncComposerSession(snapshot) {
   }
   // 正文换了归属：上一个会话的内联建议（命令/插件/技能候选，以及文件引用候选）已不适用。
   hideInlineSuggestions();
+  // 图片附件同理且**更强**：字节已经落在上一个会话的媒体分区、也已经在它的随图
+  // 队列里（那是真事实，前端擦不掉）。把缩略图留在框里只会让用户以为它属于新会话，
+  // 所以这里清掉 UI 列表；图仍会随上一个会话的下一次请求送到模型。
+  clearComposerAttachments();
 }
 
 // restoreComposerDraft 在整份快照渲染时把后端恢复的草稿正文回填输入框：
@@ -3785,6 +3801,15 @@ function initFileDrop() {
     // 队列条换序的落点（QUEUE_DRAG_MIME）由队列宿主自己的 drop 处理器接走：
     // 载荷里没有工作树路径，这里不该再按"投放文件"处理一次。
     if (event.dataTransfer?.types?.includes(QUEUE_DRAG_MIME)) return;
+    // 图片是**另一条链**（字节 → 会话媒体分区 → 随下一次请求送模型），不是工作区
+    // 路径引用：先让附件面认领，认领成功就不再走 dropPlan（一张图不该同时变成一条
+    // "读这些文件"的指令）。
+    if (hasComposerImages(event.dataTransfer?.files)) {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      void attachComposerImages(event.dataTransfer.files);
+      return;
+    }
     const plan = dropPlan({ paths: dropPaths(dropPayload(event.dataTransfer)), draftText: elements.prompt.value });
     if (!plan) return;
     event.preventDefault();
@@ -3805,6 +3830,144 @@ function initFileDrop() {
   });
 }
 initFileDrop();
+
+// ── 输入框图片附件（拖拽 / 粘贴）：不打开的预览 + 点开用系统默认查看器 ───────
+// 纯判据（收不收 / 叫什么 / 去重 / chip 长什么样）在 composer-attachments.js，
+// 这里只做 DOM 与 Bridge 接线。两条链刻意分开：
+//   - 工作区文件（file-drop.js）：传**相对路径文本**，agent 自己 read_file；
+//   - 图片（本段）：传**字节**，后端落进会话媒体分区并挂进下一次请求随图，
+//     模型直接看见这张图。
+// 附件属于**会话**而不是视图：ref 一旦落盘就在该会话的随图队列里，因此提交成功或
+// 切换会话都只清掉这一条 UI 列表（图已经在该去的会话上了）。
+let composerAttachments = [];
+
+function hasComposerImages(files) {
+  return attachmentFiles(files).length > 0;
+}
+
+// renderComposerAttachments 重画缩略图条：空列表写成空串，宿主靠 CSS `:empty`
+// 整块收起（不吃高度、不吃指针）。
+function renderComposerAttachments() {
+  const host = elements["composer-attachments"];
+  if (!host) return;
+  host.innerHTML = attachmentStripHTML(composerAttachments);
+}
+
+// clearComposerAttachments 清空列表并释放缩略图的 objectURL（不释放就是内存泄漏：
+// 每张图的 blob 会一直挂在渲染进程里）。
+function clearComposerAttachments() {
+  for (const item of composerAttachments) releaseAttachmentThumb(item);
+  composerAttachments = [];
+  renderComposerAttachments();
+}
+
+function releaseAttachmentThumb(item) {
+  if (!item?.thumbUrl) return;
+  try { URL.revokeObjectURL(item.thumbUrl); } catch { /* 已释放过 */ }
+}
+
+function removeComposerAttachment(ref) {
+  const target = composerAttachments.find(item => item.ref === ref);
+  releaseAttachmentThumb(target);
+  composerAttachments = attachmentRemove(composerAttachments, ref);
+  renderComposerAttachments();
+}
+
+// fileBase64 把 File 读成裸 base64（wire 编码只在渲染层与桥面这一段存在；
+// 桥面解码后才进领域）。
+async function fileBase64(file) {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+// imagePixelSize 量一张图的像素尺寸（只作为媒体元数据，量不到就给 0/0——
+// 尺寸未知不阻塞附图）。
+async function imagePixelSize(file) {
+  try {
+    if (typeof createImageBitmap === "function") {
+      const bitmap = await createImageBitmap(file);
+      const size = { width: bitmap.width, height: bitmap.height };
+      bitmap.close?.();
+      return size;
+    }
+  } catch { /* 解码失败按未知尺寸处理 */ }
+  return { width: 0, height: 0 };
+}
+
+// attachComposerImages 把一批图片文件交给后端并挂进输入框。
+// 返回 true = 认领了这批载荷（调用方据此不再把它当工作区文件处理）。
+async function attachComposerImages(files) {
+  const list = attachmentFiles(files);
+  if (list.length === 0) return false;
+  const sessionID = client.current()?.session?.id;
+  if (!sessionID) {
+    showToast("当前没有可用会话，图片无法附上");
+    return true;
+  }
+  let accepted = 0;
+  for (const file of list) {
+    const reject = attachmentReject(file, composerAttachments);
+    if (reject) {
+      showToast(reject);
+      continue;
+    }
+    try {
+      const [base64, size] = await Promise.all([fileBase64(file), imagePixelSize(file)]);
+      // MIME 归一在模块里做过一次，但 wire 上仍按浏览器给的原值送；后端白名单是
+      // 最终判据（前端那次只是为了在选文件时就能答复）。
+      const image = await invoke("AttachComposerImage", sessionID, attachmentName(file), file.type, size.width, size.height, base64);
+      const next = attachmentAdd(composerAttachments, {
+        ref: String(image?.ref || ""),
+        name: String(image?.name || attachmentName(file)),
+        thumbUrl: attachmentThumbUrl(file)
+      });
+      if (next.length > composerAttachments.length) accepted += 1;
+      composerAttachments = next;
+      renderComposerAttachments();
+    } catch (error) { showToast(error); }
+  }
+  if (accepted > 0) showToast(`已附 ${accepted} 张图片，随下一条消息一起发给模型`);
+  return true;
+}
+
+// 粘贴：剪贴板里有图片字节（截图工具 / 复制图片）时由附件面接管；纯文本照旧走
+// 浏览器的默认粘贴（不 preventDefault）。
+elements.prompt.addEventListener("paste", event => {
+  const items = Array.from(event.clipboardData?.items || []);
+  const files = items
+    .filter(item => item?.kind === "file" && attachmentIsImage(item.type))
+    .map(item => item.getAsFile())
+    .filter(Boolean);
+  if (files.length === 0) return;
+  event.preventDefault();
+  void attachComposerImages(files);
+});
+
+// 缩略图上的两个动作：点开原图（系统默认查看器）/ 移除。
+// 「不打开的预览」就是这条分工：看图只发生在用户点了之后，附件面自己不弹任何窗口。
+elements["composer-attachments"]?.addEventListener("click", async event => {
+  const remove = event.target?.closest?.("[data-attachment-remove]");
+  if (remove) {
+    event.preventDefault();
+    removeComposerAttachment(remove.dataset.attachmentRemove);
+    elements.prompt.focus();
+    return;
+  }
+  const open = event.target?.closest?.("[data-attachment-open]");
+  if (!open) return;
+  event.preventDefault();
+  const sessionID = client.current()?.session?.id;
+  const ref = open.dataset.attachmentOpen;
+  if (!sessionID || !ref) return;
+  try { await invoke("OpenComposerImage", sessionID, ref); }
+  catch (error) { showToast(error); }
+});
 
 // initModalResize 通用弹窗拉伸：右下角手柄 pointer 拖动调整宽高
 // （覆盖工作表格/定时任务表格等 data-resizable 弹窗，仅尺寸调整）。
@@ -4716,6 +4879,9 @@ elements.composer.addEventListener("submit", async event => {
     // 提交要发往的会话，不是 RPC 回来时的会话。
     const plan = composerSubmitPlan({ text, viewedSessionID: client.current()?.session?.id });
     await invoke(plan.rpc, ...plan.args);
+    // 图片附件已经随这次请求送出去了（后端落进会话媒体分区 + 随图队列）：这里只
+    // 清掉输入框里的缩略图条并释放本地 objectURL。
+    clearComposerAttachments();
     // 提交是异步 RPC：往返期间用户可能已继续输入，只移除已发送的那段（规则见
     // composer-input.js），不整框清空——整框清空会把这段新输入一起吞掉。
     elements.prompt.value = clearSubmittedText(elements.prompt.value, sent);

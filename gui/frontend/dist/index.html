@@ -230,6 +230,10 @@
              工作区相对路径引用，这里与对话正文共用**同一枚 chip**（file-reference.js 的
              fileReferenceChipHTML 的两种宿主）。没有引用时整块收起（:empty）。 -->
         <div id="composer-file-refs" class="composer-file-refs" aria-live="polite"></div>
+        <!-- 图片附件条（拖拽 / 粘贴）：缩略图留在输入框里（**不打开**的预览），
+             点缩略图才交给系统默认图片查看器打开原图。空的时候靠 :empty 整块收起，
+             不吃高度也不吃指针（与上面的引用 chip 条同款）。 -->
+        <div id="composer-attachments" class="composer-attachments" aria-live="polite"></div>
         <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
         <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 引用工作区文件"></textarea>
         <div class="composer-actions">

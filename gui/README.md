@@ -78,6 +78,8 @@ sequenceDiagram
 | `assets.go` | `//go:embed frontend/dist`。 |
 | `run_wails.go` / `run_stub.go` | build tags 下的真实 GUI 与不可用 stub。 |
 | `dialogs_gui.go` / `dialogs_stub.go` | 平台目录选择适配。 |
+| `composer_media.go` | 输入框图片附件的桥面：`AttachComposerImage`（base64 解码 → 媒体域落盘 + 随图入队）、`OpenComposerImage`（定位原图交给系统默认查看器）。 |
+| `openfile_gui.go` / `openfile_windows.go` / `openfile_unix.go` / `openfile_stub.go` | 「用系统默认程序打开原图」的平台分支（rundll32 / open / xdg-open）；无 GUI 构建显式报不支持。 |
 | `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
 | `fork_live_probe_test.go` | 真实 API headless fork 探针（env 门控，opt-in；顶层 Submit → fork_subagents 链路 1/10/100 并发对照）。 |
 | `role_live_probe_test.go` | R2/R4 真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `role.*` 建 TL/写 draft/sync/floor/角色 wire → `schedule.*` → goroutine/mutex/block pprof 现场。 |
@@ -101,6 +103,29 @@ sequenceDiagram
 `CreateWorkspaces` 是项目 temp list 的批量提交口：它只登记 workspace，不绑定当前会话。
 前端确认多个目录后一次调用，随后用户从刷新后的项目列表选择一个开始会话；单条
 `CreateWorkspace` 保留“创建并立即绑定当前视图”的既有语义。
+
+### 输入框图片附件（拖拽 / 粘贴，2026-10-30）
+
+用户对某个界面不满意时，最省事的表达是**把那张截图拖进输入框**再补一句"这里不对"。
+这条链刻意不与工作区文件引用合用（`file-reference.js` 传路径文本、由 agent 自己读）：
+图片传的是**字节**，由模型直接看。两个入口：
+
+- `Bridge.AttachComposerImage(sessionID, name, mimeType, width, height, dataBase64)`
+  → `contract/dto.ComposerImageRequest` → 媒体域 `SessionMedia.AttachUserImage`：
+  校验 MIME 白名单（png/jpeg/webp/gif/bmp）与扩展名、把字节落进**该会话自己**的媒体
+  分区、并挂进「下一次请求随图」队列（与 computer use 截图同一条 `storeMedia` + `attach`，
+  所以归属、配额与「至多送一次」只有一份实现）。返回 `dto.ComposerImage`（ref/name/
+  bytes/尺寸）作为前端去重与「点开」的凭据。
+- `Bridge.OpenComposerImage(sessionID, ref)` → `SessionMedia.MediaFilePath` 拿到原图
+  的真实位置，再交给平台默认程序（Windows `rundll32 url.dll,FileProtocolHandler`、
+  macOS `open`、Linux `xdg-open`；实现在 build-tagged 的 `openfile_*.go`，无 GUI 构建
+  显式报不支持）。**路径不回到渲染层**：缩略图用渲染进程自己的 objectURL，"点开"才走
+  后端定位文件。
+
+两个动作都是**用户动作**：不过权限档位、不进执行选择页面（与文件保存同一条口径）。
+端口 `gui.Dependencies.Composer`（形状由 GUI 自己声明）由组合根从
+`Runtime.ComposerMedia()` 注入——媒体域属于 backend，应用层不认识它，所以这一格是
+唯一不走 `Components` 的依赖（见 `boot/frontend_gui.go`）。
 
 ### 多仓库 git（方向 A，2026-10-19）
 

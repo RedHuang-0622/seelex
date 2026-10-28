@@ -16,6 +16,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	assembly "github.com/RedHuang-0622/seelex/application/assembly"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // frontendDependencies 把一条真实流水线的 owner 绑成 GUI 依赖表，供打穿真实实现
@@ -54,12 +55,15 @@ func frontendDependencies(service *assembly.Service) Dependencies {
 		References:       components.Conversation.Reference,
 		WorkspaceCatalog: components.Workspace.Projects,
 		WorkspaceActions: components.Workspace.Switch,
-		Schedules:        components.Runtime.Scheduler,
-		WorkItems:        components.Execution.WorkItem,
-		Subagents:        components.Execution.Subagent,
-		RoleSessions:     components.Policy.RoleSessions,
-		ToolRecords:      components.Execution.ToolRecords,
-		SessionSSH:       components.Session.SSH,
+		// Composer：图片附件面在引擎里（媒体域），测试流水线没有引擎实例，
+		// 这里绑一个只记录调用的替身（真实链路见 media / bridge 的用例）。
+		Composer:     &fakeComposerMedia{},
+		Schedules:    components.Runtime.Scheduler,
+		WorkItems:    components.Execution.WorkItem,
+		Subagents:    components.Execution.Subagent,
+		RoleSessions: components.Policy.RoleSessions,
+		ToolRecords:  components.Execution.ToolRecords,
+		SessionSSH:   components.Session.SSH,
 	}
 }
 
@@ -93,6 +97,7 @@ func (fake *fakeApplication) deps() Dependencies {
 		References:       fakeReferences{recorder: fake},
 		WorkspaceCatalog: fake,
 		WorkspaceActions: fake,
+		Composer:         &fakeComposerMedia{recorder: fake},
 		Schedules:        fake,
 		WorkItems:        fake,
 		Subagents:        fake,
@@ -272,4 +277,37 @@ func (fake fakeViewEvents) SubscribeSession(_ string, buffer int) (application.S
 
 func (fake fakeViewEvents) SubscribeSessionWithReplay(string, int, int) (application.Subscription, error) {
 	return application.Subscription{}, errors.New("view events: replay window is not supported")
+}
+
+// ── 输入框图片附件（owner：backend/tool/io/media 的 SessionMedia）──────────────
+
+// fakeComposerMedia 是 ComposerMedia 端口的替身：只记录"桥面把什么交给了媒体面"。
+// 落盘/入队/归属的判据属于媒体域自己的用例（backend/tool/io/media/user_image_test.go），
+// 这里钉的是桥面这一段：参数不改写、base64 解码正确、错误原样冒出来。
+type fakeComposerMedia struct {
+	recorder  *fakeApplication
+	attached  []dto.ComposerImageRequest
+	openCalls []string
+	attachErr error
+	openErr   error
+	openPath  string
+}
+
+func (fake *fakeComposerMedia) AttachUserImage(_ context.Context, request dto.ComposerImageRequest) (dto.ComposerImage, error) {
+	fake.attached = append(fake.attached, request)
+	if fake.attachErr != nil {
+		return dto.ComposerImage{}, fake.attachErr
+	}
+	return dto.ComposerImage{
+		Ref: "media:stub", Name: request.Name, MimeType: request.MimeType,
+		Bytes: len(request.Data), Width: request.Width, Height: request.Height,
+	}, nil
+}
+
+func (fake *fakeComposerMedia) MediaFilePath(_ context.Context, sessionID, ref string) (string, error) {
+	fake.openCalls = append(fake.openCalls, sessionID+"|"+ref)
+	if fake.openErr != nil {
+		return "", fake.openErr
+	}
+	return fake.openPath, nil
 }

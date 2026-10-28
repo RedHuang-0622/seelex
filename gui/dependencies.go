@@ -276,6 +276,20 @@ type WorkspaceActions interface {
 	WriteFile(relPath, content string) (dto.FileWriteResult, error)
 }
 
+// ComposerMedia 是「输入框图片附件」的唯一 owner 面（`backend/tool/io/media` 的
+// SessionMedia，经组合根以 Runtime.ComposerMedia 注入）。
+//
+// 两格都是**用户动作**：把拖拽/粘贴进来的图片落进会话媒体分区并挂进下一次请求
+// 随图（模型因此真的看见这张图），以及给出原图位置让系统默认查看器打开。两件事
+// 都不过权限档位——用户自己按下的动作不是主代理动作（与文件保存同一条口径）。
+//
+// 形状由消费方（就是这里）声明：媒体域不需要认识 GUI，它只要在结构上满足这两格，
+// 装配处的赋值语句本身就是编译期断言。
+type ComposerMedia interface {
+	AttachUserImage(ctx context.Context, request dto.ComposerImageRequest) (dto.ComposerImage, error)
+	MediaFilePath(ctx context.Context, sessionID, ref string) (string, error)
+}
+
 // ScheduledTasks 是定时任务增改删面（唯一 owner：
 // `application/admin/scheduler.SchedulerApplication`）。
 type ScheduledTasks interface {
@@ -384,6 +398,8 @@ type Dependencies struct {
 	WorkspaceCatalog WorkspaceCatalog
 	// WorkspaceActions：工作区绑定、树与文件写面。
 	WorkspaceActions WorkspaceActions
+	// Composer：输入框图片附件（落会话媒体分区 + 原图位置）。
+	Composer ComposerMedia
 	// Schedules：定时任务增改删。
 	Schedules ScheduledTasks
 	// WorkItems：工作项、teammate 与会话实时投影。

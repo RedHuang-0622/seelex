@@ -31,6 +31,10 @@ func (h *stubHost) ReadMediaWorkspace(ctx context.Context, projectID, sessionID,
 	return h.media.ReadMedia(ctx, projectID, sessionID, ref)
 }
 
+func (h *stubHost) MediaPathWorkspace(ctx context.Context, projectID, sessionID, ref string) (string, error) {
+	return h.media.MediaPath(ctx, projectID, sessionID, ref)
+}
+
 func (h *stubHost) SessionProjectID(sessionID string) string {
 	if h == nil {
 		return ""

@@ -30,6 +30,9 @@ import (
 type Host interface {
 	WriteMediaWorkspace(context.Context, string, string, storeartifact.MediaItem) (storeartifact.MediaRef, error)
 	ReadMediaWorkspace(context.Context, string, string, string) (storeartifact.MediaRef, []byte, error)
+	// MediaPathWorkspace 给出某条已落盘媒体资产的真实文件位置（GUI「点开缩略图，
+	// 用系统默认查看器看原图」）。只读事实：媒体布局归存储 owner，本域不拼路径。
+	MediaPathWorkspace(context.Context, string, string, string) (string, error)
 	// SessionProjectID 解析会话绑定的项目 id；未绑定返回 ""。
 	SessionProjectID(sessionID string) string
 }
@@ -55,10 +58,16 @@ func New(host Host) *SessionMedia {
 // 引擎侧不需要知道图片的存在——Completer 接缝会把它挂到下一次请求上，而且
 // 只挂一次（见 imageattach.Registry 的 Take 语义），避免反复占用 token 与配额。
 func (m *SessionMedia) Attach(ctx context.Context, attachment imageattach.Attachment) {
+	m.attach(seeletelemetry.SessionIDFromContext(ctx), attachment)
+}
+
+// attach 是**唯一**的入队实现：三个入口（截图工具、用户拖拽/粘贴、诊断）只负责
+// 把会话 ID 解析出来，队列只在这里被写一次。会话为空时按队列语义静默丢弃。
+func (m *SessionMedia) attach(sessionID string, attachment imageattach.Attachment) {
 	if m == nil || m.pending == nil {
 		return
 	}
-	m.pending.Add(seeletelemetry.SessionIDFromContext(ctx), attachment)
+	m.pending.Add(sessionID, attachment)
 }
 
 // PendingCount 返回当前会话还有多少张待随图（诊断与断言用）。
@@ -81,8 +90,14 @@ func (m *SessionMedia) StoreMedia(ctx context.Context, asset bridgecomputer.Medi
 	if strings.TrimSpace(sessionID) == "" {
 		return bridgecomputer.StoredMedia{}, errors.New("computer: 缺少会话上下文，截图无法落盘")
 	}
+	return m.storeMedia(ctx, sessionID, asset)
+}
+
+// storeMedia 是**唯一**的落盘实现：会话 ID 由调用方解析（截图工具从 ctx、
+// 输入框附件从显式参数），归属解析与写入只有这一处。
+func (m *SessionMedia) storeMedia(ctx context.Context, sessionID string, asset bridgecomputer.MediaAsset) (bridgecomputer.StoredMedia, error) {
 	if m == nil || m.host == nil {
-		return bridgecomputer.StoredMedia{}, errors.New("computer: 会话存储未装配，截图无法落盘")
+		return bridgecomputer.StoredMedia{}, errors.New("media: 会话存储未装配")
 	}
 	ref, err := m.host.WriteMediaWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, storeartifact.MediaItem{
 		Name:     asset.Name,

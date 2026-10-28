@@ -95,6 +95,7 @@ go test ./store/... ./backend/tool/... ./e2e/... -count=1
 - `func (s *Store) mediaMetaPath(scope storelayout.Scope, digest string) string`
 - `func (s *Store) WriteMedia(scope storelayout.Scope, item MediaItem) (MediaRef, error)` — WriteMedia stores an idempotent media asset.
 - `func (s *Store) ReadMedia(scope storelayout.Scope, ref string) (MediaRef, []byte, error)` — ReadMedia reads media metadata and bytes.
+- `func (s *Store) MediaPath(scope storelayout.Scope, ref string) (string, error)` — MediaPath returns one stored media asset's on-disk path inside the session
 - `func (s *Store) ListMedia(scope storelayout.Scope) ([]MediaRef, error)` — ListMedia lists media assets in stable creation/hash order.
 - `func (s *Store) CollectMedia(scope storelayout.Scope, referenced map[string]bool, dryRun bool) ([]string, error)` — CollectMedia removes unreferenced media directories.
 - `func (s *Store) PublishMediaIndex(scope storelayout.Scope) error` — PublishMediaIndex republishes metadata/media.json from the directory source.
@@ -134,5 +135,6 @@ go test ./store/... ./backend/tool/... ./e2e/... -count=1
 - `func (s *SessionStore) scope(projectID, sessionID string) (storelayout.Scope, error)`
 - `func (s *SessionStore) WriteMedia(_ context.Context, projectID, sessionID string, item MediaItem) (MediaRef, error)` — WriteMedia stores an idempotent media asset.
 - `func (s *SessionStore) ReadMedia(_ context.Context, projectID, sessionID, ref string) (MediaRef, []byte, error)` — ReadMedia reads media metadata and bytes.
+- `func (s *SessionStore) MediaPath(_ context.Context, projectID, sessionID, ref string) (string, error)` — MediaPath resolves one stored media asset to its on-disk path (宿主用系统默认
 - `func (s *SessionStore) ListMedia(_ context.Context, projectID, sessionID string) ([]MediaRef, error)` — ListMedia lists media assets.
 - `func (s *SessionStore) CollectMedia(_ context.Context, projectID, sessionID string, referenced map[string]bool, dryRun bool) ([]string, error)` — CollectMedia removes unreferenced media assets.
