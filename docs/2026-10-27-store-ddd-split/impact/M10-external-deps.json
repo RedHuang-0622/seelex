@@ -3,7 +3,7 @@
   "milestone": "M10",
   "execution": {
     "worktree_branch": "codex/store-ddd-M8-to-M11",
-    "base_commit": "d192dab79aac926750f683c03c8fda4eb6e7d17c",
+    "base_commit": "c5036c6c61d16430d886905c72152da74d8b7f09",
     "checkpoint_commit": "PENDING_CHECKPOINT"
   },
   "checkpoint": {
@@ -310,24 +310,6 @@
       ],
       "verify_packages": [
         "github.com/RedHuang-0622/seelex/contract/dto"
-      ]
-    },
-    {
-      "path": "docs/2026-10-27-store-ddd-split/impact/M10-external-deps.md",
-      "package": "github.com/RedHuang-0622/seelex/docs/2026-10-27-store-ddd-split/impact",
-      "side": "production",
-      "sha256": null,
-      "pre_sha256": null,
-      "post_sha256": "e201c089102b4431b5dc04f17b4e3297ae97e9399e538ce735cd2e0f1f11defb",
-      "depends_on": [],
-      "depended_on_by": [],
-      "operations": [
-        {
-          "kind": "apply_reviewed_patch"
-        }
-      ],
-      "verify_packages": [
-        "github.com/RedHuang-0622/seelex/docs/2026-10-27-store-ddd-split/impact"
       ]
     },
     {
@@ -926,9 +908,9 @@
     }
   ],
   "summary": {
-    "production_files": 32,
+    "production_files": 31,
     "test_files": 18,
-    "packages": 16,
+    "packages": 15,
     "direct_edges": 0,
     "reverse_edges": 0
   }

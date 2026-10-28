@@ -28,6 +28,7 @@ def main() -> None:
             ".",
             ":(exclude)e2e/store_ddd_m10_facade_gate_test.go",
             ":(exclude)scripts/store-ddd/**",
+            ":(exclude)docs/2026-10-27-store-ddd-split/impact/**",
         ).stdout.splitlines()
         if path
     ]
