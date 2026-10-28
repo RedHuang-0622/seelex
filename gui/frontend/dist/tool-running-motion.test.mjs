@@ -26,10 +26,11 @@ function textOf(html) {
   return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-test("running 工具卡只有一条局部 1.8s shimmer activity，并保留工具名与可读状态", () => {
+test("running 工具卡把 1.8s shimmer 放在工具名文字上，并保留可读状态", () => {
   const html = toolHTML("running");
   assert.match(html, /class="tool-run is-running"/);
-  assert.equal((html.match(/class="tool-run-activity"/g) || []).length, 1);
+  assert.equal((html.match(/class="tool-run-activity"/g) || []).length, 0);
+  assert.match(html, /data-tool-label="read_file"/);
   assert.match(html, /data-motion-purpose="feedback"/);
   assert.match(html, /data-motion-trigger="state-change"/);
   assert.match(html, /data-motion-phase="running"/);
@@ -54,11 +55,23 @@ test("对话尾部 spinner 改成可读状态与 aria-busy；无图标旋转", a
   assert.doesNotMatch(html, /runtime-spinner/);
 });
 
-test("tool CSS 的 activity 层只靠 transform 扫动，reduced-motion 为静态线", async () => {
+test("tool CSS 的文字 shimmer 只靠 transform 扫动，reduced-motion 停止动画", async () => {
   const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
-  assert.match(css, /\.tool-run-activity\s*\{[^}]*position:\s*absolute/s);
-  assert.match(css, /\.tool-run-activity\s*\{[^}]*overflow:\s*hidden/s);
-  assert.match(css, /\.tool-run-activity\s*>\s*i\s*\{[^}]*transform:/s);
-  assert.match(css, /\.tool-run:not\(\.is-running\)\s+\.tool-run-activity/);
-  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.tool-run-activity\s*>\s*i\s*\{[^}]*animation:\s*none/s);
+  assert.doesNotMatch(css, /\.tool-run-activity/);
+  assert.match(css, /\.tool-run\.is-running \.chat-chip-name\[data-tool-label\]::after\s*\{[^}]*transform:/s);
+  assert.match(css, /@keyframes\s+tool-running-text-shimmer/);
+  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.tool-run\.is-running \.chat-chip-name\[data-tool-label\]::after\s*\{[^}]*animation:\s*none/s);
+});
+
+test("工具运行与对话运行同时存在时，同一视口只保留工具卡 activity", () => {
+  const html = renderConversationComponent([
+    {
+      id: "tool-running",
+      role: "tool",
+      tool: { id: "call-running", name: "bash", arguments: "{}", status: "running" }
+    }
+  ], { running: true }).html;
+  assert.equal((html.match(/class="tool-run-activity"/g) || []).length, 0);
+  assert.equal((html.match(/class="runtime-activity-line"/g) || []).length, 0);
+  assert.match(html, /工具执行中/);
 });

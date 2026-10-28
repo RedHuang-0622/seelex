@@ -138,6 +138,10 @@ go test ./application/... -count=1
 
 - `func TestBuildResidentSnapshotDetachesAndEnriches(t *testing.T)`
 
+### resident_snapshot_wire_test.go
+
+- `func TestBuildResidentSnapshotEmptyConversationMarshalsAsArray(t *testing.T)` — Empty drafts must serialize `conversation` as `[]`, never JSON `null`.
+
 ### runtime.go
 
 - `func SessionRuntimeOf(runtime model.RuntimeState) model.SessionRuntime` — SessionRuntimeOf extracts session-owned runtime facts from the full runtime.

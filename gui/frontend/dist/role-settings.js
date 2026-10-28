@@ -6,9 +6,8 @@
 // app.js 只保留 DOM 写入与 invoke。
 //
 // 口径：
-//   1. 权限向量的**标签 id 就是发给后端的字面量**（read / write / computeruse / control /
-//      bash / ssh），前端不另起一套别名，也不做 ro→read 这类对照表——
-//      对照表一旦出现就会有两份真相。中文只作 label（展示）。
+//   1. 权限向量的**标签 id 就是发给后端的字面量**（ro / rw / rw_desktop / ctl /
+//      bash / ssh），前端不另起一套别名。中文只作 label（展示）。
 //   2. 顺序固定为 PERMISSION_VECTOR_TAGS 的声明顺序：同一组选择永远渲染成同一行，
 //      后端拿到的数组也稳定（便于比对与去抖）。
 //   3. 未知标签一律丢弃（既不渲染也不提交）：标签表是这一份，别处不再兜底。
@@ -23,10 +22,10 @@ import { escapeHtml } from "./components.js";
 // PERMISSION_VECTOR_TAGS 是权限向量的唯一标签表。label 仅用于按钮文字，tip 是一句
 // "这把钥匙开什么门"；两列都不参与提交。
 export const PERMISSION_VECTOR_TAGS = [
-  { id: "read", label: "读", tip: "读文件、搜内容、列目录" },
-  { id: "write", label: "写", tip: "写文件、改文件（不含命令执行）" },
-  { id: "computeruse", label: "用电脑", tip: "截屏与桌面操作" },
-  { id: "control", label: "控制", tip: "结束/恢复执行、派生任务、调度团队" },
+  { id: "ro", label: "读", tip: "读文件、搜内容、列目录" },
+  { id: "rw", label: "写", tip: "写文件、改文件（不含命令执行）" },
+  { id: "rw_desktop", label: "用电脑", tip: "截屏与桌面操作" },
+  { id: "ctl", label: "控制", tip: "结束/恢复执行、派生任务、调度团队" },
   { id: "bash", label: "Bash", tip: "直接执行 shell 命令与后台命令" },
   { id: "ssh", label: "SSH", tip: "在会话固定环境上执行远程命令与文件操作（路径范围在该能力内配置）" },
 ];
@@ -94,7 +93,12 @@ export function togglePermissionVector(current, id) {
 export function permissionVectorSummary(selected) {
   const list = normalizePermissionVector(selected);
   if (!list.length) return "未选";
-  return list.map(id => (id.startsWith("!") ? `拒 ${id.slice(1)}` : id)).join(" · ");
+  return list.map(id => {
+    const denied = id.startsWith("!");
+    const canonical = denied ? id.slice(1) : id;
+    const label = permissionVectorLabel(canonical) || canonical;
+    return denied ? `拒 ${label}` : label;
+  }).join(" · ");
 }
 
 // permissionVectorLint 是"这组选择会走不通"的提示，与 permission-assembly §5 同 id：
@@ -104,10 +108,10 @@ export function permissionVectorLint(selected) {
   const list = normalizePermissionVector(selected);
   const has = id => list.includes(id);
   const warnings = [];
-  if (has("ssh") && !has("read")) {
+  if (has("ssh") && !has("ro")) {
     warnings.push({ id: "assembly_ssh_only", message: "选了 SSH 却没选读：远程列目录与读文件都会走不通" });
   }
-  if (has("write") && !has("read")) {
+  if (has("rw") && !has("ro")) {
     warnings.push({ id: "assembly_write_without_read", message: "选了写却没选读：改文件前先得能读" });
   }
   if (list.length && list.every(id => id.startsWith("!"))) {

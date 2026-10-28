@@ -11,8 +11,10 @@
 
 运行时实现把 CSS 时长/缓动集中在 `styles.css` 的 `--duration-*` / `--ease-*`
 token（旧 `--dur-*` 只做 alias），流式的 50/100/150ms cadence 只由
-`stream-cadence.js` 供源。对话尾部显示可读状态，不再使用通用 spinner；工具
-running 只在卡内 activity 层播放唯一 1.8s transform shimmer。圆角容器不得用
+runtime 交互的物理手感由 `spring-motion.js` 以 `stiffness` / `damping` / `mass`
+供源：按压与状态切换用临界阻尼，进入用轻欠阻尼，退出用过阻尼，CSS `linear()`
+由阶跃响应生成并钉死终值。对话尾部显示可读状态，不再使用通用 spinner；工具
+running 只在工具名文字上播放唯一 1.8s transform shimmer，不再使用底部光条。圆角容器不得用
 单侧厚 margin 定位，间距归父布局的 `gap` / `padding` 或对称 `margin-block`。
 
 ## 架构图
@@ -63,6 +65,7 @@ flowchart TB
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；`acceptBaseline` 是**订阅换代基线**入口（`seelex:ready` 才走它：新订阅 `delivery_seq` 从 1 重计，已应用水位必须归零——不看会话 id 变没变）；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发（ready 走 `acceptBaseline`）。 |
 | `dist/motion.js` | 呈现层动效工具：唯一的 `prefersReducedMotion()`、数字滚动、滚动边缘、增量入场，以及 CSS token 对应的命名 JS 兜底时长；不改业务状态。 |
+| `dist/spring-motion.js` | 交互弹簧的唯一物理事实源：`press/state/enter/exit/settle` 五个 `stiffness/damping/mass` preset、阻尼比与阶跃响应、CSS `linear()` easing 生成和 Web Animations 入口。`enter` 为 `ζ≈0.83` 的轻欠阻尼，`exit` 为 `ζ=1.2` 的过阻尼；不在组件里复制物理参数或手写关键帧时长。 |
 | `dist/stream-cadence.js` | 流式输出节奏调度：`STREAM_TICK_MS=50`、进入滞回 100ms、退出滞回 150ms、首包下一帧、最多 50ms 合并、terminal 先 flush 尾包。只决定何时渲染，不改变 Snapshot/Event/revision。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。用户消息编辑器在此挂载：稳定 `operation_id`、`ConversationRevision` CAS、loading 防双击、失败保留文本；DOM reconcile 后重新挂载未提交编辑器。**沙箱帧不走"整行重建"**：换行前把旧行里的 `seelex-html` 帧交给 `embed-buffering.js` 领养（内容没变的帧原样搬过去，不重载），换行后才发起离屏挂载——见下节「渲染时序」。 |
 | `dist/embed-buffering.js` | 会话内 HTML 渲染块的**帧缓冲**（治闪屏）：纯决策 `shouldDeferMount`（流式 / settle 窗口内不挂）与 `planEmbedMounts(prev, next, opts)`（按 `(key, srcdoc)` 分成 adopt / mount / defer / unmount 四类）+ DOM 适配 `createEmbedFrameBuffer`（领养、离屏挂载等 `load`、流式同高占位、双缓冲开关、token 防串、并发 4 上限排队、行移除清理）。零 import、可离线单测（`embed-buffering.test.mjs`）。**不改沙箱口径**：帧属性原样克隆，唯一改动是离屏副本的 `loading`（lazy 在离屏容器里可能永不加载）。 |
@@ -71,7 +74,7 @@ flowchart TB
 | `dist/compaction-format.js` | 压缩记录的展示口径（纯函数、零依赖）：原因/来源标签、被压区间（`compactionRangeText`）、分界标注（`compactionCutLabel`）——右栏「上下文压缩」条目与轨迹压缩轨/详情共用同一份，避免同一条记录两种读法。区间只取记录里已有的边界字段，绝不用 `messages_before`（装配前的引擎历史条数）冒充消息条数。还有门禁进度的累计与耗时文案：`mergeCompactionProgress`（把一帧 `compaction.progress` 并进本轮，判轮次边界、累加逐关耗时、终局沿用最后一条 running 的序号，见 `dist/compaction-format.test.mjs`）与 `compactionGateDurationText`（不足 1ms 写 `<1ms`，不写 `0ms` 也不凑成 1ms）。 |
 | `dist/context-summary.js` | 右栏「状态」子页的「上下文压缩」条目：**一行元数据摘要**——**seq 徽标**（= 压缩版本号，复用 `components.js renderSeqBadge`：goal 看板 active seq 与压缩条目共用同一件）+ 「栈顶」标记 + 原因；时间/来源/被压区间/估算进 hover `title`（右栏实测量级 ~280px，摊进行里必然堆叠换行）。右侧**一枚**动作按钮「查看帧正文」→ 打开可调大小的帧正文弹框（`#compaction-frame-modal`，正文按 `frame_ref` 分页读回，与轨迹详情同一容器与分页组件 `data-compact-frame-load`）——**不做行内展开**（行内 `compaction-stack-detail` 路径已下线）。「栈顶」是唯一标明"谁在前沿"的标记（非栈顶行压暗）。**压缩失败**在同一张表里排一条痕（`failed=true`：失败色 + 「失败」标记 + 原因跨整行 + 动作列写「上下文原样」，无区间/无帧），因为它不是一次压缩——但它必须查得到（此前只活在 6 秒的瞬态进度条里）。条目上方还有一轮压缩的门禁过程：**逐关耗时清单是唯一展现**（不再借 Plan 面板的轨道）——整轮只有几十毫秒，条只会瞬时满格，能看见串行工作的只有这份清单（每关一行 + 该关实测毫秒；起手帧那一关还没有数字，写「进行中」而不编耗时）。静态原型见 `dist/compaction-preview.html`（真渲染件 + 真样式，六格夹具）。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要，以及 DevTools Network 式左右主从区——左侧 listbox 条目表选中记录，右侧 inspector 固定详情头并展示入参/出参 JSON、THINK、复制/展开与 `result_ref` 分页读回；普通轴块点击会选中并定位对应行，元数据块点击开轴详情。**上下文轴分页**：滚轮在轴区域内翻页（`axisWheelStep` 累积阈值、一页一屏语义）、`Shift+滚轮`换页大小（`AXIS_PAGE_SIZE_STEPS`/`stepAxisPageSize`，带页码与页大小提示），分页窗口计算是纯函数（`resolveAxisPage`/`axisPageWindow`/`axisPageForIndex`）；翻到尚未加载的更早区间时提示并以既有 `loadMore` 通道回读，不静默跳位。 |
-| `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。用户消息附带复制/编辑动作：复制 payload 是原始 `content`，编辑是否可用只读后端 `event_seq/editable/edit_disabled_reason`。**邻接圆角**（F-6）：`renderConversationModel` 逐行按 `blocksFuse`（不同类 llm ↔ 工具过程始终融合；同类默认不分割，换轮次 `round_id` / 换角色归属 `role_name` ＝分割）给消息块与工具过程轴卡产出中介类 `is-joined-above` / `is-joined-below` / `is-joined-both` + `data-joined-above` / `data-joined-below`，CSS 只削交界那一侧、外侧角保留圆角。 |
+| `dist/components.js` | message/tool/queue 等纯渲染组件；工具行采用 Codex 式紧凑结构（工具名、调用摘要、状态、耗时/大小），摘要自然换行，running 只让工具名文字 shimmer；用户消息正文与复制/编辑动作组成右对齐、可换行的气泡集群，复制 payload 是原始 `content`，编辑是否可用只读后端 `event_seq/editable/edit_disabled_reason`。**邻接圆角**（F-6）：`renderConversationModel` 逐行按 `blocksFuse`（不同类 llm ↔ 工具过程始终融合；同类默认不分割，换轮次 `round_id` / 换角色归属 `role_name` ＝分割）给消息块与工具过程轴卡产出中介类 `is-joined-above` / `is-joined-below` / `is-joined-both` + `data-joined-above` / `data-joined-below`，CSS 只削交界那一侧、外侧角保留圆角。 |
 | `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码压缩；`title=`/`height=` 参数，高度钳制 120–640px；`interactive=1` 表示这一块自愿驱动会话（说明牌同步显示）。**跨帧动作协议**住在这里（标签、`data-seelex-action`/`data-seelex-payload`、动作表、注入脚本）——零 import，测试按 data: URL 内联它。普通 ```html 仍是源码块。**另一条读者**（F-7）：文件预览的 HTML 只读态复用同一套沙箱口径（`buildHtmlPreviewDocument` / `renderSandboxFrame`，**不带跨帧桥**——预览一份磁盘上的 HTML 不该能驱动会话）。 |
 | `dist/embed-bridge.js` | 会话内 HTML 渲染块的**动作通道宿主侧判据**（iframe → 宿主 · postMessage）：解析 → 动作白名单（`ask-agent` / `fill-composer` / `copy-text` / `open-source`）→ 载荷上限 → 块级自愿（driving 动作要求围栏 `interactive=1`）→ 滑动窗口限流与同正文去重。身份按 **`event.source`** 比对（沙箱 iframe 是 opaque origin，`event.origin` 恒为 `"null"`，按 origin 判等于不判）；有后果的动作还要求块内 1.5s 内的**真实手势**（帧内脚本按 `event.isTrusted` 记时，`onload`/timer 自动重放被丢）。落点在 `app.js`：复制 / 写输入框（不发送）/ 走 `SubmitToSession` 发一条请求 / 展开该块源码。纯函数，含 `embed-bridge.test.mjs`。 |
 | `dist/theme.js` | 换肤加载层（**两轴**：深浅 × 皮肤）：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>`（深浅）与皮肤 `<link>`（品牌）；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；皮肤记 `localStorage["seelex.skin"]`、深浅记 `localStorage["seelex.mode"]`。 |
@@ -127,7 +130,7 @@ flowchart TB
 
 - token 层分两条轴：**深浅**（`:root` 浅色 / `:root[data-theme="dark"]` 深色）给表面色（`--bg/panel/surface`）、文本色、描边、语义色（`--status-running/done/failed/info`）、刻度线（`--tick`）、半透明面与投影；**皮肤**（`themes/<skin>.css`）只给品牌（主信号 + 环境渐变，8 个 `--skin-*`），由 styles.css 桥接成 `--accent`/`--on-accent`/`--shell-gradient`。字阶、圆角与间距属基座，不分轴。组件不得硬编码色值；同义状态只允许使用对应语义变量，禁止色值漂移。
 - 字体三角色：界面正文 `--font-ui`，数据/时间戳/状态 `--font-mono`，标签与数字 `--font-display`（Bahnschrift 系测量字）；最小可见字号 10px，数据行 ≥11px，正文不低于 12px。
-- 中栏签名：`#trace-rail` 是一条垂直时间基线，消息与 Plan 卡片以打点（`::before` 圆点）挂线，工具卡片以左侧 3px 状态条标识；运行中的 Plan 节点只用静态语义线，唯一的循环活动信号属于工具卡内部 1.8s shimmer。
+- 中栏签名：`#trace-rail` 是一条垂直时间基线，消息与 Plan 卡片以打点（`::before` 圆点）挂线，工具卡片以左侧 3px 状态条标识；运行中的 Plan 节点只用静态语义线，唯一的循环活动信号是工具名文字上的 1.8s shimmer。
 - 界面词统一为中文：就绪 / 执行中 / 排队 / 手动 / 自动改文件 / 自动执行 / 全权；弹窗 eyebrow 不再使用英文机器词。
 - 图标管线：静态按钮以 `data-icon` 占位，启动时由 `components.js` 的
   `hydrateIcons()` 注入统一 stroke SVG（ICONS 注册表）；顶部连接点
@@ -162,15 +165,16 @@ flowchart TB
   截断，条目里不再出现时间/token）+ **⋯ 段**（省略号按钮，点开才是置顶 / 分支 /
   删除三个操作）。时间、token 与完整标题在鼠标常驻（或键盘聚焦）时由共享提示
   气泡（`#ui-tooltip`，一条 DOM、`[data-tip]` 委托触发、`\n` 分行）一起给出；
-  ⋯ 段同一时刻只开一条，点空白 / Esc / 执行动作即收起。
-- 动效克制：对话尾部是可读状态文字 + 局部 activity 线，工具 running 使用卡内唯一 shimmer；通用 spinner、3D 翻转、`top`/`width`/`left` 等布局属性动画已移除。`prefers-reduced-motion` 下活动线静态化，文字、焦点与操作保持可用。
+  ⋯ 段同一时刻只开一条，点空白 / Esc / 执行动作即收起。置顶行只把前导图标换成
+  单一星标并提高标题层级，不再附加左侧竖条，也不与消息图标叠用。
+- 动效克制：对话尾部是可读状态文字 + 局部 activity 线，工具 running 只让工具名文字 shimmer；通用 spinner、底部光条、3D 翻转、`top`/`width`/`left` 等布局属性动画已移除。`prefers-reduced-motion` 下文字动画静态化，状态、焦点与操作保持可用。
 - 交互口径（拟物但克制：北欧家居式极简 + 锤子式短促回弹）：
   - 焦点提示只作用于**外框**：`1px solid var(--focus-ring)` + `box-shadow: var(--focus-glow)`（`0 0 12px 1px`，零偏移、纯发散模糊）；内部 `textarea` 的 focus ring 显式清掉。
     **例外（用户口径）**：聊天框是**卡片**，它的「点击激活」不再加聚光——卡片一旦发光就像"被选中/报错"，不像"正在输入"。`.composer:focus-within` 改成卡片抬升 `--shadow-lift`（两套皮肤各一档）＋ 一点点 accent 描边提示焦点在哪；
   - 消息队列 = 叠在聊天框上沿的一叠卡片：`.message-queue` 是列，卡片之间用 `--queue-peek` 相互压边（每张卡底部预留同样高度的内边距，压边吃掉的是留白而不是正文），最下面一条（最新排队）紧贴聊天框上沿；被指到/键盘进入的那张浮到最上面；作为文件拖放目标时高亮同一套强调边；
   - 档案夹 → 会话的拖拽：工作树文件行 `draggable`（`data-file-drag` = 工作区相对路径），聊天框与消息队列是落点，映射逻辑在 `dist/file-drop.js`（纯函数）：草稿非空只**追加**引用（不替用户发出去），草稿为空就走 composer 的普通提交路径（会话运行中由后端排进消息队列——上方那叠卡片就是这么来的）；
   - 文件引用的三入口（J-1b）：`@文件`（内联候选来自已加载的工作区树索引）、composer 工具条上的 `+` 加号（路径选择器）、上面的拖拽 —— 三者只产出**工作区相对路径**，共用 `file-drop.js` 的 `normalizeDropPath` 判据与 `file-reference.js` 的**同一枚 chip**；草稿区（`#composer-file-refs`，可 × 删除）与对话正文（user 消息，点击开右栏详情）是同一枚 chip 的两种宿主，正文文本一个字都不改（引用就是路径，agent 自己 `read_file`/`grep`）；
-  - 按压是「陷进去再弹回来」：`:active` 用 0 偏移内阴影 `--press-shadow` + `translateY(1px) scale(.985)`（图标键 .94），开关态（`perm-chip.is-on` / 已置顶）也用内阴影表示"已经按进去"；位移都在 1~2px，不做弹跳；
+  - 按压是「陷进去再弹回来」：`:active` 用 0 偏移内阴影 `--press-shadow` + `translateY(1px) scale(.985)`（图标键 .94），开关态（`perm-chip.is-on`）用内阴影表示"已经按进去"；置顶只使用星标与文字层级；位移都在 1~2px，不做弹跳；
   - 层次靠 1px 外框 + 极轻投影，不堆厚描边；`prefers-reduced-motion` 关闭全部 transition/animation。
   - 轨迹采用 DevTools Network 式主从检查：左侧可选条目表，右侧固定详情头与可滚动入参/出参 JSON；选中行由背景与焦点环表达，不做行内详情展开。
 - 内存口径（前端只做减法的三件事）：
@@ -827,6 +831,9 @@ go test ./gui -count=1
 `runtime-events.test.mjs` 验证 Wails runtime 延迟就绪时不会漏绑或重复绑定。`event-chain.test.mjs` mock Wails `seelex:event` 并验证主代理/子代理工具完成状态和权威 `runtime.full_access` 通过 `createGUIClient`/`protocol.js` 后可见，且连续事件不会退化为 Snapshot reload；主代理工具卡明确断言完成后不再显示 `Waiting for output…`。
 `motion-contract.test.mjs` / `shape-spacing.test.mjs` 钉住 token、属性白名单、
 圆角与单侧 margin 禁令、reduced-motion 和视图进入/退出节奏；
+`spring-motion.test.mjs` 钉住阻尼比分类、进入的受控过冲、退出不回弹和
+`linear()` 曲线终值；`motion-contract.test.mjs` 同时确认弹层、抽屉和视图
+进入退出调用 `animateSpring`，不再使用普通关键帧闪现。
 `stream-cadence.test.mjs` 覆盖 50ms 合并、100ms 进入、150ms 退出、terminal 尾包
 与 app 接线；`tool-running-motion.test.mjs` 覆盖唯一 activity 与终止态停表；
 `trajectory.test.mjs` 覆盖左表右详情、JSON 入参/出参、过滤/分轨/分页与转义。

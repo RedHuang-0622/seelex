@@ -62,6 +62,17 @@ test("user messages expose copy and edit only when the backend marks them editab
   assert.doesNotMatch(assistant, /data-copy=/);
 });
 
+test("用户消息正文和小型操作组成同一个右对齐气泡集群", () => {
+  const rendered = renderConversationComponent([
+    { id: "u1", role: "user", content: "检查这个文件", event_seq: 3, editable: true }
+  ], { running: false });
+  assert.match(rendered.html, /class="message-user-cluster"/);
+  const cluster = rendered.html.match(/<div class="message-user-cluster">[\s\S]*?<\/article>/)?.[0] || "";
+  assert.match(cluster, /class="message-body"/);
+  assert.match(cluster, /class="message-actions"/);
+  assert.ok(cluster.indexOf("message-body") < cluster.indexOf("message-actions"));
+});
+
 test("user copy payload is the original content, not rendered markdown", () => {
   const model = renderConversationModel([
     { id: "u1", role: "user", content: "**原文** <script>x</script>", event_seq: 2, editable: true }
@@ -147,7 +158,7 @@ test("uses stable message and tool keys for incremental rendering", () => {
   assert.match(model.items[1].html, /工具过程/);
 });
 
-test("renders tool calls as one-line chips without IN/OUT panels", () => {
+test("renders compact Codex-style tool calls without IN/OUT panels", () => {
   const model = renderConversationModel([
     { id: "tool-start", role: "tool", tool: { id: "call-big", name: "bash", arguments: "{}" } },
     { id: "tool-end", role: "tool_result", tool: {
@@ -164,7 +175,8 @@ test("renders tool calls as one-line chips without IN/OUT panels", () => {
   assert.doesNotMatch(item.html, /data-load-ref/);
   assert.doesNotMatch(item.html, /io-collapse/);
   assert.doesNotMatch(item.html, /io-panel/);
-  assert.match(item.html, /class="item-id">call-big</);
+  assert.match(item.html, /data-tool-id="call-big"/);
+  assert.match(item.html, /class="tool-command"/);
 });
 
 test("keeps chat tool rows to a single line with status", () => {

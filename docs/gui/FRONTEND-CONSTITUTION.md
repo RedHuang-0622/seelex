@@ -68,7 +68,7 @@ Seelex 借鉴 Codex 类工作台的状态语义，但不复制其具体外观：
 | `A06` | 切换会话、页签或主视图 | `Continuity` | `route change` / `state change` | 新视图 250ms 淡入；位移不超过 8px；旧视图在 150ms 内退出 | 顶栏、左栏、右栏、composer | 直接替换内容，不隐藏最终内容 |
 | `A07` | 列表首次插入新行 | `Continuity` | `state change` | 首次插入时 250ms 淡入并上移 6px；同一 key 的内容替换不重播 | 列表容器与滚动位置 | 新行立即可见 |
 | `A08` | 状态从 running 到 done/failed | `Feedback` | `state change` | 150ms 内切换语义底色、文字色和图标；不使用弹跳 | 行高、表格列宽 | 立即切换语义色与状态文字 |
-| `A09` | 工具调用运行中 | `Feedback` | `state change` | 工具卡局部 1.8s 循环 shimmer；状态文字始终可读 | 工具卡外框、行高、相邻行 | shimmer 改为静态浅色活动条 |
+| `A09` | 工具调用运行中 | `Feedback` | `state change` | 工具名文字局部 1.8s 循环 shimmer；状态文字始终可读 | 工具卡外框、行高、相邻行 | 去掉扫光，保留静态状态文字 |
 | `A10` | 模型持续流式输出 | `Feedback` | `state change` | 按第 3 节的 cadence 合并刷新；不在每个 token 上播放 CSS 动画 | 消息位置、滚动锚点、输入框 | 保留内容更新，移除游标等装饰 |
 | `A11` | 长任务超过 10s | `Feedback` | `state change` | 确定性进度或阶段文字；提供取消或后台入口 | 任务归属容器 | 保留文字与进度数值 |
 | `A12` | 读取未知结构数据 | `Feedback` | `load` / `state change` | 100ms 延迟后显示状态文字和局部 activity；不伪造骨架结构 | 页面壳与操作区 | 只显示静态状态文字 |
@@ -214,7 +214,35 @@ idle
 
 退出时长应短于对应进入时长，目标约为 75%；实现优先使用相邻 token，例如进入 250ms、退出 150ms。
 
-### 4.3 位移与编排
+### 4.3 弹簧物理
+
+按钮、状态切换、弹层、抽屉和列表入场不得用“关键帧闪现”冒充有惯性的状态变化。
+物理参数只在 `gui/frontend/dist/spring-motion.js` 的 `SPRING_PRESETS` 定义一次，组件
+只按语义名引用；阻尼比按 `ζ = damping / (2 * √(stiffness * mass))` 计算。
+
+| Preset | 产品语义 | `stiffness` | `damping` | `mass` | 时长预算 | `ζ` | 手感 |
+|---|---|---:|---:|---:|---:|---:|---|
+| `press` | 按压确认 | 1200 | 69.282 | 1 | 100ms | 1.00 | 临界阻尼，快速到位且不回弹 |
+| `state` | 状态或提示切换 | 800 | 56.569 | 1 | 150ms | 1.00 | 临界阻尼，立即表达状态事实 |
+| `enter` | 弹层、抽屉、视图进入 | 500 | 37 | 1 | 250ms | 0.83 | 轻欠阻尼，只允许克制过冲 |
+| `exit` | 弹层、抽屉、视图退出 | 900 | 72 | 1 | 150ms | 1.20 | 过阻尼，不越过终值 |
+| `settle` | 新列表行及局部内容落位 | 420 | 30 | 1 | 300ms | 0.73 | 轻微回弹后收敛，不拖慢阅读 |
+
+规则：
+
+1. `ζ < 1` 表示有回弹的欠阻尼，`ζ = 1` 表示最快且不回弹的临界阻尼，
+   `ζ > 1` 表示缓慢收敛的过阻尼。普通状态反馈优先临界阻尼；进入可使用
+   `0.65 < ζ < 0.85` 的轻欠阻尼；退出必须 `ζ >= 1`，不得在关闭时再弹回来。
+2. CSS `linear()` 缓动由阶跃响应采样生成，最后一点必须钉到 `1 100%`，确保
+   Web Animations 最终状态与业务状态一致。
+3. 组件不得另写 `cubic-bezier()`、关键帧时长或第二套刚度/阻尼/质量数值。
+   `durationMs` 是采样与完成边界，不是第二套独立 easing token。
+4. `prefers-reduced-motion: reduce` 下直接提交终态；不得播放弹簧，也不得隐藏
+   内容、状态文字、焦点或操作入口。
+5. 弹簧只动画 `opacity` / `transform`；不得通过弹簧改变 `width`、`height`、
+   `top`、`left`、`margin`、`padding` 或容器布局。
+
+### 4.4 位移与编排
 
 - 按压最多 1px 下沉；图标键 scale 不低于 0.94。
 - 普通入场最多 6px；页面或视图入场最多 8px。
@@ -222,7 +250,7 @@ idle
 - 同一动作只允许一个承接件：阴影、描边和背景不同时重复强调。
 - 动画不得改变外壳、顶栏、左右栏和 composer 的 bounding rect。
 
-### 4.4 属性白名单
+### 4.5 属性白名单
 
 新动效只允许：
 
@@ -230,7 +258,7 @@ idle
 
 `border-color` 新代码应作为静态颜色切换处理，不加入 transition 列表。现有 `border-color` transition 属于迁移债务，下一轮按受影响组件逐步移除。
 
-### 4.5 空间与圆角
+### 4.6 空间与圆角
 
 间距是布局责任，不是形状责任：
 
@@ -251,21 +279,21 @@ Shimmer 只用于工具调用处于 `running` 的加载动画，以及结构已�
 - Trigger：`state change`
 - 开始：工具状态从 queued/waiting 进入 running
 - 停止：工具进入 success/error/cancelled，或视图卸载
-- 作用对象：工具卡内部的独立 activity 层
+- 作用对象：工具卡内部的工具名文字；禁止使用卡片底部光条或覆盖整卡的扫光层
 - 静止元素：工具卡布局、行高、相邻内容、任务列表
 
 ### 5.3 动效规格
 
 - 周期：1.8s。
 - 缓动：linear。
-- 实现：被 `overflow: hidden` 裁剪的伪元素使用 `transform: translateX()` 扫过，不使用 `background-position`，不改变 `width`、`height` 或 `top`。
+- 实现：工具名的文字伪元素使用 `transform: translateX()` 扫过，配合 `background-clip: text`；不使用 `background-position`，不改变 `width`、`height` 或 `top`。
 - 基线可见度：渐变峰值与底层对比可辨，但不能盖过状态文字。
 - 同一工具卡同时最多一条 shimmer。
 - 工具卡的可见文字必须明确写出工具名和运行状态，shimmer 只是第二信号。
 
 ### 5.4 reduced-motion
 
-`prefers-reduced-motion: reduce` 下移除扫动，保留一条静态语义活动线或静态浅底色；运行文字、工具名和取消能力保持不变。
+`prefers-reduced-motion: reduce` 下移除文字扫光，保留完整静态状态文字、工具名和取消能力。
 
 ## 6. 组件规则
 
@@ -274,7 +302,7 @@ Shimmer 只用于工具调用处于 `running` 的加载动画，以及结构已�
 | 顶栏连接状态 | 状态反馈 | 100ms 后显示“正在连接/已连接/连接失败”；不旋转整枚图标 |
 | 左侧会话行 | 选择与反馈 | 选中由底色和文字层级表达；状态点不在静止行持续动画 |
 | 对话消息 | 内容连续 | 首次插入可 250ms 入场；已有消息流式更新不重播入场 |
-| 工具卡 | 运行反馈 | running 使用单一 shimmer + 状态文字；完成/失败 150ms 切换语义色 |
+| 工具卡 | 运行反馈 | running 只在工具名文字上使用单一 shimmer + 状态文字；完成/失败 150ms 切换语义色 |
 | Plan 节点 | 执行连续 | 不使用扫过整张卡片的 `top` 动画；running 活动限制在节点状态线或局部 activity 层 |
 | composer | 即时反馈 | 提交后按钮状态和状态文案立即变化；不因 loading 改变输入框高度 |
 | 消息队列 | 顺序连续 | 插入/重排应可中断；拖拽中使用直接手势反馈，不播放整屏位移 |
@@ -295,9 +323,9 @@ Shimmer 只用于工具调用处于 `running` 的加载动画，以及结构已�
 /* seelex-motion:
    purpose=feedback
    trigger=state-change
-   cast=activity-layer; static=tool-card, rows
+   cast=tool-name-text; static=tool-card, rows
    choreography=simultaneous
-   reduced-motion=static-activity-line
+   reduced-motion=static-status-text
 */
 ```
 
@@ -389,6 +417,14 @@ semantics:
 motion:
   duration_ms: {micro: 100, fast: 150, normal: 250, slow: 400, slower: 600}
   easing: {enter: ease-out, exit: ease-in, in_scene: ease-in-out, loop: linear}
+  spring_source: gui/frontend/dist/spring-motion.js
+  spring_presets:
+    press: {stiffness: 1200, damping: 69.282, mass: 1, duration_ms: 100, zeta: 1.0}
+    state: {stiffness: 800, damping: 56.569, mass: 1, duration_ms: 150, zeta: 1.0}
+    enter: {stiffness: 500, damping: 37, mass: 1, duration_ms: 250, zeta: 0.83}
+    exit: {stiffness: 900, damping: 72, mass: 1, duration_ms: 150, zeta: 1.2}
+    settle: {stiffness: 420, damping: 30, mass: 1, duration_ms: 300, zeta: 0.73}
+  spring_rule: {enter: light-underdamped, exit: overdamped-no-rebound, endpoint: pinned-to-1}
   stagger_ms: 40
   sequence_max_ms: 500
   max_enter_translate_px: 8

@@ -29,52 +29,61 @@ const read = (name) => readFile(new URL(`./${name}`, import.meta.url), "utf8");
 test("标签表就是那六项，id 即提交字面量", () => {
   assert.deepEqual(
     PERMISSION_VECTOR_TAGS.map(tag => tag.id),
-    ["read", "write", "computeruse", "control", "bash", "ssh"],
+    ["ro", "rw", "rw_desktop", "ctl", "bash", "ssh"],
   );
   for (const tag of PERMISSION_VECTOR_TAGS) {
     assert.ok(tag.label && tag.tip, `${tag.id} 要有中文标签与一句说明`);
   }
-  const write = PERMISSION_VECTOR_TAGS.find(tag => tag.id === "write");
+  const write = PERMISSION_VECTOR_TAGS.find(tag => tag.id === "rw");
   const bash = PERMISSION_VECTOR_TAGS.find(tag => tag.id === "bash");
   assert.doesNotMatch(write.tip, /跑命令|执行命令/, "写权限不再隐式包含命令执行");
   assert.match(bash.tip, /命令/, "Bash 权限要说明负责命令执行");
 });
 
+test("权限向量提交 id 必须直接使用后端契约标签，不使用展示名", () => {
+  assert.deepEqual(
+    PERMISSION_VECTOR_TAGS.map(tag => tag.id),
+    ["ro", "rw", "rw_desktop", "ctl", "bash", "ssh"]
+  );
+  assert.equal(normalizePermissionVector(["read", "write"]).length, 0);
+  assert.deepEqual(normalizePermissionVector(["ro", "rw", "!ctl"]), ["ro", "rw", "!ctl"]);
+});
+
 test("归一化：丢弃未知、去重、按声明顺序稳定", () => {
-  assert.deepEqual(normalizePermissionVector(["ssh", "read"]), ["read", "ssh"]);
-  assert.deepEqual(normalizePermissionVector(["ssh", "ssh", "read"]), ["read", "ssh"]);
-  assert.deepEqual(normalizePermissionVector(["root", "rw", ""]), []);
-  assert.deepEqual(normalizePermissionVector("read"), []);
+  assert.deepEqual(normalizePermissionVector(["ssh", "ro"]), ["ro", "ssh"]);
+  assert.deepEqual(normalizePermissionVector(["ssh", "ssh", "ro"]), ["ro", "ssh"]);
+  assert.deepEqual(normalizePermissionVector(["root", "legacy", ""]), []);
+  assert.deepEqual(normalizePermissionVector("ro"), []);
   assert.deepEqual(normalizePermissionVector(undefined), []);
-  // 后端若把 ro/rw 这类旧组名塞回来，前端不认（不另做别名对照表）。
-  assert.deepEqual(normalizePermissionVector(["ro", "ssh"]), ["ssh"]);
-  assert.equal(permissionVectorSummary(["ssh"]), "ssh");
+  // 旧展示名不是权限契约，后端若误塞回来也不认。
+  assert.deepEqual(normalizePermissionVector(["read", "ssh"]), ["ssh"]);
+  assert.equal(permissionVectorSummary(["ssh"]), "SSH");
   assert.equal(permissionVectorSummary([]), "未选");
 });
 
 test("点标签：加/减都回到稳定顺序，未知 id 不改选择", () => {
-  assert.deepEqual(togglePermissionVector([], "write"), ["write"]);
-  assert.deepEqual(togglePermissionVector(["write"], "read"), ["read", "write"]);
-  assert.deepEqual(togglePermissionVector(["read", "write"], "write"), ["read"]);
-  assert.deepEqual(togglePermissionVector(["read"], "root"), ["read"]);
+  assert.deepEqual(togglePermissionVector([], "rw"), ["rw"]);
+  assert.deepEqual(togglePermissionVector(["rw"], "ro"), ["ro", "rw"]);
+  assert.deepEqual(togglePermissionVector(["ro", "rw"], "rw"), ["ro"]);
+  assert.deepEqual(togglePermissionVector(["ro"], "root"), ["ro"]);
 });
 
 test("lint 与 permission-assembly §5 的四个 id 同名，只提示不拦截", () => {
   assert.deepEqual(permissionVectorLint([]), []);
-  assert.deepEqual(permissionVectorLint(["read"]), []);
+  assert.deepEqual(permissionVectorLint(["ro"]), []);
   assert.deepEqual(permissionVectorLint(["ssh"]).map(w => w.id), ["assembly_ssh_only"]);
-  assert.deepEqual(permissionVectorLint(["write"]).map(w => w.id), ["assembly_write_without_read"]);
+  assert.deepEqual(permissionVectorLint(["rw"]).map(w => w.id), ["assembly_write_without_read"]);
   // 成组的合规选择不出提示（ssh + read 是最常见的一组）。
-  assert.deepEqual(permissionVectorLint(["read", "write", "ssh"]), []);
-  for (const warning of permissionVectorLint(["ssh", "write", "bash"])) {
+  assert.deepEqual(permissionVectorLint(["ro", "rw", "ssh"]), []);
+  for (const warning of permissionVectorLint(["ssh", "rw", "bash"])) {
     assert.ok(warning.message, "每条提示都要有一句人能读懂的话");
   }
 });
 
 test("标签渲染：aria-pressed 跟着选择走，文本要转义", () => {
-  const html = renderPermissionVectorHTML(["read", "ssh"]);
-  assert.match(html, /data-perm-type="read"[^>]*aria-pressed="true"/);
-  assert.match(html, /data-perm-type="write"[^>]*aria-pressed="false"/);
+  const html = renderPermissionVectorHTML(["ro", "ssh"]);
+  assert.match(html, /data-perm-type="ro"[^>]*aria-pressed="true"/);
+  assert.match(html, /data-perm-type="rw"[^>]*aria-pressed="false"/);
   assert.match(html, /data-perm-type="ssh"/);
   // 六枚都在（不多不少）。
   assert.equal((html.match(/data-perm-type=/g) || []).length, PERMISSION_VECTOR_TAGS.length);
@@ -184,8 +193,8 @@ test("app.js 接线：角色卡、权限组合、账号与余额", async () => {
 test("显式拒绝（!tag）必须原样保留：丢掉它就等于把「明确不给」擦成「继承」", () => {
   // 后端"非空即封闭"会把员工没列出的组投影成 `!组`；存量员工的显式格子就是这种形状。
   // 旧实现把它当未知标签丢掉 → 用户一按保存就把"拒绝"变成"继承"，是静默放权。
-  assert.deepEqual(normalizePermissionVector(["read", "!ssh"]), ["read", "!ssh"]);
-  assert.deepEqual(normalizePermissionVector(["!ssh", "ssh", "read"]), ["read", "!ssh"]);
+  assert.deepEqual(normalizePermissionVector(["ro", "!ssh"]), ["ro", "!ssh"]);
+  assert.deepEqual(normalizePermissionVector(["!ssh", "ssh", "ro"]), ["ro", "!ssh"]);
   // 去重
   assert.deepEqual(normalizePermissionVector(["!ssh", "!ssh"]), ["!ssh"]);
   // 同一标签既给又拒 → 按拒绝落地（fail-closed），且只保留一个形态
@@ -196,18 +205,18 @@ test("显式拒绝（!tag）必须原样保留：丢掉它就等于把「明确�
 });
 
 test("三态循环：不选 → 给 → 拒 → 不选", () => {
-  assert.deepEqual(cyclePermissionVector([], "write"), ["write"]);
-  assert.deepEqual(cyclePermissionVector(["write"], "write"), ["!write"]);
-  assert.deepEqual(cyclePermissionVector(["!write"], "write"), []);
+  assert.deepEqual(cyclePermissionVector([], "rw"), ["rw"]);
+  assert.deepEqual(cyclePermissionVector(["rw"], "rw"), ["!rw"]);
+  assert.deepEqual(cyclePermissionVector(["!rw"], "rw"), []);
   // 未知 id 不动现有选择（与 toggle 同口径）
-  assert.deepEqual(cyclePermissionVector(["read"], "root"), ["read"]);
+  assert.deepEqual(cyclePermissionVector(["ro"], "root"), ["ro"]);
   // 拒态不影响别的标签
-  assert.deepEqual(cyclePermissionVector(["read", "!ssh"], "write"), ["read", "write", "!ssh"]);
+  assert.deepEqual(cyclePermissionVector(["ro", "!ssh"], "rw"), ["ro", "rw", "!ssh"]);
 });
 
 test("读数与渲染都认得拒态", () => {
-  assert.equal(permissionVectorSummary(["read", "!ssh"]), "read · 拒 ssh");
-  assert.equal(permissionVectorSummary(["!ssh"]), "拒 ssh");
+  assert.equal(permissionVectorSummary(["ro", "!ssh"]), "读 · 拒 SSH");
+  assert.equal(permissionVectorSummary(["!ssh"]), "拒 SSH");
   const html = renderPermissionVectorHTML(["!ssh"]);
   assert.match(html, /data-perm-type="ssh"[^>]*class=|class="perm-tag is-denied"/);
   assert.match(html, /aria-pressed="true"/);
@@ -217,10 +226,10 @@ test("读数与渲染都认得拒态", () => {
 });
 
 test("全拒配方要报 assembly_nothing_allowed", () => {
-  const warnings = permissionVectorLint(["!ssh", "!read"]);
+  const warnings = permissionVectorLint(["!ssh", "!ro"]);
   assert.ok(warnings.some(item => item.id === "assembly_nothing_allowed"), JSON.stringify(warnings));
   // 只要有一个"给"，就不报这条
-  assert.ok(!permissionVectorLint(["read", "!ssh"]).some(item => item.id === "assembly_nothing_allowed"));
+  assert.ok(!permissionVectorLint(["ro", "!ssh"]).some(item => item.id === "assembly_nothing_allowed"));
 });
 
 test("app.js 用三态循环接线（不是两态 toggle）", async () => {

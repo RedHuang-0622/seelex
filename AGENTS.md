@@ -17,6 +17,9 @@
   `wiring/bootstrap`，工具与能力注册在 `wiring/registry`；业务规则进入拥有该规则的模块，
   不许堆进入口。
 - `contract/` 是零依赖契约层（DTO 与端口），`test/` 是仓库级集成用例包（模块内部用例仍随包走）。
+- 所有用户可见的 GUI 视觉、动效、加载态和流式反馈必须先满足
+  [`docs/gui/FRONTEND-CONSTITUTION.md`](docs/gui/FRONTEND-CONSTITUTION.md)；
+  可访问性规则和全局前端宪法优先，项目宪法只能收紧、不能降低其不可豁免要求。
 - 当前实现、规划设计和历史研发记录必须明确区分。代码与测试是“已实现”能力的最终事实来源。
 
 ## 2. 文档放置规范

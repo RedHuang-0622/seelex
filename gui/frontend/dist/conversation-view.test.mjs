@@ -72,7 +72,7 @@ test("消息编辑器复用 copyText 通道，并用稳定 operation_id 调一�
   assert.match(source, /data-edit-message/);
   assert.match(source, /operationID:\s*newEditOperationID\(\)/);
   assert.match(source, /options\.editFork\(\{/);
-  assert.match(source, /expectedRevision:\s*currentEditor\.expectedRevision/);
+  assert.match(source, /expected_revision:\s*currentEditor\.expectedRevision/);
   assert.match(source, /options\.copyText\(editor\.original\)/);
   assert.doesNotMatch(source, /navigator\.clipboard/);
   assert.match(source, /编辑内容已保留/);
@@ -82,4 +82,14 @@ test("app 只调用原子 EditUserMessageAndFork，不在前端拼 Fork + Submit
   const source = await readFile(new URL("./app.js", import.meta.url), "utf8");
   assert.match(source, /invoke\("EditUserMessageAndFork", parentID, request\)/);
   assert.doesNotMatch(source, /invoke\("ForkSession",\s*parentID[\s\S]{0,200}invoke\("SubmitToSession"/);
+});
+
+test("编辑分叉请求字段使用后端 JSON 契约的 snake_case", async () => {
+  const source = await readFile(new URL("./conversation-view.js", import.meta.url), "utf8");
+  assert.match(source, /target_event_seq:\s*currentEditor\.eventSeq/);
+  assert.match(source, /new_text:\s*text/);
+  assert.match(source, /expected_revision:\s*currentEditor\.expectedRevision/);
+  assert.match(source, /operation_id:\s*currentEditor\.operationID/);
+  const request = source.slice(source.indexOf("options.editFork({"), source.indexOf("});", source.indexOf("options.editFork({")));
+  assert.doesNotMatch(request, /targetEventSeq:|expectedRevision:|operationId:/);
 });

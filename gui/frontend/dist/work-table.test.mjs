@@ -13,7 +13,10 @@ const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).t
 const componentsSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
 const componentsURL = `data:text/javascript;base64,${Buffer.from(componentsSource).toString("base64")}`;
-const motionURL = `data:text/javascript;base64,${Buffer.from(await readFile(new URL("./motion.js", import.meta.url), "utf8")).toString("base64")}`;
+const springMotionURL = `data:text/javascript;base64,${Buffer.from(await readFile(new URL("./spring-motion.js", import.meta.url), "utf8")).toString("base64")}`;
+const motionSource = (await readFile(new URL("./motion.js", import.meta.url), "utf8"))
+  .replace('"./spring-motion.js"', `"${springMotionURL}"`);
+const motionURL = `data:text/javascript;base64,${Buffer.from(motionSource).toString("base64")}`;
 const source = (await readFile(new URL("./work-table.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${componentsURL}"`)
   .replace('"./motion.js"', `"${motionURL}"`);

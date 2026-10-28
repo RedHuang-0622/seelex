@@ -64,14 +64,13 @@ import {
   bindHorizontalDragDelegate,
   bindHorizontalWheelDelegate,
   bindScrollShadows,
-  MOTION_ENTER_MS,
   MOTION_EXIT_MS,
-  MOTION_SLOW_MS,
   prefersReducedMotion,
   rollNumber,
   syncAllScrollShadows
 } from "./motion.js";
 import { createStreamCadence } from "./stream-cadence.js";
+import { SPRING_PRESETS, animateSpring } from "./spring-motion.js";
 import { flashResizePill, hideResizePill, showResizePill } from "./resize-pill.js";
 import { duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 import {
@@ -310,9 +309,8 @@ function renderTabBars() {
   renderTabBar("right");
 }
 
-// setAnimatedViewVisibility 只管理视图容器本身：进入立即解除 hidden 并由 CSS
-// 播放 250ms；退出先挂 150ms 终态类，再落 hidden。业务状态、焦点归属和 DTO 不变；
-// reduced-motion 直接切换。
+// setAnimatedViewVisibility 只管理视图容器本身：进入用轻微欠阻尼弹簧，
+// 退出用过阻尼弹簧收敛后落 hidden。业务状态、焦点归属和 DTO 不变。
 function setAnimatedViewVisibility(panel, visible) {
   if (!panel?.classList) return;
   const timer = panel._motionExitTimer;
@@ -320,12 +318,23 @@ function setAnimatedViewVisibility(panel, visible) {
     window.clearTimeout(timer);
     panel._motionExitTimer = 0;
   }
+  panel._motionSpring?.cancel?.();
+  panel._motionSpring = null;
   panel.classList.remove("is-view-exiting");
   panel.dataset.motionPurpose = "continuity";
   panel.dataset.motionTrigger = "route-change";
   if (visible) {
     panel.classList.remove("hidden");
     panel.dataset.motionPhase = "entering";
+    if (!prefersReducedMotion()) {
+      panel._motionSpring = animateSpring(panel, "enter", [
+        { opacity: 0, transform: "translateY(8px)" },
+        { opacity: 1, transform: "translateY(0)" }
+      ]);
+      panel._motionSpring?.finished?.then(() => {
+        panel.dataset.motionPhase = "idle";
+      }).catch(() => {});
+    }
     return;
   }
   if (panel.classList.contains("hidden")) return;
@@ -344,6 +353,12 @@ function setAnimatedViewVisibility(panel, visible) {
     panel.classList.add("hidden");
     panel.dataset.motionPhase = "idle";
   };
+  const animation = animateSpring(panel, "exit", [
+    { opacity: 1, transform: "translateY(0)" },
+    { opacity: 0, transform: "translateY(-6px)" }
+  ]);
+  panel._motionSpring = animation;
+  animation?.finished?.then(finish).catch(() => {});
   panel._motionExitTimer = window.setTimeout(finish, MOTION_EXIT_MS);
 }
 
@@ -1325,14 +1340,7 @@ elements.conversation.addEventListener("click", event => {
   const key = chip?.dataset.trajectoryKey;
   if (!key) return;
   revealView("trajectory");
-  requestAnimationFrame(() => {
-    const row = document.querySelector(`[data-trajectory-key="${CSS.escape(key)}"]`);
-    if (!row) return;
-    const reduced = prefersReducedMotion();
-    row.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
-    row.classList.add("is-flash");
-    setTimeout(() => row.classList.remove("is-flash"), MOTION_SLOW_MS);
-  });
+  trajectoryView.select(key);
 });
 
 // ── 子页3「资源管理器」内部：三个平级子页 + 原子刷新 ──────────────
@@ -2348,7 +2356,10 @@ function hideTip() {
     tipTimer = 0;
   }
   tipTarget = null;
-  elements["ui-tooltip"]?.classList.add("hidden");
+  const host = elements["ui-tooltip"];
+  host?._springAnimation?.cancel?.();
+  if (host) host._springAnimation = null;
+  host?.classList.add("hidden");
 }
 
 function queueTip(target) {
@@ -2386,6 +2397,17 @@ function paintTip(target) {
   if (top + box.height > window.innerHeight - margin) top = Math.max(margin, anchor.top - box.height - 6);
   host.style.left = `${Math.round(left)}px`;
   host.style.top = `${Math.round(top)}px`;
+  if (!prefersReducedMotion()) {
+    host._springAnimation?.cancel?.();
+    host._springAnimation = animateSpring(host, "state", [
+      { opacity: 0, transform: "translateY(-2px)" },
+      { opacity: 1, transform: "translateY(0)" }
+    ]);
+    host._springAnimation?.finished?.then(() => {
+      host._springAnimation?.cancel?.();
+      host._springAnimation = null;
+    }).catch(() => {});
+  }
 }
 
 document.addEventListener("pointerover", event => {
@@ -2458,9 +2480,10 @@ function sessionRow(session, currentID, nameIndex = 1) {
     ? `<span class="session-status is-${escapeHtml(session.status)}">${sessionStatusLabel(session.status)}</span>`
     : "";
   const menuOpen = state.openSessionMenu !== "" && state.openSessionMenu === session.id;
-  return `<div class="session-row${pinned ? " is-pinned" : ""}${menuOpen ? " is-menu-open" : ""}" data-session-row="${escapeHtml(session.id)}">
-    <button class="stack-button session-button session-title ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""} data-tip="${escapeHtml(`${label}\n${tip}`)}" aria-label="${escapeHtml(`${label} · ${tip}`)}">
-      <span class="entry-name">${pinned ? `<span class="session-pin-mark" aria-hidden="true">${icon("star", 12)}</span>` : ""}${icon("message", 13)} ${escapeHtml(label)}</span>${statusChip}
+  const pinLabel = pinned ? " · 已置顶" : "";
+  return `<div class="session-row${pinned ? " is-pinned" : ""}${menuOpen ? " is-menu-open" : ""}" data-session-row="${escapeHtml(session.id)}" data-session-pinned="${pinned ? "true" : "false"}">
+    <button class="stack-button session-button session-title ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""} data-tip="${escapeHtml(`${label}\n${tip}`)}" aria-label="${escapeHtml(`${label}${pinLabel} · ${tip}`)}">
+      <span class="entry-name">${pinned ? `<span class="session-pin-mark" aria-hidden="true">${icon("star", 13)}</span>` : icon("message", 13)} ${escapeHtml(label)}</span>${statusChip}
     </button>
     <span class="session-more">
       <button class="session-more-toggle" type="button" data-session-more="${escapeHtml(session.id)}" aria-expanded="${menuOpen}" aria-haspopup="menu" aria-label="更多操作">${icon("more", 14)}</button>
@@ -3923,10 +3946,28 @@ function renderInteraction(interaction) {
 function setModal(id, open) {
   const el = elements[id];
   if (!el) return;
+  const card = el.querySelector?.(".modal-card");
+  el._motionAnimations?.forEach?.(animation => animation.cancel?.());
+  el._motionAnimations = [];
   if (open) {
     if (el._closeTimer) { window.clearTimeout(el._closeTimer); el._closeTimer = 0; }
     el.classList.remove("is-closing");
     el.classList.remove("hidden");
+    if (!prefersReducedMotion()) {
+      const overlay = animateSpring(el, "state", [
+        { opacity: 0 },
+        { opacity: 1 }
+      ]);
+      const panel = card && animateSpring(card, "enter", [
+        { opacity: 0, transform: "translateY(8px) scale(.98)" },
+        { opacity: 1, transform: "translateY(0) scale(1)" }
+      ]);
+      el._motionAnimations = [overlay, panel].filter(Boolean);
+      Promise.allSettled(el._motionAnimations.map(animation => animation.finished)).then(() => {
+        el._motionAnimations?.forEach?.(animation => animation.cancel?.());
+        el._motionAnimations = [];
+      });
+    }
     // 弹窗里的限高滚动块刚从 display:none 变可见：下一拍补一次边缘阴影
     // （几何此刻才可测）。setTimeout 同时避开模块求值期的 TDZ。
     window.setTimeout(refreshScrollShadows, 0);
@@ -3944,9 +3985,22 @@ function setModal(id, open) {
     return;
   }
   el.classList.add("is-closing");
-  el.addEventListener("animationend", finish, { once: true });
+  const overlay = animateSpring(el, "exit", [
+    { opacity: 1 },
+    { opacity: 0 }
+  ]);
+  const panel = card && animateSpring(card, "exit", [
+    { opacity: 1, transform: "translateY(0) scale(1)" },
+    { opacity: 0, transform: "translateY(6px) scale(.99)" }
+  ]);
+  el._motionAnimations = [overlay, panel].filter(Boolean);
+  Promise.allSettled(el._motionAnimations.map(animation => animation.finished)).then(() => {
+    el._motionAnimations?.forEach?.(animation => animation.cancel?.());
+    el._motionAnimations = [];
+    finish();
+  });
   // 兜底：动画被吞掉（元素不可见 / 事件丢失）时也要收起，不能让弹窗卡在半开态。
-  el._closeTimer = window.setTimeout(finish, MOTION_EXIT_MS);
+  el._closeTimer = window.setTimeout(finish, SPRING_PRESETS.exit.durationMs + 40);
 }
 
 function openRuntime() {
@@ -4600,6 +4654,9 @@ elements.composer.addEventListener("submit", async event => {
   const sent = elements.prompt.value;
   const text = sent.trim();
   if (!text) return;
+  // 提交瞬间先关闭浮层，别让候选面板跨过 RPC 往返继续撑着布局。
+  hideInlineSuggestions();
+  closeFilePicker();
   try {
     // 提交路由：普通对话显式钉给**当前视图会话**（SubmitToSession），sigil
     // 输入交回后端路由器（规则见 composer-input.js composerSubmitPlan）。这样
@@ -4612,8 +4669,6 @@ elements.composer.addEventListener("submit", async event => {
     // composer-input.js），不整框清空——整框清空会把这段新输入一起吞掉。
     elements.prompt.value = clearSubmittedText(elements.prompt.value, sent);
     composerDirty = false;
-    hideInlineSuggestions();
-    closeFilePicker();
     // 已发出的引用进了正文（后面 refresh 会渲染消息 chip）；草稿里剩下的那部分
     // （提交往返期间追加的新输入）重新算一次 chip 条。
     renderComposerFileRefs();
@@ -5807,12 +5862,15 @@ function openFilePreview(entry) {
     document.documentElement.style.setProperty("--preview-w", previewPaneWidth());
     syncPreviewLayout();
     if (wasClosed && !prefersReducedMotion()) {
-      pane.classList.remove("is-drawing");
-      void pane.offsetWidth; // 强制重排，保证同一动画可重放
-      pane.classList.add("is-drawing");
-      const clear = () => pane.classList.remove("is-drawing");
-      pane.addEventListener("animationend", clear, { once: true });
-      window.setTimeout(clear, MOTION_ENTER_MS);
+      pane._springAnimation?.cancel?.();
+      pane._springAnimation = animateSpring(pane, "enter", [
+        { opacity: 0, transform: "translateX(-8px) scale(.99)" },
+        { opacity: 1, transform: "translateX(0) scale(1)" }
+      ]);
+      pane._springAnimation?.finished?.then(() => {
+        pane._springAnimation?.cancel?.();
+        pane._springAnimation = null;
+      }).catch(() => {});
     }
   }
   filePreviewController.open(entry);

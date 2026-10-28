@@ -187,10 +187,10 @@ export function createConversationView(container, options = {}) {
     if (status) status.textContent = "";
     try {
       const result = await options.editFork({
-        targetEventSeq: currentEditor.eventSeq,
-        newText: text,
-        expectedRevision: currentEditor.expectedRevision,
-        operationId: currentEditor.operationID
+        target_event_seq: currentEditor.eventSeq,
+        new_text: text,
+        expected_revision: currentEditor.expectedRevision,
+        operation_id: currentEditor.operationID
       });
       options.notify?.(`已创建分支 ${shortSessionID(result?.child_session_id || result?.ChildSessionID || "")}`);
       closeMessageEditor();

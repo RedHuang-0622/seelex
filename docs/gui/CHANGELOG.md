@@ -21,10 +21,15 @@
   供源，旧 `--dur-*` 只保留 alias；按压 100ms、hover/focus/tooltip 150ms、
   进入 250ms、退出 150ms。通用 spinner、Plan `top` 扫动、弹窗 `rotateX` /
   `perspective`、分隔条 `left/width` transition 已删除。
+- **交互动效改为弹簧物理**：新增 `spring-motion.js`，以
+  `stiffness/damping/mass` 与阻尼比 `ζ` 供源。按压、状态切换采用临界阻尼，
+  进入采用 `ζ≈0.83` 的轻欠阻尼，退出采用 `ζ=1.2` 的过阻尼，列表落位采用
+  `ζ≈0.73` 的轻微回弹；CSS `linear()` 由阶跃响应采样生成并钉死终值。弹层、
+  抽屉、视图和新增行的“直接关键帧闪现”已删除，reduced-motion 直接落终态。
 - **对话与工具活动语义收敛**：对话尾部改为可读“正在生成回复/等待模型响应”
-  状态加局部活动线；工具 running 只在卡内 activity 层播放唯一 1.8s
+  状态加局部活动线；工具 running 只在工具名文字上播放唯一 1.8s
   `transform` shimmer，success/error/cancelled 后立即停止，reduced-motion
-  降级为静态活动线。运行容器补齐 `aria-busy`。
+  保留静态状态文字。运行容器补齐 `aria-busy`。
 - **流式 cadence 与滚动接管**：新增 `stream-cadence.js`，delta 最多每 50ms
   合并刷新，首包下一帧可见，进入滞回 100ms、退出滞回 150ms；显式 terminal
   先 flush 尾包再稳定。稳定消息的流式更新只 patch `.message-body`，用户离开
@@ -33,11 +38,24 @@
   可滚动入参/出参 JSON（可解析时格式化）、THINK 与结果分页读回；移除
   `details` 行内展开。`FRONTEND-CONSTITUTION.md` 同时新增“圆角容器不得与
   单侧厚外边距叠加”的通用空间规则。
+- **会话置顶视觉收敛**：删除置顶/当前会话的左侧 2px 内阴影，圆角条目不再
+  拼接单侧状态轨；置顶只使用单一前导星标、较强文字层级和可访问的“已置顶”
+  名称。
+- **空草稿 Snapshot 保持 conversation 数组**：新工作区会话即使没有消息，也把
+  `conversation` 序列化为 `[]`，不再让前端将 `null` 误判为缺少字段。
+- **权限与编辑请求契约对齐**：权限面板改用后端规范标签
+  `ro/rw/rw_desktop/ctl/bash/ssh`；编辑分叉请求改用
+  `target_event_seq/new_text/expected_revision/operation_id`，修复“已给权限仍询问”
+  与“缺少 EventSeq”。
+- **用户消息与工具条目布局收敛**：复制/编辑缩成跟随气泡的小按钮；工具行采用
+  Codex 式紧凑摘要并允许自然换行，对话列禁止横向越界；点击工具行会同时选中
+  轨迹右侧详情。
 
 ### Tests
 
 - 新增 `motion-contract.test.mjs`、`stream-cadence.test.mjs`、
-  `tool-running-motion.test.mjs`、`shape-spacing.test.mjs`；扩展
+  `spring-motion.test.mjs`、`tool-running-motion.test.mjs`、
+  `shape-spacing.test.mjs`；扩展
   `components.test.mjs`、`conversation-view.test.mjs`、
   `chat-view-input-lock.test.mjs`、`trajectory.test.mjs`。
 - 迁移前/后的完整动画、transition、硬编码时长、布局动画与移除清单见

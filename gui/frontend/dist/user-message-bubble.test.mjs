@@ -29,12 +29,12 @@ function cssRules(css) {
 test("用户消息气泡：无边框、极淡半透明底", async () => {
   const rules = cssRules(await read("styles.css"));
   const bodies = rules
-    .filter((rule) => rule.selector === ".message.user .message-body")
+    .filter((rule) => rule.selector === ".message-user-cluster .message-body")
     .map((rule) => rule.body);
   assert.equal(bodies.length, 1, "用户消息气泡规则必须只有一处（单一实现）");
   const body = bodies[0];
 
-  assert.match(body, /width:\s*fit-content/, "先确认取到的是用户消息气泡规则");
+  assert.match(body, /width:\s*100%/, "先确认取到的是用户消息气泡规则");
   assert.doesNotMatch(body, /(^|;)\s*border\s*:/, "定稿不画边框：线会被读成「还是一个框」");
   assert.doesNotMatch(
     body,
@@ -47,6 +47,9 @@ test("用户消息气泡：无边框、极淡半透明底", async () => {
   const alpha = Number(glass[2]);
   assert.ok(alpha > 0 && alpha <= 50, `半透明底必须「极淡」（>0 且 ≤50%），当前 ${alpha}% 会退回成实色面板`);
 
-  assert.match(body, /margin-left:\s*auto/, "用户消息仍右对齐");
+  const clusters = rules.filter((rule) => rule.selector === ".message-user-cluster");
+  assert.equal(clusters.length, 1, "用户消息气泡集群必须只有一处规则");
+  assert.match(clusters[0].body, /width:\s*fit-content/, "气泡集群按消息内容收紧");
+  assert.match(clusters[0].body, /margin-left:\s*auto/, "用户消息仍右对齐");
   assert.match(body, /border-radius:\s*var\(--r-xl\)/, "气泡圆角保留");
 });

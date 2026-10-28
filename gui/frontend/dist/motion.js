@@ -9,6 +9,8 @@
 //    `--dur-*` 只做 alias）；
 //  - 动效是呈现层细节，不改任何业务状态、不改契约字段。
 
+import { animateSpring } from "./spring-motion.js";
+
 // CSS motion token 的 JS 兜底值只在这里命名一份。它们对应 styles.css 的
 // --duration-*，仅用于 animationend 丢失时的兜底或非 CSS 调度，不在组件里写裸数值。
 export const MOTION_FEEDBACK_MS = 100;
@@ -152,6 +154,11 @@ export function markEntering(element, className = "is-entering", timeoutMs = MOT
   if (!element?.classList || prefersReducedMotion()) return false;
   element.classList.add(className);
   const clear = () => element.classList.remove(className);
+  const animation = animateSpring(element, "settle", [
+    { opacity: 0, transform: "translateY(6px)" },
+    { opacity: 1, transform: "translateY(0)" }
+  ]);
+  animation?.finished?.then(() => animation.cancel()).catch(() => {});
   element.addEventListener?.("animationend", clear, { once: true });
   if (typeof setTimeout === "function") setTimeout(clear, timeoutMs);
   return true;

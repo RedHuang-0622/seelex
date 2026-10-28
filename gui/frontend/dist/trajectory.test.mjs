@@ -831,4 +831,5 @@ test("轨迹视图接线：左侧 listbox 选择驱动右侧 inspector", async (
   assert.match(source, /event\.target\.closest\("\[data-trajectory-select\]"\)/);
   assert.match(source, /headEl\.innerHTML = model\.headHtml/);
   assert.match(source, /inspectorEl\.innerHTML = model\.detailHtml/);
+  assert.match(source, /select\(key\)\s*\{\s*focusRow/);
 });

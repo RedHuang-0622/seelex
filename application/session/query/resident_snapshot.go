@@ -40,17 +40,20 @@ func BuildResidentSnapshot(input ResidentSnapshotInput) model.SessionSnapshot {
 		Revision:             input.Revision,
 		ConversationRevision: input.ConversationRevision,
 		Session:              session,
-		Conversation:         append([]model.Message(nil), input.Conversation...),
-		Chat:                 input.Chat,
-		Runtime:              input.Runtime,
-		Capabilities:         input.Capabilities,
-		Resident:             true,
-		HistoryOffset:        input.HistoryOffset,
-		TotalMessages:        input.TotalMessages,
-		HasMoreHistory:       input.HasMoreHistory,
-		ConversationWindow:   input.ConversationWindow,
-		ReadFiles:            append([]model.ReadFileRef(nil), input.ReadFiles...),
-		ReviewRequest:        dto.CloneReviewRequest(input.ReviewRequest),
+		// GUI protocol requires an array even for a fresh/draft session. Appending
+		// onto nil returns nil, which marshals as JSON null and is rejected by the
+		// frontend as "missing conversation".
+		Conversation:       append([]model.Message{}, input.Conversation...),
+		Chat:               input.Chat,
+		Runtime:            input.Runtime,
+		Capabilities:       input.Capabilities,
+		Resident:           true,
+		HistoryOffset:      input.HistoryOffset,
+		TotalMessages:      input.TotalMessages,
+		HasMoreHistory:     input.HasMoreHistory,
+		ConversationWindow: input.ConversationWindow,
+		ReadFiles:          append([]model.ReadFileRef(nil), input.ReadFiles...),
+		ReviewRequest:      dto.CloneReviewRequest(input.ReviewRequest),
 	}
 	if input.Approvals != nil {
 		snapshot.Approvals = append([]model.Interaction(nil), input.Approvals...)

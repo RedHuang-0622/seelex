@@ -29,18 +29,21 @@
 | 按压 | `transform` / `box-shadow`，100ms | 立即终态 |
 | hover/focus/tooltip | 颜色、背景、阴影、opacity，150ms | 立即终态 |
 | 展开 chevron | `transform`，250ms | 无过渡 |
-| 弹层进入 | overlay 150ms；card opacity + `translateY(8px)` + scale，250ms | 立即出现 |
-| 弹层退出 | opacity + `translateY(6px)` + scale，150ms | 立即关闭 |
-| 视图进入/退出 | opacity + `translateY(8/-6px)`，250/150ms | 直接替换 |
-| 列表首次插入 | opacity + `translateY(6px)` / 背景色，250ms | 立即显示 |
-| 工具 running | 卡内 activity 层 `translateX`，1.8s linear | 静态活动线 |
+| 弹层进入 | overlay 用 `state` 临界阻尼；card 用 `enter` 轻欠阻尼，opacity + `translateY(8px)` + scale | 立即出现 |
+| 弹层退出 | `exit` 过阻尼，opacity + `translateY(6px)` + scale | 立即关闭 |
+| 视图进入/退出 | 分别用 `enter` / `exit` 弹簧，opacity + `translateY(8/-6px)` | 直接替换 |
+| 列表首次插入 | `settle` 弹簧，opacity + `translateY(6px)` | 立即显示 |
+| 工具 running | 工具名文字 `translateX`，1.8s linear；无底部光条/整卡扫光 | 静态状态文字 |
 | 对话尾部 | 可读状态文字；接收中才附局部活动线 | 保留文字与静态线 |
-| tooltip | opacity + 最多 2px 位移，150ms | 立即显示 |
+| tooltip | `state` 临界阻尼，opacity + 最多 2px 位移 | 立即显示 |
 | 定位高亮 | `box-shadow`，400ms 内结束 | 立即高亮终态 |
 
 所有 `transition` / `animation` 时长和缓动均使用 token；JS 的 CSS 兜底时长在
-`motion.js` 命名，流式 cadence 在 `stream-cadence.js` 命名。CSS keyframes 只写
-`opacity`、`transform`、`background-color`、`box-shadow`，不再包含布局属性。
+`motion.js` 命名，交互弹簧的 `stiffness/damping/mass` 与时长预算只在
+`spring-motion.js` 命名，流式 cadence 在 `stream-cadence.js` 命名。CSS 只保留
+工具名文字 shimmer 一条关键帧；其他入场/退出由 `animateSpring()` 驱动，不再
+手写关键帧闪现。所有动画只写 `opacity`、`transform`、`background-color`、
+`box-shadow`，不再包含布局属性。
 
 ## 删除 / 合并
 
@@ -48,18 +51,23 @@
 - 删除 `worktree-spin`，文件树改为局部静态活动线。
 - 删除 `trace-sweep`，Plan running 改为静态语义线。
 - 删除弹窗 `perspective`、`rotateX`，改为 2D opacity/translate/scale。
+- 删除弹层、视图、文件抽屉、tooltip 与新增行的关键帧闪现；统一改由
+  `spring-motion.js` 的临界/欠阻尼/过阻尼 preset 驱动。
 - 删除 `left`、`width`、`display` transition；进度变化直接落终值。
+- 删除工具卡底部 activity 光条 `.tool-run-activity`；running 的唯一循环信号
+  收敛到工具名文字 shimmer。
 - 删除轨迹行内 `details` 详情路径；详情唯一落点为右侧 `renderTrajectoryInspector`。
 - `prefersReducedMotion()` 仍是唯一 JS 判断；cadence 常量仍是唯一流式判据。
 
 ## 遗留债务
 
 `border-color` transition 仍存在于旧按钮、列表与卡片规则中。本轮不把它们纳入
-新的时长语义；按宪法 §4.4，后续按受影响组件逐步改成静态颜色切换。
+新的时长语义；按宪法 §4.5，后续按受影响组件逐步改成静态颜色切换。
 
 ## 验证
 
 - `node --test gui/frontend/dist/motion-contract.test.mjs`
+- `node --test gui/frontend/dist/spring-motion.test.mjs`
 - `node --test gui/frontend/dist/stream-cadence.test.mjs`
 - `node --test gui/frontend/dist/tool-running-motion.test.mjs`
 - `node --test gui/frontend/dist/shape-spacing.test.mjs`

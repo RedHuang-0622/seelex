@@ -98,18 +98,19 @@ test("motion contract：所有 transition/animation 使用 token，不写任意�
   }
 });
 
-test("motion contract：工具 shimmer 是唯一 1.8s、linear、transform 的局部循环", () => {
-  const shimmer = css.match(/@keyframes\s+tool-running-shimmer\s*\{([\s\S]*?)\n\}/);
-  assert.ok(shimmer, "必须存在唯一工具活动 shimmer");
+test("motion contract：工具文字 shimmer 是唯一 1.8s、linear、transform 的局部循环", () => {
+  const shimmer = css.match(/@keyframes\s+tool-running-text-shimmer\s*\{([\s\S]*?)\n\}/);
+  assert.ok(shimmer, "必须存在唯一工具文字 shimmer");
   assert.match(shimmer[1], /transform\s*:\s*translateX\(/);
   assert.doesNotMatch(shimmer[1], /\b(top|left|width|height|background-position)\s*:/);
-  assert.match(css, /animation:\s*tool-running-shimmer\s+var\(--duration-shimmer\)\s+var\(--ease-linear\)/);
-  assert.equal((css.match(/@keyframes\s+tool-running-shimmer/g) || []).length, 1);
+  assert.match(css, /animation:\s*tool-running-text-shimmer\s+var\(--duration-shimmer\)\s+var\(--ease-linear\)/);
+  assert.equal((css.match(/@keyframes\s+tool-running-text-shimmer/g) || []).length, 1);
+  assert.doesNotMatch(css, /\.tool-run-activity/);
 });
 
 test("motion contract：reduced-motion 保留静态活动线与焦点终态", () => {
   const reduced = css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/g)?.join("\n") || "";
-  assert.match(reduced, /\.tool-run-activity/);
+  assert.match(reduced, /\.chat-chip-name\[data-tool-label\]::after/);
   assert.match(reduced, /animation:\s*none/);
   assert.match(css, /:focus-visible/);
   assert.doesNotMatch(reduced, /outline:\s*none/, "reduced-motion 不得移除焦点可见性");
@@ -147,7 +148,7 @@ test("motion contract：keyframes 只动画白名单属性，不移动布局", (
   }
 });
 
-test("motion contract：JS 兜底时长与 CSS token 同名同值，交互节奏固定", () => {
+test("motion contract：JS 兜底时长与 CSS token 同名同值，交互节奏固定", async () => {
   assert.deepEqual(
     {
       MOTION_FEEDBACK_MS,
@@ -167,9 +168,13 @@ test("motion contract：JS 兜底时长与 CSS token 同名同值，交互节奏
   assert.equal(MOTION_EXIT_MS, MOTION_STATE_MS);
   assert.equal(MOTION_DRAG_GUARD_MS, 300);
   assert.match(css, /\.app-shell button:active[\s\S]*?transition-duration:\s*var\(--duration-micro\)/);
-  assert.match(css, /animation:\s*tooltip-in var\(--duration-fast\) var\(--ease-out\)/);
-  assert.match(css, /animation:\s*view-enter var\(--duration-normal\) var\(--ease-out\)/);
-  assert.match(css, /animation:\s*view-exit var\(--duration-fast\) var\(--ease-in\)/);
+  assert.doesNotMatch(css, /@keyframes\s+(tooltip-in|view-enter|view-exit|card-draw|pane-draw)/);
+  const app = await readFile(new URL("./app.js", import.meta.url), "utf8");
+  assert.match(app, /animateSpring\(el, "state"/);
+  assert.match(app, /animateSpring\(card, "enter"/);
+  assert.match(app, /animateSpring\(card, "exit"/);
+  assert.match(app, /animateSpring\(panel, "enter"/);
+  assert.match(app, /animateSpring\(panel, "exit"/);
 });
 
 test("reduced-motion 判据只在 motion.js 保留一份", async () => {

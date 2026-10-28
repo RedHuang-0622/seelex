@@ -229,7 +229,10 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
   if (draftText.trim() !== "") {
     rendered.push({ key: DRAFT_ROW_KEY, html: renderDraftMessage(draftText, DRAFT_ROW_KEY), meta: { kind: "draft" } });
   }
-  const activity = renderChatActivity(chat, streamPhase);
+  const hasRunningTool = grouped.some(item => item.kind === "axis"
+    ? item.members.some(member => isToolRunningStatus(member.status))
+    : item.kind === "tool" && isToolRunningStatus(item.status));
+  const activity = renderChatActivity(chat, streamPhase, { hasRunningTool });
   if (activity) {
     const key = "chat:activity";
     rendered.push({ key, html: `<div class="chat-activity-tail" data-conversation-key="${key}" data-wheel-kind="system" data-wheel-label="${escapeHtml(chat.running ? "执行中" : "等待发送")}">${activity}</div>` });
@@ -241,12 +244,14 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
 // 只有调度器确认已进入持续流（100ms 滞回）后才附加局部活动线。
 // 排队叠**不在这里**，见 renderMessageQueue：队列是贴着输入框上沿的一叠，宿主是
 // #message-queue（输入框正上方），不进对话滚动区。
-export function renderChatActivity(chat = {}, streamPhase = "receiving") {
+export function renderChatActivity(chat = {}, streamPhase = "receiving", options = {}) {
   const running = Boolean(chat.running);
   if (!running) return "";
-  const receiving = streamPhase === "receiving";
+  const hasRunningTool = Boolean(options.hasRunningTool);
+  const receiving = streamPhase === "receiving" && !hasRunningTool;
+  const label = hasRunningTool ? "工具执行中" : (receiving ? "正在生成回复" : "等待模型响应");
   return `<section class="runtime-activity" role="status" aria-live="polite" aria-busy="true" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="${receiving ? "receiving" : "waiting"}">
-    <strong class="runtime-activity-copy">${receiving ? "正在生成回复" : "等待模型响应"}</strong>
+    <strong class="runtime-activity-copy">${label}</strong>
     ${receiving ? '<span class="runtime-activity-line" aria-hidden="true"></span>' : ""}
   </section>`;
 }
@@ -498,12 +503,15 @@ function renderMessage(message, key, above = false, below = false, payloads = ne
   const wheelKind = role === "user" ? "user" : role === "system" ? "system" : role === "assistant" ? (String(message.content || "").trim() ? "agent" : "think") : "other";
   const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
   const actions = renderUserMessageActions(message, key, payloads);
+  const body = `<div class="message-body" data-message-body="true">${renderMessageBody(message, role, key)}</div><!--/seelex-message-body-->`;
+  const content = role === "user"
+    ? `<div class="message-user-cluster">${body}${actions}</div>`
+    : `${body}${actions}`;
   return `<article class="message ${escapeHtml(role)}${messageRoleClass(message)}${joined.className}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}"${joined.dataAttrs}>
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
     ${routeMeta}
     ${thinking}
-    <div class="message-body" data-message-body="true">${renderMessageBody(message, role, key)}</div><!--/seelex-message-body-->
-    ${actions}
+    ${content}
   </article>`;
 }
 
@@ -597,20 +605,38 @@ function renderToolCall(tool, key, above = false, below = false) {
   const status = statusMeta(tool.status, tool.error);
   const joined = joinedAttrs(above, below);
   const running = status.phase === "running";
-  return `<article class="tool-run ${status.className}${joined.className}" data-conversation-key="${escapeHtml(key)}" aria-busy="${running ? "true" : "false"}"${joined.dataAttrs}>
+  const invocation = toolInvocationSummary(tool);
+  return `<article class="tool-run ${status.className}${joined.className}" data-conversation-key="${escapeHtml(key)}" data-tool-id="${escapeHtml(tool.id || key)}" aria-busy="${running ? "true" : "false"}"${joined.dataAttrs}>
     <div class="tool-run-line">
-      <code class="item-id">${escapeHtml(tool.id || key)}</code>
       <button type="button" class="chat-chip is-tool" data-trajectory-key="${escapeHtml(key)}" title="工具调用与 IN/OUT 完整内容见轨迹视图" aria-label="${running ? `正在运行 ${escapeHtml(tool.name)}` : `${escapeHtml(tool.name)} ${escapeHtml(status.label)}`}">
         <span class="tool-symbol">${icon("terminal", 13)}</span>
-        <strong class="chat-chip-name">${escapeHtml(tool.name)}</strong>
+        <span class="tool-main">
+          <strong class="chat-chip-name" data-tool-label="${escapeHtml(tool.name)}" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="${running ? "running" : status.phase}">${escapeHtml(tool.name)}</strong>
+          ${invocation ? `<span class="tool-command">${escapeHtml(invocation)}</span>` : ""}
+        </span>
         <span class="tool-state">${icon(status.icon, 11)} ${status.label}</span>
-        ${tool.duration ? `<span class="chat-chip-meta">${escapeHtml(formatDuration(tool.duration))}</span>` : ""}
-        ${chatChipSize(tool) ? `<span class="chat-chip-meta">${escapeHtml(chatChipSize(tool))}</span>` : ""}
-        <span class="chat-chip-hint">完整内容 → 轨迹</span>
+        <span class="tool-meta">${escapeHtml([formatDuration(tool.duration), chatChipSize(tool)].filter(Boolean).join(" · "))}</span>
       </button>
     </div>
-    ${running ? `<span class="tool-run-activity" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="running" aria-hidden="true"><i></i></span>` : ""}
   </article>`;
+}
+
+function toolInvocationSummary(tool) {
+  const raw = String(tool.input || "").trim();
+  if (!raw) return "";
+  let summary = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    summary = String(
+      parsed?.command || parsed?.cmd || parsed?.path || parsed?.file_path ||
+      parsed?.pattern || parsed?.query || parsed?.url || ""
+    ).trim();
+    if (!summary && parsed && typeof parsed === "object") summary = JSON.stringify(parsed);
+  } catch {
+    // Non-JSON tool arguments remain visible as their original compact text.
+  }
+  summary = summary.replace(/\s+/g, " ").trim();
+  return summary.length > 180 ? `${summary.slice(0, 177)}…` : summary;
 }
 
 function chatChipSize(tool) {
@@ -629,8 +655,12 @@ function statusMeta(status, error) {
   if (status === "cancelled" || status === "canceled" || status === "aborted" || status === "interrupted") {
     return { phase: "cancelled", label: "已取消", icon: "stop", className: "is-cancelled" };
   }
-  if (status === "running" || status === "pending") return { phase: "running", label: "正在运行", icon: "source", className: "is-running" };
+  if (isToolRunningStatus(status)) return { phase: "running", label: "正在运行", icon: "source", className: "is-running" };
   return { phase: "success", label: "已完成", icon: "check", className: "is-success" };
+}
+
+function isToolRunningStatus(status) {
+  return status === "running" || status === "pending";
 }
 
 function formatDuration(duration) {

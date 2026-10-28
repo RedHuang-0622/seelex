@@ -9,10 +9,10 @@ import {
 } from "./role-permission-board.js";
 
 const rows = [
-  { role: "teammate", accounts: ["teammate-1"], account: "teammate-1", default_permission_vector: ["read"], inherit_main_agent: true, explicit: true, permission_vector: ["read", "ssh"] },
-  { role: "agent", accounts: ["agent-1"], account: "agent-1", default_permission_vector: ["read", "write"], permission_vector: ["read", "write"], explicit: true },
+  { role: "teammate", accounts: ["teammate-1"], account: "teammate-1", default_permission_vector: ["ro"], inherit_main_agent: true, explicit: true, permission_vector: ["ro", "ssh"] },
+  { role: "agent", accounts: ["agent-1"], account: "agent-1", default_permission_vector: ["ro", "rw"], permission_vector: ["ro", "rw"], explicit: true },
   { role: "goalplan", accounts: ["goalplan-1"], default_permission_vector: [], permission_vector: [], explicit: false },
-  { role: "subagent", accounts: ["subagent-1"], default_permission_vector: ["read"], inherit_main_agent: false, permission_vector: ["read"], explicit: true },
+  { role: "subagent", accounts: ["subagent-1"], default_permission_vector: ["ro"], inherit_main_agent: false, permission_vector: ["ro"], explicit: true },
 ];
 
 test("角色按 goalplan / mainagent / subagent / teammate 展示", () => {
@@ -21,8 +21,8 @@ test("角色按 goalplan / mainagent / subagent / teammate 展示", () => {
 });
 
 test("候选栏只列未选择权限，确认栏保留 allow / deny 三态", () => {
-  assert.deepEqual(permissionCandidateTags(["read", "!write"]).map(tag => tag.id).includes("read"), false);
-  assert.deepEqual(permissionCandidateTags(["read", "!write"]).map(tag => tag.id).includes("write"), false);
+  assert.deepEqual(permissionCandidateTags(["ro", "!rw"]).map(tag => tag.id).includes("ro"), false);
+  assert.deepEqual(permissionCandidateTags(["ro", "!rw"]).map(tag => tag.id).includes("rw"), false);
 });
 
 test("subagent / teammate 默认继承 mainagent，账户只读继承", () => {
@@ -42,8 +42,8 @@ test("subagent / teammate 默认继承 mainagent，账户只读继承", () => {
   assert.match(html, /data-role-account-delete="agent-1"/);
   assert.match(html, /teammate-1/);
   assert.doesNotMatch(html, /账户权限|账户设置权限/, "账户没有独立权限编辑入口");
-  assert.match(html, /data-role-perm-cycle="read"[^>]*disabled/, "继承态的角色默认不得改已选权限");
-  assert.match(html, /data-role-perm-add="ssh"[^>]*disabled|data-role-perm-add="computeruse"[^>]*disabled/, "继承态的角色默认不得追加权限");
+  assert.match(html, /data-role-perm-cycle="ro"[^>]*disabled/, "继承态的角色默认不得改已选权限");
+  assert.match(html, /data-role-perm-add="ssh"[^>]*disabled|data-role-perm-add="rw_desktop"[^>]*disabled/, "继承态的角色默认不得追加权限");
 });
 
 test("继承只锁角色默认，当前会话仍可按 agent role 覆盖", () => {
@@ -58,7 +58,7 @@ test("继承只锁角色默认，当前会话仍可按 agent role 覆盖", () =>
     mode: "session",
     expanded: new Set(["teammate"]),
   });
-  assert.match(defaultHTML, /data-role-perm-cycle="read"[^>]*disabled/, "角色默认继承锁只锁默认栏");
+  assert.match(defaultHTML, /data-role-perm-cycle="ro"[^>]*disabled/, "角色默认继承锁只锁默认栏");
   assert.match(sessionHTML, /data-role-perm-cycle="ssh"/, "本会话覆盖仍可编辑");
   assert.doesNotMatch(sessionHTML, /data-role-perm-cycle="ssh"[^>]*disabled/, "会话覆盖不受继承锁影响");
   assert.doesNotMatch(sessionHTML, /data-role-inherit="teammate"/, "会话权限弹窗不重复继承设置");
@@ -68,8 +68,8 @@ test("SSH 是单一能力，选中后显示路径范围入口", () => {
   const html = rolePermissionBoardHTML([{
     role: "agent",
     accounts: [],
-    permission_vector: ["read", "ssh"],
-    default_permission_vector: ["read", "ssh"],
+    permission_vector: ["ro", "ssh"],
+    default_permission_vector: ["ro", "ssh"],
     default_ssh_user_spaces: ["/home/seelex/.cache"],
     session_ssh_user_spaces: ["/home/seelex/.cache", "/srv/shared"],
   }], { mode: "default", expanded: new Set(["agent"]) });
@@ -80,8 +80,8 @@ test("SSH 是单一能力，选中后显示路径范围入口", () => {
   const sessionHTML = rolePermissionBoardHTML([{
     role: "agent",
     accounts: [],
-    permission_vector: ["read", "ssh"],
-    default_permission_vector: ["read", "ssh"],
+    permission_vector: ["ro", "ssh"],
+    default_permission_vector: ["ro", "ssh"],
     default_ssh_user_spaces: ["/home/seelex/.cache"],
     session_ssh_user_spaces: ["/home/seelex/.cache", "/srv/shared"],
   }], { mode: "session", expanded: new Set(["agent"]) });

@@ -452,6 +452,7 @@ export function createTrajectoryView(container, options = {}) {
   return {
     render,
     setFilter,
+    select(key) { focusRow(String(key || "")); },
     currentFilter: () => filter,
     current: () => records,
     payload(key) { return payloads.get(key) || ""; }
