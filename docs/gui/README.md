@@ -6,6 +6,7 @@
 
 ```text
 docs/gui/
+├── FRONTEND-CONSTITUTION.md # Seelex 前端视觉、动效、加载与流式反馈的最高项目规约
 ├── architecture.md          # 总体架构、数据流、并发与 generation 发布模型
 ├── module_dotting.json      # 机器可读模块登记与依赖 DAG
 ├── modules/                 # 每个模块的详细设计
@@ -35,13 +36,14 @@ docs/gui/
 
 ## 推荐阅读顺序
 
-1. [`architecture.md`](architecture.md)：系统边界、数据流、并发、generation 和通用结构。
-2. [`module_dotting.json`](module_dotting.json)：模块职责、状态、接口、输入输出和依赖。
-3. [`modules/`](modules/)：实现或规划模块的详细设计。
-4. [`schemas/`](schemas/) 与 [`examples/`](examples/)：实际 JSON 契约及合法 payload。
-5. [`api/`](api/)：规划 HTTP adapter 的 transport 语义。
-6. [`recipes/`](recipes/)：generation 运维和恢复流程。
-7. [`architecture-review.md`](architecture-review.md)：并发、循环依赖、边界与解耦审查。
+1. [`FRONTEND-CONSTITUTION.md`](FRONTEND-CONSTITUTION.md)：项目级视觉、动效、加载、shimmer 与流式 cadence 规则。
+2. [`architecture.md`](architecture.md)：系统边界、数据流、并发、generation 和通用结构。
+3. [`module_dotting.json`](module_dotting.json)：模块职责、状态、接口、输入输出和依赖。
+4. [`modules/`](modules/)：实现或规划模块的详细设计。
+5. [`schemas/`](schemas/) 与 [`examples/`](examples/)：实际 JSON 契约及合法 payload。
+6. [`api/`](api/)：规划 HTTP adapter 的 transport 语义。
+7. [`recipes/`](recipes/)：generation 运维和恢复流程。
+8. [`architecture-review.md`](architecture-review.md)：并发、循环依赖、边界与解耦审查。
 
 ## 模块索引
 
@@ -89,11 +91,12 @@ docs/gui/
 
 ## 维护规则
 
-1. Schema 是契约事实源；字段变化先改 Schema，再改示例、API、模块文档和实现。
-2. 新增模块必须登记 `status`、职责、接口、输入输出、计划路径和 `depends_on`；依赖不得成环。
-3. 规划能力必须标为“规划”，不能因存在设计或示例就标为已实现。
-4. Snapshot/Event 变化必须同步 reducer、gap/resync、revision-floor 和契约测试。
-5. generation 变化必须同步 manifest Schema、四个 recipes 和 `CHANGELOG.md`。
-6. HTTP mutation 必须说明认证 scope、幂等、precondition、错误原子性和取消语义。
-7. `go test ./...` 会编译 Schema、验证所有示例并检查模块依赖图和文档存在性。
-8. 自动生成资格只能来自版本化 evidence/gate 或明确人工批准；低证据条目不得删除或静默忽略。
+1. 任何用户可见的视觉、动效、加载或流式反馈变化都必须先满足 `FRONTEND-CONSTITUTION.md`；冲突时按宪法效力链处理。
+2. Schema 是契约事实源；字段变化先改 Schema，再改示例、API、模块文档和实现。
+3. 新增模块必须登记 `status`、职责、接口、输入输出、计划路径和 `depends_on`；依赖不得成环。
+4. 规划能力必须标为“规划”，不能因存在设计或示例就标为已实现。
+5. Snapshot/Event 变化必须同步 reducer、gap/resync、revision-floor 和契约测试。
+6. generation 变化必须同步 manifest Schema、四个 recipes 和 `CHANGELOG.md`。
+7. HTTP mutation 必须说明认证 scope、幂等、precondition、错误原子性和取消语义。
+8. `go test ./...` 会编译 Schema、验证所有示例并检查模块依赖图和文档存在性。
+9. 自动生成资格只能来自版本化 evidence/gate 或明确人工批准；低证据条目不得删除或静默忽略。

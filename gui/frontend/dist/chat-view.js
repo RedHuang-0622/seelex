@@ -15,11 +15,14 @@ export function createChatView(elements, conversationView) {
   // 它派生**一条**分界（会话单例，落点与文案由 conversationCompactionAnchor 判定），
   // 插在最新被折出的那条消息之后；记录逐条可查的地方是右栏「上下文压缩」与轨迹
   // 「压缩」轨。
-  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false, switching = false, draft = "", compactions = [], revision = 0) {
+  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false, switching = false, draft = "", compactions = [], revision = 0, streamPhase = "receiving") {
     const draftText = String(draft ?? "");
     const active = messages.length > 0 || draftText.trim() !== "" || chat.running || (chat.input_queue || []).length > 0 || restoring || switching;
     elements["empty-state"].classList.toggle("hidden", active);
-    conversationView.render(renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions)), { scrollMode, hasMoreHistory, streaming: Boolean(chat.running), revision });
+    conversationView.render(
+      renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions), streamPhase),
+      { scrollMode, hasMoreHistory, streaming: Boolean(chat.running), streamPhase, revision }
+    );
     renderMessageQueueHost(chat);
   }
 
@@ -42,6 +45,8 @@ export function createChatView(elements, conversationView) {
   // 窗口里当前会话的停止按钮与历史回看必须继续可用）。
   function renderControls(snapshot, switching = false) {
     const restoring = snapshot.session?.status === "restoring";
+    const running = Boolean(snapshot.chat?.running);
+    elements.composer.setAttribute("aria-busy", restoring || switching || running ? "true" : "false");
     if (restoring) {
       elements["composer-status"].textContent = "正在恢复会话…";
       elements["send-button"].disabled = true;
@@ -56,7 +61,6 @@ export function createChatView(elements, conversationView) {
       return;
     }
     const inputLocked = switching;
-    const running = Boolean(snapshot.chat?.running);
     const queued = Number(snapshot.chat?.queued_count || 0);
     elements["composer-status"].textContent = inputLocked
       ? "正在切换会话…"
@@ -80,7 +84,7 @@ export function createChatView(elements, conversationView) {
   }
 
   return {
-    render(snapshot, scrollMode, switching = false, draft = "") {
+    render(snapshot, scrollMode, switching = false, draft = "", streamPhase = "receiving") {
       renderConversation(
         snapshot.conversation || [],
         snapshot.chat || {},
@@ -90,7 +94,8 @@ export function createChatView(elements, conversationView) {
         switching,
         draft,
         snapshot.task?.context_compactions || [],
-        snapshot.conversation_revision || 0
+        snapshot.conversation_revision || 0,
+        streamPhase
       );
       renderControls(snapshot, switching);
     },

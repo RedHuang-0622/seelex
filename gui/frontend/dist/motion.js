@@ -5,8 +5,19 @@
 //
 // 口径与 docs/gui/CHANGELOG.md 的动效契约一致：
 //  - 一切动效都尊重 `prefers-reduced-motion`：减少动效时直接落终值，不播动画；
-//  - 时长/缓动由调用方给（CSS 侧仍是 `--dur-*` / `--ease-*` token）；
+//  - 时长/缓动由调用方给（CSS 侧是 `--duration-*` / `--ease-*` token；旧
+//    `--dur-*` 只做 alias）；
 //  - 动效是呈现层细节，不改任何业务状态、不改契约字段。
+
+// CSS motion token 的 JS 兜底值只在这里命名一份。它们对应 styles.css 的
+// --duration-*，仅用于 animationend 丢失时的兜底或非 CSS 调度，不在组件里写裸数值。
+export const MOTION_FEEDBACK_MS = 100;
+export const MOTION_STATE_MS = 150;
+export const MOTION_EXIT_MS = MOTION_STATE_MS;
+export const MOTION_ENTER_MS = 250;
+export const MOTION_SLOW_MS = 400;
+export const MOTION_ONE_SHOT_MS = 500;
+export const MOTION_DRAG_GUARD_MS = 300;
 
 // prefersReducedMotion 读系统偏好（无 window/matchMedia 环境返回 false）。
 export function prefersReducedMotion() {
@@ -69,7 +80,7 @@ export function rollNumber(element, nextText, options = {}) {
   const raf = typeof options.raf === "function"
     ? options.raf
     : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null);
-  const duration = Number.isFinite(options.duration) ? Math.max(0, options.duration) : 420;
+  const duration = Number.isFinite(options.duration) ? Math.max(0, options.duration) : MOTION_ENTER_MS;
   if (!raf || duration === 0 || prefersReducedMotion()) { settle(); return false; }
   const token = (rollTokens.get(element) || 0) + 1;
   rollTokens.set(element, token);
@@ -137,7 +148,7 @@ export function wheelScrollDelta(element, deltaY) {
 // markEntering 给"新出现的元素"挂一次性入场类：只在元素**首次插入**时调用，
 // 因此 keyed reconcile 后续的内容替换（replacement）不会重播动画。动画结束
 // （或兜底超时 / 减少动效偏好）后摘类。
-export function markEntering(element, className = "is-entering", timeoutMs = 800) {
+export function markEntering(element, className = "is-entering", timeoutMs = MOTION_ONE_SHOT_MS) {
   if (!element?.classList || prefersReducedMotion()) return false;
   element.classList.add(className);
   const clear = () => element.classList.remove(className);
@@ -199,7 +210,7 @@ export function bindHorizontalDragDelegate(root, options = {}) {
     if (!moved) return;
     const swallow = clickEvent => { clickEvent.stopPropagation(); clickEvent.preventDefault(); };
     strip.addEventListener("click", swallow, { capture: true, once: true });
-    if (typeof setTimeout === "function") setTimeout(() => strip.removeEventListener("click", swallow, { capture: true }), 300);
+    if (typeof setTimeout === "function") setTimeout(() => strip.removeEventListener("click", swallow, { capture: true }), MOTION_DRAG_GUARD_MS);
   };
   root.addEventListener("pointerdown", onPointerDown, true);
   root.addEventListener("pointermove", onPointerMove, true);

@@ -196,7 +196,7 @@ function joinedAttrs(above = false, below = false) {
 // 一条空白草稿（判据同 draft-lifecycle.js composerDraftRows）。
 // anchor 是会话单例压缩分界（conversationCompactionAnchor 的返回值；null = 本会话
 // 没压缩过、或分界不在本页），只决定「以上已压缩」那一行的落点。
-export function renderConversationModel(messages = [], chat = {}, draft = "", anchor = null) {
+export function renderConversationModel(messages = [], chat = {}, draft = "", anchor = null, streamPhase = "receiving") {
   const payloads = new Map();
   const items = insertCompactionFrontier(buildConversationItems(messages), anchor);
   const grouped = groupConversationItems(items);
@@ -229,7 +229,7 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
   if (draftText.trim() !== "") {
     rendered.push({ key: DRAFT_ROW_KEY, html: renderDraftMessage(draftText, DRAFT_ROW_KEY), meta: { kind: "draft" } });
   }
-  const activity = renderChatActivity(chat);
+  const activity = renderChatActivity(chat, streamPhase);
   if (activity) {
     const key = "chat:activity";
     rendered.push({ key, html: `<div class="chat-activity-tail" data-conversation-key="${key}" data-wheel-kind="system" data-wheel-label="${escapeHtml(chat.running ? "执行中" : "等待发送")}">${activity}</div>` });
@@ -237,16 +237,17 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
   return { items: rendered, payloads };
 }
 
-// renderChatActivity 渲染对话流尾部的「运行时活动带」——只剩执行中的 loader。
+// renderChatActivity 渲染对话流尾部的「运行时活动带」——状态文字始终可读，
+// 只有调度器确认已进入持续流（100ms 滞回）后才附加局部活动线。
 // 排队叠**不在这里**，见 renderMessageQueue：队列是贴着输入框上沿的一叠，宿主是
 // #message-queue（输入框正上方），不进对话滚动区。
-export function renderChatActivity(chat = {}) {
+export function renderChatActivity(chat = {}, streamPhase = "receiving") {
   const running = Boolean(chat.running);
   if (!running) return "";
-  return `<section class="runtime-activity" role="status" aria-live="polite">
-    <span class="runtime-spinner">${icon("source", 15)}</span>
-    <strong>执行中</strong>
-    <span class="runtime-pulse" aria-hidden="true"><i></i><i></i><i></i></span>
+  const receiving = streamPhase === "receiving";
+  return `<section class="runtime-activity" role="status" aria-live="polite" aria-busy="true" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="${receiving ? "receiving" : "waiting"}">
+    <strong class="runtime-activity-copy">${receiving ? "正在生成回复" : "等待模型响应"}</strong>
+    ${receiving ? '<span class="runtime-activity-line" aria-hidden="true"></span>' : ""}
   </section>`;
 }
 
@@ -501,7 +502,7 @@ function renderMessage(message, key, above = false, below = false, payloads = ne
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
     ${routeMeta}
     ${thinking}
-    <div class="message-body">${renderMessageBody(message, role, key)}</div>
+    <div class="message-body" data-message-body="true">${renderMessageBody(message, role, key)}</div><!--/seelex-message-body-->
     ${actions}
   </article>`;
 }
@@ -595,10 +596,11 @@ function renderToolAxis(item, key, above = false, below = false) {
 function renderToolCall(tool, key, above = false, below = false) {
   const status = statusMeta(tool.status, tool.error);
   const joined = joinedAttrs(above, below);
-  return `<article class="tool-run ${status.className}${joined.className}" data-conversation-key="${escapeHtml(key)}"${joined.dataAttrs}>
+  const running = status.phase === "running";
+  return `<article class="tool-run ${status.className}${joined.className}" data-conversation-key="${escapeHtml(key)}" aria-busy="${running ? "true" : "false"}"${joined.dataAttrs}>
     <div class="tool-run-line">
       <code class="item-id">${escapeHtml(tool.id || key)}</code>
-      <button type="button" class="chat-chip is-tool" data-trajectory-key="${escapeHtml(key)}" title="工具调用与 IN/OUT 完整内容见轨迹视图">
+      <button type="button" class="chat-chip is-tool" data-trajectory-key="${escapeHtml(key)}" title="工具调用与 IN/OUT 完整内容见轨迹视图" aria-label="${running ? `正在运行 ${escapeHtml(tool.name)}` : `${escapeHtml(tool.name)} ${escapeHtml(status.label)}`}">
         <span class="tool-symbol">${icon("terminal", 13)}</span>
         <strong class="chat-chip-name">${escapeHtml(tool.name)}</strong>
         <span class="tool-state">${icon(status.icon, 11)} ${status.label}</span>
@@ -607,6 +609,7 @@ function renderToolCall(tool, key, above = false, below = false) {
         <span class="chat-chip-hint">完整内容 → 轨迹</span>
       </button>
     </div>
+    ${running ? `<span class="tool-run-activity" data-motion-purpose="feedback" data-motion-trigger="state-change" data-motion-phase="running" aria-hidden="true"><i></i></span>` : ""}
   </article>`;
 }
 
@@ -622,9 +625,12 @@ function formatChars(length) {
 }
 
 function statusMeta(status, error) {
-  if (error || status === "error" || status === "failed") return { label: "ERR", icon: "error", className: "is-error" };
-  if (status === "running" || status === "pending") return { label: "RUN", icon: "source", className: "is-running" };
-  return { label: "OK", icon: "check", className: "is-success" };
+  if (error || status === "error" || status === "failed") return { phase: "error", label: "失败", icon: "error", className: "is-error" };
+  if (status === "cancelled" || status === "canceled" || status === "aborted" || status === "interrupted") {
+    return { phase: "cancelled", label: "已取消", icon: "stop", className: "is-cancelled" };
+  }
+  if (status === "running" || status === "pending") return { phase: "running", label: "正在运行", icon: "source", className: "is-running" };
+  return { phase: "success", label: "已完成", icon: "check", className: "is-success" };
 }
 
 function formatDuration(duration) {

@@ -822,32 +822,47 @@ export function renderContextAxis(records = [], extras) {
 // 表头行（Network 面板的列定义）。
 const TRAJECTORY_COLUMNS = ["时间", "类型", "名称", "状态", "耗时", "大小"];
 
-// renderTrajectoryTable 渲染轨迹表格（Network 风格）：表头 + 记录行。
+// renderTrajectoryTable 渲染 Network 主从布局的左侧条目表，并派生右侧详情。
 // 返回 { html, items, payloads }：
 //  - html     整表 HTML（不含过滤条/摘要）
 //  - items    [{ key, html }]（keyed reconcile 用）
 //  - payloads 完整 IN/OUT payload Map（复制/展开用）
-export function renderTrajectoryTable(records) {
+export function renderTrajectoryTable(records, selectedKey = "") {
   const payloads = new Map();
   if (!records.length) {
     const html = `<div class="trajectory-empty">${escapeHtml(emptyTrajectoryText())}</div>`;
-    return { html, items: [], payloads };
+    return {
+      html,
+      headHtml: "",
+      items: [],
+      payloads,
+      selectedKey: "",
+      detailHtml: renderTrajectoryInspector(null, "", payloads)
+    };
   }
-  const head = `<div class="trajectory-row is-head" role="row">
+  const headHtml = `<div class="trajectory-row is-head" role="row">
     ${TRAJECTORY_COLUMNS.map(label => `<span>${escapeHtml(label)}</span>`).join("")}
   </div>`;
+  const selected = records.find(record => record.key === selectedKey) || records.at(-1);
   const items = records.map(record => {
     const key = record.key;
-    const html = renderTrajectoryRow(record, key, payloads);
+    const html = renderTrajectoryRow(record, key, payloads, record.key === selected.key);
     return { key, html };
   });
-  return { html: head + items.map(item => item.html).join(""), items, payloads };
+  const detailHtml = renderTrajectoryInspector(selected, selected.key, payloads);
+  return {
+    html: headHtml + items.map(item => item.html).join(""),
+    headHtml,
+    items,
+    payloads,
+    selectedKey: selected.key,
+    detailHtml
+  };
 }
 
-// renderTrajectoryRow 渲染一条轨迹记录行：主行（时间/类型/名称/状态/耗时/
-// 大小）+ 可展开详情（IN/OUT 面板）。记录数据全部 escape 或进入 payload
-// Map，不做未受控 HTML 注入。
-export function renderTrajectoryRow(record, key, payloads) {
+// renderTrajectoryRow 渲染一条可选择的轨迹记录行（时间/类型/名称/状态/耗时/
+// 大小）。详情在右侧 inspector，不在行内展开。
+export function renderTrajectoryRow(record, key, payloads, selected = false) {
   const statusClass = statusClassName(record.status);
   const statusLabel = statusLabelOf(record.status);
   const duration = record.duration ? formatDuration(record.duration) : (record.status === "running" ? "运行中" : "");
@@ -862,21 +877,48 @@ export function renderTrajectoryRow(record, key, payloads) {
     payloads.set(`${outputKey}-think`, String(record.reasoning));
   }
 
-  const detail = record.kind === "tool"
-    ? renderTrajectoryDetail({ input, output, inputKey, outputKey, record, statusClass })
-    : renderTrajectoryTextDetail({ output, outputKey, record });
-
-  return `<details class="trajectory-row ${statusClass}" data-trajectory-key="${escapeHtml(key)}" data-trajectory-kind="${escapeHtml(record.kind)}">
-    <summary class="trajectory-row-main" role="row">
+  return `<button type="button" role="option" aria-selected="${selected ? "true" : "false"}" class="trajectory-row ${statusClass}${selected ? " is-selected" : ""}" data-trajectory-key="${escapeHtml(key)}" data-trajectory-select="${escapeHtml(key)}" data-trajectory-kind="${escapeHtml(record.kind)}">
+    <span class="trajectory-row-main" role="row">
       <time datetime="${escapeHtml(record.startedAt || "")}">${escapeHtml(formatTime(record.startedAt))}</time>
       <span class="trajectory-kind is-${escapeHtml(record.kind)}">${trajectoryKindIcon(record.kind)}${escapeHtml(trajectoryKindLabel(record.kind))}</span>
       <strong class="trajectory-name" title="${escapeHtml(record.name)}">${escapeHtml(record.name)}</strong>
       <span class="trajectory-status ${statusClass}">${escapeHtml(statusLabel)}</span>
       <span class="trajectory-duration">${escapeHtml(duration)}</span>
       <span class="trajectory-size">${escapeHtml(size)}</span>
-    </summary>
-    <div class="trajectory-detail">${detail}</div>
-  </details>`;
+    </span>
+  </button>`;
+}
+
+// renderTrajectoryInspector 是 Network 右侧的详情面板：头部保留条目身份，
+// 内容按入参/出参分别呈现（可解析时 pretty-print JSON，否则原样文本）。
+export function renderTrajectoryInspector(record, key, payloads = new Map()) {
+  if (!record) {
+    return `<section class="trajectory-inspector-shell is-empty" aria-label="轨迹详情">
+      <div class="trajectory-inspector-empty">从左侧选择一条记录，查看入参、出参与思考内容。</div>
+    </section>`;
+  }
+  const statusClass = statusClassName(record.status);
+  const statusLabel = statusLabelOf(record.status);
+  const duration = record.duration ? formatDuration(record.duration) : (record.status === "running" ? "运行中" : "—");
+  const input = prettyValue(record.input);
+  const output = prettyValue(record.output);
+  const inputKey = `${key}-in`;
+  const outputKey = `${key}-out`;
+  payloads.set(inputKey, input);
+  payloads.set(outputKey, output);
+  if (record.reasoning) payloads.set(`${outputKey}-think`, String(record.reasoning));
+  const detail = record.kind === "tool"
+    ? renderTrajectoryDetail({ input, output, inputKey, outputKey, record, statusClass })
+    : renderTrajectoryTextDetail({ output, outputKey, record });
+  return `<section class="trajectory-inspector-shell" data-trajectory-detail="${escapeHtml(key)}" aria-label="${escapeHtml(`${record.name} 详情`)}">
+    <header class="trajectory-inspector-head">
+      <span class="trajectory-kind is-${escapeHtml(record.kind)}">${trajectoryKindIcon(record.kind)}${escapeHtml(trajectoryKindLabel(record.kind))}</span>
+      <strong>${escapeHtml(record.name)}</strong>
+      <span class="trajectory-status ${statusClass}">${escapeHtml(statusLabel)}</span>
+      <span class="trajectory-inspector-meta">${escapeHtml(formatTime(record.startedAt))} · ${escapeHtml(duration)} · ${escapeHtml(trajectorySize(record))}</span>
+    </header>
+    <div class="trajectory-inspector-body">${detail}</div>
+  </section>`;
 }
 
 // renderTrajectoryDetail 工具记录详情：IN/OUT 双栏（复用 io-panel 类名，
@@ -896,15 +938,15 @@ function renderTrajectoryDetail({ input, output, inputKey, outputKey, record, st
       ? `<button class="io-expand" type="button" data-expand="${outputKey}" title="展开完整内容">${svgExpand()} <span>+${outputView.hidden} chars</span></button>`
       : "";
   const outBody = outputView.truncated
-    ? `<details class="io-collapse"><summary><span>查看输出</span><span class="io-collapse-meta">${escapeHtml(String(outputView.total))} chars</span></summary><pre>${escapeHtml(outputView.preview)}</pre></details>`
-    : `<pre>${escapeHtml(outputView.preview)}</pre>`;
+    ? `<details class="io-collapse"><summary><span>查看输出</span><span class="io-collapse-meta">${escapeHtml(String(outputView.total))} chars</span></summary><pre class="trajectory-json-value">${escapeHtml(outputView.preview)}</pre></details>`
+    : `<pre class="trajectory-json-value">${escapeHtml(outputView.preview || "（无出参）")}</pre>`;
   return `${renderThinkPanel(record, outputKey)}<div class="trajectory-io-grid">
-    <section class="io-panel" data-payload="${inputKey}">
-      <header><span class="io-label">IN</span><span class="io-meta">${inputView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${inputKey}" title="复制输入" aria-label="复制输入">${svgCopy()}</button></header>
-      <pre>${escapeHtml(inputView.preview)}</pre>
+    <section class="io-panel" data-payload="${inputKey}" data-json-kind="input" aria-label="入参 JSON">
+      <header><span class="io-label">入参 JSON</span><span class="io-meta">${inputView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${inputKey}" title="复制输入" aria-label="复制输入">${svgCopy()}</button></header>
+      <pre class="trajectory-json-value">${escapeHtml(inputView.preview || "（无入参）")}</pre>
     </section>
-    <section class="io-panel ${statusClass === "is-error" ? "io-error" : ""}" data-payload="${outputKey}">
-      <header><span class="io-label">OUT</span><span class="io-meta">${outputView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${outputKey}" title="复制输出" aria-label="复制输出">${svgCopy()}</button></header>
+    <section class="io-panel ${statusClass === "is-error" ? "io-error" : ""}" data-payload="${outputKey}" data-json-kind="output" aria-label="出参 JSON">
+      <header><span class="io-label">出参 JSON</span><span class="io-meta">${outputView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${outputKey}" title="复制输出" aria-label="复制输出">${svgCopy()}</button></header>
       ${outBody}
       ${note}
       ${fullButton}
@@ -937,8 +979,8 @@ function renderTrajectoryTextDetail({ output, outputKey, record }) {
     : "";
   const thinkPanel = renderThinkPanel(record, outputKey);
   const body = view.truncated
-    ? `<details class="io-collapse"><summary><span>查看内容</span><span class="io-collapse-meta">${escapeHtml(String(view.total))} chars</span></summary><pre>${escapeHtml(view.preview)}</pre></details>`
-    : `<pre>${escapeHtml(view.preview)}</pre>`;
+    ? `<details class="io-collapse"><summary><span>查看内容</span><span class="io-collapse-meta">${escapeHtml(String(view.total))} chars</span></summary><pre class="trajectory-json-value">${escapeHtml(view.preview)}</pre></details>`
+    : `<pre class="trajectory-json-value">${escapeHtml(view.preview || "（无内容）")}</pre>`;
   return `<div class="trajectory-text-panel">
     ${thinkPanel}
     <section class="io-panel ${record.status === "error" ? "io-error" : ""}" data-payload="${outputKey}">

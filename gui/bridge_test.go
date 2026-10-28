@@ -1816,8 +1816,14 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		t.Fatal(err)
 	}
 	trajectorySource := string(trajectory)
-	if !strings.Contains(trajectorySource, `class="io-label">IN`) || !strings.Contains(trajectorySource, `class="io-label">OUT`) || !strings.Contains(trajectorySource, "limitText(output, 4000") || !strings.Contains(trajectorySource, `data-load-ref`) || !strings.Contains(trajectorySource, `io-collapse`) {
-		t.Fatal("trajectory detail must split IN/OUT, cap preview (4KB), and offer result_ref expansion for truncated output")
+	if !strings.Contains(trajectorySource, `class="io-label">入参 JSON`) ||
+		!strings.Contains(trajectorySource, `class="io-label">出参 JSON`) ||
+		!strings.Contains(trajectorySource, "renderTrajectoryInspector") ||
+		!strings.Contains(trajectorySource, "trajectory-inspector-shell") ||
+		!strings.Contains(trajectorySource, "limitText(output, 4000") ||
+		!strings.Contains(trajectorySource, `data-load-ref`) ||
+		!strings.Contains(trajectorySource, `io-collapse`) {
+		t.Fatal("trajectory inspector must expose input/output JSON, cap preview (4KB), and offer result_ref expansion for truncated output")
 	}
 	if !strings.Contains(trajectorySource, "renderContextAxis") || !strings.Contains(trajectorySource, "trajectory-think") {
 		t.Fatal("trajectory view must include the context axis and the full THINK panel")

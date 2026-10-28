@@ -215,10 +215,17 @@ export function createConversationView(container, options = {}) {
       payloads = model.payloads;
       currentRevision = Number(options.revision || 0);
       canLoadMore = Boolean(options.hasMoreHistory);
+      const streamPhase = String(options.streamPhase || (options.streaming ? "receiving" : "idle"));
       // 流式标记：会话还在跑的时候一帧都不许新建（见 embed-buffering.js 的
       // shouldDeferMount）。chat-view.js 传的是 chat.running。
       embedBuffer.setStreaming(Boolean(options.streaming));
-      reconcile(container, model.items, htmlByKey, payloads, { streaming: Boolean(options.streaming), embedBuffer });
+      container.setAttribute?.("aria-busy", options.streaming ? "true" : "false");
+      container.dataset.streamPhase = streamPhase;
+      reconcile(container, model.items, htmlByKey, payloads, {
+        streaming: Boolean(options.streaming),
+        streamPhase,
+        embedBuffer
+      });
       restoreScroll(container, before, options.scrollMode || "auto", anchor);
       if (editor) {
         const article = container.querySelector(`[data-conversation-key="${CSS.escape(editor.key)}"]`);
@@ -340,7 +347,12 @@ function reconcile(container, items, htmlByKey, payloads, buffers = {}) {
     let fresh = false;
     if (!node || htmlByKey.get(item.key) !== item.html) {
       const replacement = elementFromHTML(item.html);
-      if (node) {
+      const patched = Boolean(node && canPatchMessageBody(htmlByKey.get(item.key), item.html));
+      if (patched) {
+        // 流式正文更新只替换稳定消息的 body；外壳、操作按钮、reasoning 展开态
+        // 和焦点所在的 article 身份都保留，绝不按 token 重建整条消息。
+        patchMessageBody(node, replacement, payloads, embedBuffer, { streaming });
+      } else if (node) {
         const wasCursor = node === cursor;
         const uiState = captureUIState(node);
         // 换行**之前**：让缓冲区把旧行里内容没变的沙箱帧领养进新行（srcdoc 一致就
@@ -355,7 +367,7 @@ function reconcile(container, items, htmlByKey, payloads, buffers = {}) {
         markEntering(replacement, "is-entering-row");
         embedBuffer?.adopt(null, replacement, { streaming });
       }
-      node = replacement;
+      if (!patched) node = replacement;
       fresh = true;
       htmlByKey.set(item.key, item.html);
     }
@@ -373,6 +385,39 @@ function reconcile(container, items, htmlByKey, payloads, buffers = {}) {
     cursor = next;
   }
   for (const key of [...htmlByKey.keys()]) if (!desired.has(key)) htmlByKey.delete(key);
+}
+
+function messageBodyBounds(html) {
+  const value = String(html || "");
+  const start = value.indexOf('<div class="message-body" data-message-body="true">');
+  if (start < 0) return null;
+  const end = value.indexOf("<!--/seelex-message-body-->", start);
+  if (end < 0) return null;
+  return { start, end, endMarker: end + "<!--/seelex-message-body-->".length };
+}
+
+// canPatchMessageBody 只比较 body 以外的稳定外壳。同一 message key 的 content 增长
+// 可以走局部 patch；角色、元数据、操作按钮或邻接状态改变时仍走 keyed 替换。
+export function canPatchMessageBody(previousHtml, nextHtml) {
+  const previous = messageBodyBounds(previousHtml);
+  const next = messageBodyBounds(nextHtml);
+  if (!previous || !next) return false;
+  const previousStart = String(previousHtml).slice(0, previous.start);
+  const nextStart = String(nextHtml).slice(0, next.start);
+  const previousEnd = String(previousHtml).slice(previous.endMarker);
+  const nextEnd = String(nextHtml).slice(next.endMarker);
+  return previousStart === nextStart && previousEnd === nextEnd;
+}
+
+function patchMessageBody(node, replacement, payloads, embedBuffer, options = {}) {
+  const currentBody = node.querySelector?.(".message-body");
+  const nextBody = replacement?.querySelector?.(".message-body");
+  if (!currentBody || !nextBody) return false;
+  const uiState = captureUIState(node);
+  embedBuffer?.adopt(node, replacement, { streaming: Boolean(options.streaming) });
+  currentBody.replaceChildren(...nextBody.childNodes);
+  restoreUIState(node, uiState, payloads);
+  return true;
 }
 
 function captureUIState(node) {
@@ -444,6 +489,10 @@ export function restoreScrollAnchor(container, anchor) {
   return true;
 }
 
+export function shouldFollowTail(mode, followsTail) {
+  return mode === "bottom" || (mode === "auto" && Boolean(followsTail));
+}
+
 // setScrollInstantly 立即设置滚动位置：.conversation 声明了
 // scroll-behavior: smooth，直接赋值会变成动画（锚点恢复、轮轴拖拽都会「飘」）。
 function setScrollInstantly(container, top) {
@@ -459,7 +508,7 @@ function restoreScroll(container, before, mode, anchor) {
     setScrollInstantly(container, before.top + Math.max(container.scrollHeight - before.height, 0));
     return;
   }
-  if (mode === "bottom" || (mode === "auto" && before.followsTail)) {
+  if (shouldFollowTail(mode, before.followsTail)) {
     setScrollInstantly(container, container.scrollHeight);
   }
 }

@@ -113,6 +113,17 @@ test("空闲且非切换时可发送", () => {
   assert.equal(elements.prompt.disabled, false);
   assert.equal(elements["send-button"].disabled, false);
   assert.equal(elements["composer-status"].textContent, "就绪");
+  assert.equal(elements.composer.attributes["aria-busy"], "false");
+});
+
+test("恢复/运行期间 composer 暴露 aria-busy，结束后复位", () => {
+  const { view, elements } = makeView();
+  view.renderControls(snapshot({ status: "restoring", running: true }));
+  assert.equal(elements.composer.attributes["aria-busy"], "true");
+  view.renderControls(snapshot({ status: "running", running: true }));
+  assert.equal(elements.composer.attributes["aria-busy"], "true");
+  view.renderControls(snapshot({ status: "idle", running: false }));
+  assert.equal(elements.composer.attributes["aria-busy"], "false");
 });
 
 test("单调 OR：restoring 与 switching 同时成立时锁不提前解除", () => {
@@ -137,9 +148,10 @@ test("app.js：切换在途标志贯穿 composer 的每个渲染落点与生命�
   // app.js 是 DOM 绑定脚本，node 侧按仓库既有口径做源码级断言（见
   // role-session-refresh.test.mjs / queue-edit.test.mjs）：只钉「哪条渲染路径
   // 带没带 switching」，行为边界由上面的 renderControls 用例覆盖。
-  assert.ok(
-    appSource.includes("chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID), composerDraftPageText(snapshot))"),
-    "整份渲染必须把 resumingSessionID 作为 switching 传入，并把本页草稿传给会话行渲染"
+  assert.match(
+    appSource,
+    /chatView\.render\(snapshot, options\.scrollMode, Boolean\(state\.resumingSessionID\), composerDraftPageText\(snapshot\), streamCadence\.phase\(\)\)/,
+    "整份渲染必须把 resumingSessionID 作为 switching 传入，并把本页草稿与当前流态传给会话行渲染"
   );
   const calls = appSource.match(/chatView\.renderControls\(([^\n]*)\)/g) || [];
   assert.ok(calls.length >= 3, `期望至少 3 个 renderControls 落点，实际 ${calls.length}`);
@@ -198,7 +210,7 @@ test("草稿会话不是空页：未发送草稿让空态消失并把草稿喂�
 });
 
 test("app.js：已撤回「未发送草稿行」——页面草稿恒为空且不再引用 draft-lifecycle", () => {
-  const conversationCalls = appSource.match(/chatView\.renderConversation\(\s*snapshot\.conversation \|\| \[\],[\s\S]{0,300}?\);/g) || [];
+  const conversationCalls = appSource.match(/chatView\.renderConversation\(\s*snapshot\.conversation \|\| \[\],[\s\S]{0,600}?\);/g) || [];
   assert.ok(conversationCalls.length >= 2, `期望至少 2 个 renderConversation 落点，实际 ${conversationCalls.length}`);
   for (const call of conversationCalls) {
     assert.ok(

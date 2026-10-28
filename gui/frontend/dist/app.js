@@ -64,10 +64,14 @@ import {
   bindHorizontalDragDelegate,
   bindHorizontalWheelDelegate,
   bindScrollShadows,
+  MOTION_ENTER_MS,
+  MOTION_EXIT_MS,
+  MOTION_SLOW_MS,
   prefersReducedMotion,
   rollNumber,
   syncAllScrollShadows
 } from "./motion.js";
+import { createStreamCadence } from "./stream-cadence.js";
 import { flashResizePill, hideResizePill, showResizePill } from "./resize-pill.js";
 import { duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 import {
@@ -188,7 +192,7 @@ function showLeftPage(page, persist = true) {
   const active = normalizeLeftPage(page);
   for (const [key, id] of Object.entries(LEFT_PAGE_IDS)) {
     const panel = elements[id];
-    panel?.classList.toggle("hidden", key !== active);
+    if (panel) setAnimatedViewVisibility(panel, key === active);
   }
   for (const button of elements["left-nav"]?.querySelectorAll?.("[data-left-page]") || []) {
     const selected = button.dataset.leftPage === active;
@@ -306,6 +310,43 @@ function renderTabBars() {
   renderTabBar("right");
 }
 
+// setAnimatedViewVisibility 只管理视图容器本身：进入立即解除 hidden 并由 CSS
+// 播放 250ms；退出先挂 150ms 终态类，再落 hidden。业务状态、焦点归属和 DTO 不变；
+// reduced-motion 直接切换。
+function setAnimatedViewVisibility(panel, visible) {
+  if (!panel?.classList) return;
+  const timer = panel._motionExitTimer;
+  if (timer) {
+    window.clearTimeout(timer);
+    panel._motionExitTimer = 0;
+  }
+  panel.classList.remove("is-view-exiting");
+  panel.dataset.motionPurpose = "continuity";
+  panel.dataset.motionTrigger = "route-change";
+  if (visible) {
+    panel.classList.remove("hidden");
+    panel.dataset.motionPhase = "entering";
+    return;
+  }
+  if (panel.classList.contains("hidden")) return;
+  if (prefersReducedMotion()) {
+    panel.classList.add("hidden");
+    panel.dataset.motionPhase = "idle";
+    return;
+  }
+  panel.dataset.motionPhase = "exiting";
+  panel.classList.add("is-view-exiting");
+  const finish = () => {
+    const current = panel._motionExitTimer;
+    if (current) window.clearTimeout(current);
+    panel._motionExitTimer = 0;
+    panel.classList.remove("is-view-exiting");
+    panel.classList.add("hidden");
+    panel.dataset.motionPhase = "idle";
+  };
+  panel._motionExitTimer = window.setTimeout(finish, MOTION_EXIT_MS);
+}
+
 // syncSessionChrome 强制“会话类页面不可见时不显示会话专属悬浮件”，
 // 避免隐藏容器里的渲染把空态/加载更早/输入框带出来；对话页可见时
 // 由 chatView 自行管理空态与历史按钮。
@@ -338,7 +379,8 @@ function runViewActivation(view) {
       Boolean(state.resumingSessionID),
       composerDraftPageText(snapshot),
       snapshot.task?.context_compactions || [],
-      snapshot.conversation_revision || 0
+      snapshot.conversation_revision || 0,
+      streamCadence.phase()
     );
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     return;
@@ -371,7 +413,8 @@ function applyDockState() {
   }
   for (const region of REGIONS) {
     for (const view of dockState.layout[region]) {
-      viewPanels[view]?.classList.toggle("hidden", view !== dockState.active[region]);
+      const panel = viewPanels[view];
+      if (panel) setAnimatedViewVisibility(panel, view === dockState.active[region]);
     }
   }
   state.tab = dockState.active.main;
@@ -535,6 +578,9 @@ window.__seelexLiveDiag = liveDiag;
 const client = createGUIClient({
   loadSnapshot: () => invoke("Snapshot"),
   onSnapshot: (snapshot, options) => {
+    // 权威快照已经包含全部正文；丢弃 cadence 中尚未提交的旧帧，避免基线之后
+    // 又被一帧更旧的流式快照覆盖。
+    streamCadence.reset();
     // 视图会话切换 = Bridge 重建订阅：宿主侧 ack 游标随新订阅从 0 重计，
     // 渲染层的待发回执水位也必须跟着复位，否则旧会话的高水位会把新订阅的
     // 回执吞掉（seq <= ackPendingSeq 直接 return），Bridge 误判渲染层落后并
@@ -553,7 +599,7 @@ const client = createGUIClient({
     }
     render(snapshot, options);
   },
-  onIncremental: renderIncrementalBuffered,
+  onIncremental: handleIncremental,
   // 缺口增量补取：宿主从重放窗口按 delivery_seq 补事件，补不齐才重拉快照。
   replay: sinceSeq => invoke("ReplayEvents", sinceSeq),
   // 应用回执：告诉宿主哪些序号已经落地，宿主因此不必用轮询猜自己漏没漏事件。
@@ -924,7 +970,7 @@ function render(snapshot, options = {}) {
   renderRuntime(snapshot.runtime || {});
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
-  chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID), composerDraftPageText(snapshot));
+  chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID), composerDraftPageText(snapshot), streamCadence.phase());
   refreshInputIndex(snapshot);
   renderTrajectory(snapshot);
   refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
@@ -945,7 +991,7 @@ function render(snapshot, options = {}) {
   perfHooks.markRender(performance.now() - started);
 }
 
-function renderIncremental(snapshot, kind, payload) {
+function renderIncremental(snapshot, kind, payload, options = {}) {
   if (!snapshot) return;
   const started = performance.now();
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
@@ -958,7 +1004,8 @@ function renderIncremental(snapshot, kind, payload) {
       Boolean(state.resumingSessionID),
       composerDraftPageText(snapshot),
       snapshot.task?.context_compactions || [],
-      snapshot.conversation_revision || 0
+      snapshot.conversation_revision || 0,
+      options.streamPhase || streamCadence.phase()
     );
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     renderTrajectory(snapshot);
@@ -1051,9 +1098,9 @@ let bufferedIncrementalSnapshot = null;
 let bufferedIncrementalKinds = new Set();
 let bufferedIncrementalTimer = null;
 
-function renderIncrementalBuffered(snapshot, kind, payload) {
+function renderIncrementalBuffered(snapshot, kind, payload, options = {}) {
   if (!BUFFERED_INCREMENTAL_KINDS.has(kind)) {
-    renderIncremental(snapshot, kind, payload);
+    renderIncremental(snapshot, kind, payload, options);
     return;
   }
   bufferedIncrementalSnapshot = snapshot;
@@ -1076,6 +1123,52 @@ function flushBufferedIncrementals() {
     : kinds.has("task.changed") ? "task.changed" : "worktable.changed";
   renderIncremental(snapshot, kind);
 }
+
+// handleIncremental 在 reducer 的权威事件序列之后只负责“什么时候画”：
+// - message.delta 进入 cadence 缓冲，50ms 合并、latest-wins；
+// - chat.changed(running=false) 是显式 terminal，先 flush 尾包再落稳定态；
+// - 其它边界先 flush 正文，再立即提交自己的结构变化，避免工具结果跨过尾字。
+// Snapshot/Event 的应用、revision 与回执水位仍由 client-state 按原顺序处理。
+function handleIncremental(snapshot, kind, payload) {
+  if (kind === "message.delta") {
+    streamCadence.push({ snapshot, kind, payload });
+    return;
+  }
+  if (kind === "chat.changed" && !snapshot.chat?.running) {
+    streamCadence.terminal({ snapshot, kind, payload });
+    return;
+  }
+  streamCadence.flush();
+  renderIncrementalBuffered(snapshot, kind, payload, { streamPhase: streamCadence.phase() });
+}
+
+function renderStreamPhase(phase, meta = {}) {
+  if (meta.reason === "terminal" || meta.reason === "reset") return;
+  const snapshot = client.current();
+  if (!snapshot) return;
+  chatView.renderConversation(
+    snapshot.conversation || [],
+    snapshot.chat || {},
+    "preserve",
+    snapshot.has_more_history,
+    snapshot.session?.status === "restoring",
+    Boolean(state.resumingSessionID),
+    composerDraftPageText(snapshot),
+    snapshot.task?.context_compactions || [],
+    snapshot.conversation_revision || 0,
+    phase
+  );
+}
+
+const streamCadence = createStreamCadence({
+  onRender: (frame, phase) => {
+    renderIncrementalBuffered(frame.snapshot, frame.kind, frame.payload, { streamPhase: phase });
+  },
+  onPhaseChange: renderStreamPhase,
+  onTerminal: frame => {
+    renderIncrementalBuffered(frame.snapshot, frame.kind, frame.payload, { streamPhase: "idle" });
+  }
+});
 
 // ── 对话区子页（对话 / 轨迹）──────────────────────────────
 // 子页是否激活由停靠布局决定（在主视图或右栏任一栏激活即渲染对应 DOM）；
@@ -1235,10 +1328,10 @@ elements.conversation.addEventListener("click", event => {
   requestAnimationFrame(() => {
     const row = document.querySelector(`[data-trajectory-key="${CSS.escape(key)}"]`);
     if (!row) return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const reduced = prefersReducedMotion();
     row.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
     row.classList.add("is-flash");
-    setTimeout(() => row.classList.remove("is-flash"), 1400);
+    setTimeout(() => row.classList.remove("is-flash"), MOTION_SLOW_MS);
   });
 });
 
@@ -3853,7 +3946,7 @@ function setModal(id, open) {
   el.classList.add("is-closing");
   el.addEventListener("animationend", finish, { once: true });
   // 兜底：动画被吞掉（元素不可见 / 事件丢失）时也要收起，不能让弹窗卡在半开态。
-  el._closeTimer = window.setTimeout(finish, 320);
+  el._closeTimer = window.setTimeout(finish, MOTION_EXIT_MS);
 }
 
 function openRuntime() {
@@ -5719,7 +5812,7 @@ function openFilePreview(entry) {
       pane.classList.add("is-drawing");
       const clear = () => pane.classList.remove("is-drawing");
       pane.addEventListener("animationend", clear, { once: true });
-      window.setTimeout(clear, 420);
+      window.setTimeout(clear, MOTION_ENTER_MS);
     }
   }
   filePreviewController.open(entry);

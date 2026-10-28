@@ -47,7 +47,7 @@ test("T3.7 chat chip and trajectory row share status/duration/size and key", () 
   assert.match(row, /data-trajectory-key="tool:call-1"/);
 
   // 同一 tool 在两视图 status/duration/size 一致（同一分类函数派生）。
-  assert.match(chip, /class="tool-state">.*OK/);
+  assert.match(chip, /class="tool-state">.*已完成/);
   assert.match(row, /trajectory-status is-success">OK/);
   assert.match(chip, /1\.2s/);
   assert.match(row, /1\.2s/);
@@ -63,7 +63,7 @@ test("T3.7 error tool keeps consistent state across views", () => {
   const tool = buildTrajectory(messages).find((record) => record.kind === "tool");
   const row = renderTrajectoryRow(tool, tool.key, new Map());
 
-  assert.match(chip, /class="tool-state">.*ERR/);
+  assert.match(chip, /class="tool-state">.*失败/);
   assert.match(row, /trajectory-status is-error">ERR/);
   assert.match(chip, /500ms/);
   assert.match(row, /500ms/);

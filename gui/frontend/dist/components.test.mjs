@@ -91,7 +91,8 @@ test("renders runtime activity only from active chat state", () => {
   assert.equal(renderChatActivity({ running: false }), "");
   const html = renderChatActivity({ running: true });
   assert.match(html, /class="runtime-activity"/);
-  assert.match(html, /执行中/);
+  assert.match(html, /正在生成回复/);
+  assert.match(html, /aria-busy="true"/);
 });
 
 test("renders queued inputs as one-line rows", () => {
@@ -173,7 +174,7 @@ test("keeps chat tool rows to a single line with status", () => {
   ]);
   const item = model.items.find(entry => entry.html.includes('data-conversation-key="tool:call-small"'));
   assert.ok(item);
-  assert.match(item.html, /class="tool-state">.*OK/);
+  assert.match(item.html, /class="tool-state">.*已完成/);
   assert.doesNotMatch(item.html, /data-copy/);
   assert.doesNotMatch(item.html, /io-collapse/);
 });

@@ -2,6 +2,47 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-10-28
+
+### Added
+
+- **Seelex 项目级前端宪法生效**：新增
+  [`FRONTEND-CONSTITUTION.md`](FRONTEND-CONSTITUTION.md)，把用户可见动作映射到
+  `Feedback` / `Continuity` / `Delight` 三类 Purpose，并冻结统一时长、缓动、加载阈值、
+  shimmer、reduced-motion 和可访问性规则。
+- **流式输出的 cadence 成为表现层契约**：持续流按 50ms tick 合并刷新，进入流态使用
+  100ms 滞回，退出使用 150ms 滞回；terminal 事件必须先 flush 尾包再稳定。该规则约束
+  内容出现节奏，不把每个 token 的视觉入场当作流畅度。
+
+### Changed
+
+- **动效 token 与交互节奏落地**：`styles.css` 以
+  `--duration-micro/fast/normal/slow/slower` 和 `--ease-out/in/in-out/linear`
+  供源，旧 `--dur-*` 只保留 alias；按压 100ms、hover/focus/tooltip 150ms、
+  进入 250ms、退出 150ms。通用 spinner、Plan `top` 扫动、弹窗 `rotateX` /
+  `perspective`、分隔条 `left/width` transition 已删除。
+- **对话与工具活动语义收敛**：对话尾部改为可读“正在生成回复/等待模型响应”
+  状态加局部活动线；工具 running 只在卡内 activity 层播放唯一 1.8s
+  `transform` shimmer，success/error/cancelled 后立即停止，reduced-motion
+  降级为静态活动线。运行容器补齐 `aria-busy`。
+- **流式 cadence 与滚动接管**：新增 `stream-cadence.js`，delta 最多每 50ms
+  合并刷新，首包下一帧可见，进入滞回 100ms、退出滞回 150ms；显式 terminal
+  先 flush 尾包再稳定。稳定消息的流式更新只 patch `.message-body`，用户离开
+  尾部后不再抢回滚动位置。
+- **轨迹改为 Network 主从检查器**：左侧为可选条目表，右侧固定详情头并展示
+  可滚动入参/出参 JSON（可解析时格式化）、THINK 与结果分页读回；移除
+  `details` 行内展开。`FRONTEND-CONSTITUTION.md` 同时新增“圆角容器不得与
+  单侧厚外边距叠加”的通用空间规则。
+
+### Tests
+
+- 新增 `motion-contract.test.mjs`、`stream-cadence.test.mjs`、
+  `tool-running-motion.test.mjs`、`shape-spacing.test.mjs`；扩展
+  `components.test.mjs`、`conversation-view.test.mjs`、
+  `chat-view-input-lock.test.mjs`、`trajectory.test.mjs`。
+- 迁移前/后的完整动画、transition、硬编码时长、布局动画与移除清单见
+  [`2026-10-28-frontend-motion/audit.md`](../2026-10-28-frontend-motion/audit.md)。
+
 ## 2026-10-25
 
 ### Added

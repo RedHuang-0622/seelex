@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -20,6 +21,7 @@ import {
   renderTrajectorySummary,
   renderTrajectoryTable,
   renderTrajectoryRow,
+  renderTrajectoryInspector,
   renderContextAxis,
   renderTrajectoryWindowInfo,
   renderAxisDetail,
@@ -108,7 +110,7 @@ test("renders THINK panel with full reasoning in trajectory detail", () => {
   const records = buildTrajectory([
     { id: "a1", role: "assistant", content: "answer", reasoning_content: "step one\nstep two", created_at: "2026-08-25T10:00:01Z" }
   ]);
-  const html = renderTrajectoryRow(records[0], records[0].key, payloads);
+  const html = renderTrajectoryInspector(records[0], records[0].key, payloads);
   assert.match(html, /trajectory-think/);
   assert.match(html, /class="io-label">THINK/);
   assert.equal(payloads.get("message:a1-out-think"), "step one\nstep two");
@@ -202,8 +204,35 @@ test("renders network-style table with stable row keys", () => {
   // 工具行详情：IN/OUT 双栏与完整 payload
   assert.equal(model.payloads.get("tool:call-1-in"), "{}");
   assert.equal(model.payloads.get("tool:call-1-out"), "done");
-  assert.match(model.items[1].html, /class="io-label">IN/);
-  assert.match(model.items[1].html, /class="io-label">OUT/);
+  assert.match(model.detailHtml, /class="io-label">入参 JSON/);
+  assert.match(model.detailHtml, /class="io-label">出参 JSON/);
+});
+
+test("Network 主从布局：左表选条目，右侧展示入参/出参 JSON", () => {
+  const records = buildTrajectory([
+    toolStart("call-1", "bash", '{"command":"git status","cwd":"/work"}'),
+    toolEnd("call-1", "bash", '{"stdout":"clean","exit_code":0}')
+  ]);
+  const model = renderTrajectoryTable(records, "tool:call-1");
+  assert.equal(model.selectedKey, "tool:call-1");
+  assert.match(model.headHtml, /trajectory-row is-head/);
+  assert.match(model.items[0].html, /^<button\b/);
+  assert.match(model.items[0].html, /data-trajectory-select="tool:call-1"/);
+  assert.match(model.items[0].html, /aria-selected="true"/);
+  assert.doesNotMatch(model.items[0].html, /<details|trajectory-detail/);
+  assert.match(model.detailHtml, /class="trajectory-inspector-shell"/);
+  assert.match(model.detailHtml, /入参 JSON/);
+  assert.match(model.detailHtml, /出参 JSON/);
+  assert.match(model.detailHtml, /&quot;command&quot;: &quot;git status&quot;/);
+  assert.match(model.detailHtml, /&quot;stdout&quot;: &quot;clean&quot;/);
+
+  const inspectorPayloads = new Map();
+  const inspector = renderTrajectoryInspector(records[0], records[0].key, inspectorPayloads);
+  assert.match(inspector, /data-trajectory-detail="tool:call-1"/);
+  assert.match(inspector, /aria-label="入参 JSON"/);
+  assert.match(inspector, /aria-label="出参 JSON"/);
+  assert.equal(inspectorPayloads.get("tool:call-1-in"), '{\n  "command": "git status",\n  "cwd": "/work"\n}');
+  assert.equal(inspectorPayloads.get("tool:call-1-out"), '{\n  "stdout": "clean",\n  "exit_code": 0\n}');
 });
 
 test("escapes untrusted text in trajectory rows", () => {
@@ -212,8 +241,9 @@ test("escapes untrusted text in trajectory rows", () => {
     toolEnd("call-x", "bash", "</pre><script>alert(2)</script>")
   ]);
   const model = renderTrajectoryTable(records);
-  assert.doesNotMatch(model.items[0].html, /<script>/);
-  assert.match(model.items[0].html, /&lt;script&gt;/);
+  const rendered = `${model.html}${model.detailHtml}`;
+  assert.doesNotMatch(rendered, /<script>/);
+  assert.match(rendered, /&lt;script&gt;/);
   assert.equal(model.payloads.get("tool:call-x-in"), '{\n  "cmd": "<script>alert(1)</script>"\n}');
 });
 
@@ -223,9 +253,9 @@ test("renders result_ref loader for truncated tool output", () => {
     toolEnd("call-big", "bash", "preview", { result_ref: "tr-xyz", truncated: true, total_chars: 9000 })
   ]);
   const model = renderTrajectoryTable(records);
-  assert.match(model.items[0].html, /data-load-ref="tr-xyz"/);
-  assert.match(model.items[0].html, /加载完整输出/);
-  assert.match(model.items[0].html, /全文 9000 字符/);
+  assert.match(model.detailHtml, /data-load-ref="tr-xyz"/);
+  assert.match(model.detailHtml, /加载完整输出/);
+  assert.match(model.detailHtml, /全文 9000 字符/);
 });
 
 test("renders empty state for empty trajectory", () => {
@@ -747,9 +777,9 @@ test("tool steps keep the reasoning that produced them", () => {
   // 工具行详情里也要有 THINK 面板，而不是只有 IN/OUT。
   const model = renderTrajectoryTable(records);
   const row = model.items.find(item => item.key.startsWith("tool:"));
-  assert.match(row.html, /trajectory-think/);
-  assert.match(row.html, /THINK/);
-  assert.match(row.html, /先读文件确认结构/);
+  assert.match(model.detailHtml, /trajectory-think/);
+  assert.match(model.detailHtml, /THINK/);
+  assert.match(model.detailHtml, /先读文件确认结构/);
 });
 
 test("trajectory window bar states which slice is loaded", () => {
@@ -778,9 +808,10 @@ test("row rendering keeps duration and size columns", () => {
   const html = renderTrajectoryRow(records[0], records[0].key, payloads);
   assert.match(html, />2\.5s<\/span>/);
   assert.match(html, /2\.0 KB/);
-  // 可展开详情（details + summary 主行）
-  assert.match(html, /<details class="trajectory-row/);
-  assert.match(html, /<summary class="trajectory-row-main"/);
+  // 左表是可选择按钮，详情只在右侧 inspector。
+  assert.match(html, /^<button type="button" role="option"/);
+  assert.match(html, /<span class="trajectory-row-main" role="row"/);
+  assert.doesNotMatch(html, /trajectory-detail/);
 });
 
 test("kind labels and html escaping helpers are stable", () => {
@@ -790,4 +821,14 @@ test("kind labels and html escaping helpers are stable", () => {
   assert.equal(trajectoryKindLabel("unknown"), "unknown");
   assert.equal(TRAJECTORY_KINDS.length, 6);
   assert.equal(escapeHtml("<b>&\"'"), "&lt;b&gt;&amp;&quot;&#039;");
+});
+
+test("轨迹视图接线：左侧 listbox 选择驱动右侧 inspector", async () => {
+  const source = await readFile(new URL("./trajectory-view.js", import.meta.url), "utf8");
+  assert.match(source, /class="trajectory-results"/);
+  assert.match(source, /data-trajectory-list role="listbox"/);
+  assert.match(source, /class="trajectory-inspector"/);
+  assert.match(source, /event\.target\.closest\("\[data-trajectory-select\]"\)/);
+  assert.match(source, /headEl\.innerHTML = model\.headHtml/);
+  assert.match(source, /inspectorEl\.innerHTML = model\.detailHtml/);
 });

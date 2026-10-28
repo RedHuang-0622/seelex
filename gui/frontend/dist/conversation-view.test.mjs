@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { shouldAutoLoadOlder } from "./conversation-view.js";
+import { canPatchMessageBody, shouldAutoLoadOlder, shouldFollowTail } from "./conversation-view.js";
 
 // 这一份钉的是「顶部 sentinel 自动翻更早页」的准入纪律：**用户停在尾部时一律不翻**。
 //
@@ -39,6 +39,32 @@ test("没有更早历史 / 正在翻页 / 未武装 / 无加载器时都不翻",
 test("缺省/畸形状态按不翻处理（绝不因为状态缺失就去翻页）", () => {
   assert.equal(shouldAutoLoadOlder(undefined), false);
   assert.equal(shouldAutoLoadOlder({}), false);
+});
+
+test("流式正文只允许 patch 稳定消息的 body；外壳变化仍走 keyed 替换", () => {
+  const before = `<article class="message assistant" data-conversation-key="message:a"><div class="message-head"><strong>AGENT</strong></div><div class="message-body" data-message-body="true">旧</div><!--/seelex-message-body--><div class="message-actions"></div></article>`;
+  const next = `<article class="message assistant" data-conversation-key="message:a"><div class="message-head"><strong>AGENT</strong></div><div class="message-body" data-message-body="true">新正文</div><!--/seelex-message-body--><div class="message-actions"></div></article>`;
+  const shellChanged = next.replace("<strong>AGENT</strong>", "<strong>EXEC</strong>");
+  assert.equal(canPatchMessageBody(before, next), true);
+  assert.equal(canPatchMessageBody(before, shellChanged), false);
+  assert.equal(canPatchMessageBody("", next), false);
+});
+
+test("用户接管滚动后 auto/preserve 都不得抢回尾部", () => {
+  assert.equal(shouldFollowTail("auto", true), true);
+  assert.equal(shouldFollowTail("auto", false), false);
+  assert.equal(shouldFollowTail("bottom", false), true);
+  assert.equal(shouldFollowTail("preserve", true), false);
+  assert.equal(shouldFollowTail("anchor", true), false);
+});
+
+test("会话容器暴露 aria-busy / stream phase，局部 patch 不替换整条 article", async () => {
+  const source = await readFile(new URL("./conversation-view.js", import.meta.url), "utf8");
+  assert.match(source, /setAttribute\?\.\("aria-busy",\s*options\.streaming \? "true" : "false"\)/);
+  assert.match(source, /dataset\.streamPhase = streamPhase/);
+  assert.match(source, /patchMessageBody\(node, replacement/);
+  const patched = source.slice(source.indexOf("const patched"), source.indexOf("const uiState = captureUIState(node);"));
+  assert.doesNotMatch(patched, /node\.replaceWith/, "可 patch 的稳定消息不得走整条 replaceWith");
 });
 
 test("消息编辑器复用 copyText 通道，并用稳定 operation_id 调一次原子 editFork", async () => {

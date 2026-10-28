@@ -26,6 +26,7 @@ import {
   stepAxisPageSize,
   axisWheelStep
 } from "./trajectory.js";
+import { MOTION_SLOW_MS, prefersReducedMotion } from "./motion.js";
 
 export function createTrajectoryView(container, options = {}) {
   const htmlByKey = new Map();
@@ -33,6 +34,7 @@ export function createTrajectoryView(container, options = {}) {
   let records = [];
   let filter = "all";
   let lastRecordCount = -1;
+  let selectedKey = "";
   // 元数据轨状态：前缀层（Bridge.PromptLayers）与压缩记录
   // （Snapshot.Task.ContextCompactions）在 render 时归一化，供轴渲染与详情。
   let prefixLayers = [];
@@ -67,22 +69,36 @@ export function createTrajectoryView(container, options = {}) {
 
   // 骨架：上下文轴（记录轨 + 前缀注入/压缩元数据轨）/ 轴详情 / 过滤条 /
   // 摘要 / 表格区（各自独立更新；轴详情只在点击元数据块时展开）。
-container.innerHTML = [
-  '<div class="trajectory-window" data-trajectory-window></div>',
-  '<div class="trajectory-axis" data-trajectory-axis></div>',
+  container.innerHTML = [
+    '<div class="trajectory-window" data-trajectory-window></div>',
+    '<div class="trajectory-axis" data-trajectory-axis></div>',
     '<div class="trajectory-axis-detail" data-axis-detail hidden></div>',
     '<div class="trajectory-filters" data-trajectory-filters></div>',
     '<div class="trajectory-summary" data-trajectory-summary></div>',
-    '<div class="trajectory-list" data-trajectory-list></div>'
+    '<div class="trajectory-main">',
+    '  <section class="trajectory-results" aria-label="轨迹条目">',
+    '    <div data-trajectory-head></div>',
+    '    <div class="trajectory-list" data-trajectory-list role="listbox" aria-label="轨迹请求与响应"></div>',
+    '  </section>',
+    '  <aside class="trajectory-inspector" data-trajectory-inspector aria-live="polite" aria-label="轨迹详情"></aside>',
+    '</div>'
   ].join("");
   const axisEl = container.querySelector("[data-trajectory-axis]");
   const windowEl = container.querySelector("[data-trajectory-window]");
   const detailEl = container.querySelector("[data-axis-detail]");
   const filtersEl = container.querySelector("[data-trajectory-filters]");
   const summaryEl = container.querySelector("[data-trajectory-summary]");
+  const headEl = container.querySelector("[data-trajectory-head]");
   const listEl = container.querySelector("[data-trajectory-list]");
+  const inspectorEl = container.querySelector("[data-trajectory-inspector]");
 
   container.addEventListener("click", event => handleAction(event, () => payloads, options));
+  container.addEventListener("click", event => {
+    const row = event.target.closest("[data-trajectory-select]");
+    if (!row) return;
+    selectedKey = row.dataset.trajectorySelect || row.dataset.trajectoryKey || "";
+    renderSelection();
+  });
   // 窗口边界条：轨迹只覆盖"已加载的可见窗口"，更早的回合由这里按需加载。
   windowEl.addEventListener("click", event => {
     if (!event.target.closest("[data-trajectory-load-earlier]")) return;
@@ -376,12 +392,15 @@ container.innerHTML = [
   }
 
   function focusRow(key) {
+    selectedKey = key;
+    renderSelection();
     const row = listEl.querySelector(`[data-trajectory-key="${CSS.escape(key)}"]`);
     if (!row) return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const reduced = prefersReducedMotion();
     row.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+    row.focus?.({ preventScroll: true });
     row.classList.add("is-flash");
-    setTimeout(() => row.classList.remove("is-flash"), 1400);
+    setTimeout(() => row.classList.remove("is-flash"), MOTION_SLOW_MS);
   }
 
   // setFilter 更新本地过滤状态并重渲染（按钮 active 由 render 负责）。
@@ -413,14 +432,21 @@ container.innerHTML = [
     const stats = trajectoryStats(records);
     filtersEl.innerHTML = renderTrajectoryFilters(records, filter);
     summaryEl.innerHTML = renderTrajectorySummary(stats);
-    const model = renderTrajectoryTable(filterTrajectory(records, filter));
-    payloads = model.payloads;
-    reconcile(listEl, model.items, htmlByKey, payloads);
+    renderSelection();
     // 底部跟随：新记录到达且列表本来就贴底时滚到底（Network 面板追加行）。
     if (records.length !== lastRecordCount) {
       lastRecordCount = records.length;
       if (isNearBottom(listEl)) listEl.scrollTop = listEl.scrollHeight;
     }
+  }
+
+  function renderSelection() {
+    const model = renderTrajectoryTable(filterTrajectory(records, filter), selectedKey);
+    selectedKey = model.selectedKey;
+    payloads = model.payloads;
+    headEl.innerHTML = model.headHtml;
+    reconcile(listEl, model.items, htmlByKey, payloads);
+    inspectorEl.innerHTML = model.detailHtml;
   }
 
   return {
