@@ -11,35 +11,27 @@ import (
 	"github.com/RedHuang-0622/seelex/kernel/context/prefixprobe"
 )
 
-// 环境表变体：动态尾块的前缀观测（**当前结论 = 钉死缺陷**）。
+// 环境表变体：动态尾块的前缀观测（**当前结论 = 前缀完整**）。
 //
-// 现状（本用例当前断言的分叉）：
+// 缺陷与修复（同一夹具的两个阶段，记录在此以便回归时对照）：
 //
-//	装配把环境表块（`composeRequestTail` 的第三段，拼在用户输入**之后**）放进
-//	本次请求的字节流，但 transcript 里存的仍是**原始输入**。下一轮按 transcript
-//	重投影时，那条 user 消息少了整段环境表——于是「上一条请求」不再是「本条请求
-//	的前缀」，从该消息起直到请求尾全部重算。这与工作打点表变体是**同一个** I1
-//	（字节冻结）缺陷，只是换了动态尾块的来源：环境表来自项目环境配置，会被用户
-//	高频修改（`kernel/context/coordinator.go` composeRequestTail 注释），并且
-//	永远位于请求最尾，因此它的缺失把后面的一切（余下历史 + 新输入）都拖进重算。
+//	装配把环境表块（`composeRequestTail` 的第三段，拼在用户输入**之后**）放进本次
+//	请求的字节流，早先 transcript 里存的仍是**原始输入**。下一轮按 transcript 重投影
+//	时那条 user 消息少了整段环境表——「上一条请求」不再像「本条请求的前缀」，从该
+//	消息起直到请求尾全部重算。这与工作打点表变体是**同一个** I1（字节冻结）缺陷，
+//	只是换了动态尾块的来源：环境表来自项目环境配置，会被用户高频修改，且永远位于
+//	请求最尾，因此它的缺失把后面的一切（余下历史 + 新输入）都拖进重算。
 //
-// 归因（本用例断言的具体值）：分叉落在 segment=truth（transcript 重建出来的历史
-// 段）、msg#0、role=user —— 正是承载环境表块的那条 user 消息；且 prev 该消息 =
-// 原始输入 + 环境表块、cur 该消息 = 原始输入，两者只差这一块（字节级前缀关系），
-// 因此分叉不能再归给输入长度、assistant 正文或工具轮。
+//	- 修复前（M0 实测）：`prefix BREAK byte=16817 char=16707 segment=truth
+//	  msg#0 role=user`，hit=16707/17378（96.1%），UnexpectedMiss=1。
+//	- 修复后（M1 `RecordWire` 落地，32cd1897）：`prefix OK hit=17071/17699
+//	  （96.5%）`，新增 628 字符全部来自本轮真实内容，UnexpectedMiss=0。
 //
-// **修复后如何翻转断言**（`RecordWire` 落地：`application/conversation.
-// TurnInputApplication.Prepare` 把归一化后真正发出的 user 正文写回 transcript，
-// 见 docs/arch/context-prefix-stability-l1.md §6.3 / I1）：
-//  1. 本用例 `cross.Intact()` 的那段 `Fatalf` 改成 `if !cross.Intact() { t.Fatalf(...) }`
-//     —— 即断言**前缀完整**；预期观测变为 `prefix OK hit=…/…`，新增字符只来自
-//     本轮真实新内容（上一轮答复 + 本轮输入 + 本轮环境表）。
-//  2. `cross.UnexpectedMiss` 的断言从「必须 > 0」翻转为「必须 == 0」。
-//  3. msg 级归因段（prev/cur 只差环境表块）改为断言 `cur msg#0 含环境表块`
-//     （已发出字节被冻结回 transcript），而不是断言它不含。
+// 本用例保留的价值：环境表是**第三个**动态尾块来源（前两个是工作打点表、plan 帧）。
+// 它证明字节冻结不是对某一种尾块的特判，而是装配出口的通用约束。
 //
 // 运行：go test ./application/assembly/integration -run ContextPrefixEnvTable -count=1
-func TestContextPrefixEnvTable_KnownDefect(t *testing.T) {
+func TestContextPrefixEnvTable_PrefixIntact(t *testing.T) {
 	harness := newPrefixProbeHarness(t, 1_000_000)
 	// 只扩 fake/workspace port 的**数据面**（项目环境表 + 会话绑定），装配语义一行
 	// 未改：环境表仍然由 `service_assembler.go` 的 EnvironmentTraceBlock 端口从
@@ -123,54 +115,31 @@ func TestContextPrefixEnvTable_KnownDefect(t *testing.T) {
 		t.Logf("  %s  (msgs=%d wire=%dB)", res.Summary(), len(call.messages), len(call.bytes))
 	}
 
+	// 翻转版（M1 字节冻结 RecordWire 已落地，见 32cd1897）：环境表块既然作为
+	// 已发出字节写回了 transcript，跨轮就不该再分叉。修复前同一夹具断在
+	// byte 16817 / char 16707 / msg#0 role=user，复用仅 96.1%。
 	cross := results[len(results)-1]
-	if cross.First || cross.Intact() || cross.Divergence == nil {
-		t.Fatalf("环境表变体当前应当暴露 I1 分叉（已发出字节没写回 transcript），实际：%s\n"+
-			"  若刚落地字节冻结（RecordWire），请按文件头把断言翻转为「前缀完整」", cross.Summary())
+	if cross.First {
+		t.Fatalf("跨轮观测样本不该是首次样本")
 	}
-	divergence := cross.Divergence
-	t.Logf("  分叉归因: %s", divergence.String())
-	if cross.HitChars >= cross.TotalChars {
-		t.Fatalf("分叉时命中字符必须小于请求总字符：hit=%d total=%d", cross.HitChars, cross.TotalChars)
-	}
-	if divergence.Role != "user" {
-		t.Fatalf("分叉必须落在 user 消息上，实际 role=%q（%s）", divergence.Role, divergence.String())
-	}
-	if divergence.MessageIndex != 0 {
-		t.Fatalf("分叉必须落在 msg#0（承载第 1 轮输入 + 环境表块的那条），实际 msg#%d（%s）",
-			divergence.MessageIndex, divergence.String())
-	}
-	if divergence.Segment != "truth" {
-		t.Fatalf("分叉必须落在 transcript 重建出来的历史段（truth），实际 segment=%q（%s）",
-			divergence.Segment, divergence.String())
+	if !cross.Intact() {
+		desc := cross.Summary()
+		if cross.Divergence != nil {
+			desc += " 分叉归因: " + cross.Divergence.String()
+		}
+		t.Fatalf("环境表变体前缀被打破（I1 字节冻结失效）：%s", desc)
 	}
 
-	// ③ 归因到消息级：两侧该消息只差"环境表块"这一块——分叉来自尾块没被冻结，
-	//    不是输入长度、assistant 正文或工具轮。
-	sentBefore := first.messages[divergence.MessageIndex]
-	rebuiltNow := second.messages[divergence.MessageIndex]
-	if !strings.Contains(sentBefore.Content, environmentTraceMarkerOpen) {
-		t.Fatalf("分叉点所在消息必须承载环境表块：%q", summarizeProbeText(sentBefore.Content))
-	}
-	if rebuiltNow.Content == sentBefore.Content {
-		t.Fatalf("两侧消息不该相同（相同就不存在分叉，上面的断言自相矛盾）")
-	}
-	if !strings.HasPrefix(sentBefore.Content, rebuiltNow.Content) {
-		t.Fatalf("重投影出来的那条消息应当是已发出字节的前缀（只差尾部环境表块）：\n  sent=%q\n  rebuilt=%q",
-			summarizeProbeText(sentBefore.Content), summarizeProbeText(rebuiltNow.Content))
-	}
-	tailBlock := strings.TrimPrefix(strings.TrimPrefix(sentBefore.Content, rebuiltNow.Content), "\n\n")
-	if !strings.HasPrefix(tailBlock, environmentTraceMarkerOpen) || !strings.HasSuffix(tailBlock, environmentTraceMarkerClose) {
-		t.Fatalf("两侧差值应当正好是环境表块：%q", summarizeProbeText(tailBlock))
-	}
-
-	// ④ 键未变却断开 = 缺陷，不是"预期失效"。
+	// ④ 键未变、且全程无意外失效。
 	cum := probe.Cumulative()
 	t.Logf("== 累计: requests=%d hit=%d/%d (%.1f%%) new=%d unexpected=%d expected=%d ==",
 		cum.Requests, cum.HitChars, cum.TotalChars, cum.Ratio()*100,
 		int64(cross.TotalChars-cross.HitChars), cum.UnexpectedMiss, cum.ExpectedMiss)
-	if cum.UnexpectedMiss == 0 {
-		t.Fatalf("键未变却断开必须计入 UnexpectedMiss（否则分叉被当成预期失效）")
+	if cum.UnexpectedMiss != 0 {
+		t.Fatalf("前缀完整时不得出现 UnexpectedMiss，实际 %d", cum.UnexpectedMiss)
+	}
+	if newChars := int64(cross.TotalChars - cross.HitChars); newChars <= 0 {
+		t.Fatalf("跨轮请求应有真实新增内容，新增字符=%d 说明夹具退化了", newChars)
 	}
 }
 
