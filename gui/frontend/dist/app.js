@@ -3081,6 +3081,12 @@ let teamPageInspection = null;
 const agentConversationStates = new Map();
 const AGENT_CONVERSATION_LIMIT = 200;
 const AGENT_CONVERSATION_CACHE_LIMIT = 32;
+// 子代理/teammate 输入的提交预算：只等这么久拿回执，超时就转轮询（下面
+// startAgentConversationPoll）。取 1.5s 的理由是"反馈"而不是"等待"——一条回合可能跑
+// 几分钟，把发送键钉在一次 RPC 上，用户只会看到按钮不动、以为没发出去。
+const AGENT_CHAT_WAIT_MS = 1500;
+// 轮询窗口：超过它就不再自动刷（用户仍可手动刷新），避免一个已经死掉的会话被无限轮询。
+const AGENT_POLL_WINDOW_MS = 60000;
 
 function teamPageTop() {
   return teamPageStack[teamPageStack.length - 1] || null;
@@ -3207,7 +3213,10 @@ function agentConversationState(ref) {
   }
   state = {
     key, ref: normalized, page: null, loading: false, error: "", promise: null,
-    sending: false, sendError: "", draft: "", pollTimer: 0
+    sending: false, sendError: "", draft: "", pollTimer: 0,
+    // pending = 乐观回显的正文（按下发送就画进流里，不等 RPC 回来）；
+    // awaiting = 已经发出、正在等这条回合的第一条新记录（驱动状态行文案）。
+    pending: "", awaiting: false
   };
   agentConversationStates.set(key, state);
   while (agentConversationStates.size > AGENT_CONVERSATION_CACHE_LIMIT) {
@@ -3272,6 +3281,7 @@ function mountAgentConversationComposers(root = document) {
       loading: state?.loading === true,
       error: state?.error || "",
       sending: state?.sending === true,
+      pending: state?.pending || "",
       notify: showToast
     });
     syncAgentComposerState(form);
@@ -3290,6 +3300,7 @@ function refreshAgentConversationViews(root = document) {
       loading: state.loading,
       error: state.error,
       sending: state.sending,
+      pending: state.pending || "",
       notify: showToast
     });
     syncAgentComposerState(form);
@@ -3314,13 +3325,28 @@ function syncAgentComposerState(form) {
   }
   if (send) send.disabled = state.sending;
   if (status) {
+    // 状态行是这个输入框唯一"我说了话"的回执：发送中 → 已发出等回复 → 失败原因。
+    // 三项都不成立时才是「该会话专属」这句静态说明。
     status.textContent = state.sendError
       ? state.sendError
-      : state.sending ? "发送中" : "该会话专属";
+      : state.sending ? "发送中…"
+      : state.awaiting ? "已发出，等待回复…"
+      : "该会话专属";
   }
-  form.classList.toggle("is-running", state.sending);
+  form.classList.toggle("is-running", state.sending || state.awaiting);
 }
 
+// submitAgentConversation 是子代理/teammate 输入框的**唯一**提交路径。
+//
+// 2026-10-29 用户实测「给他发消息他不收、没有及时反馈」的根因：这个函数当时**没有任何
+// 调用点**（全仓只此一处定义）。模板的发送键是 `type="submit"`，没有 submit 监听就只剩
+// 浏览器原生提交——按下发送什么都不会发生，Enter 也只会在 textarea 里换行。绑定见下方
+// 的两条 document 委托。
+//
+// 三条反馈纪律：
+//   1. 乐观回显：按下发送立刻把正文画进流里（state.pending），不等 RPC；
+//   2. 不阻塞：只等 AGENT_CHAT_WAIT_MS 拿回执，超时转轮询（发送键不该被长回合钉住）；
+//   3. 失败归还草稿：错误写状态行，正文回到输入框，用户不用重打。
 async function submitAgentConversation(form) {
   const ref = agentConversationTargetFromForm(form);
   const prompt = form.querySelector("textarea");
@@ -3328,41 +3354,105 @@ async function submitAgentConversation(form) {
   if (!ref?.session_id || !text.trim()) return;
   const state = agentConversationState(ref);
   if (state.sending) return;
-  state.draft = text;
+  state.pending = text;
+  state.draft = "";
   state.sendError = "";
   state.sending = true;
   paintAgentConversationSurfaces();
   try {
-    const receipt = await invoke("ConversationChat", ref, text, 20000);
+    const receipt = await invoke("ConversationChat", ref, text, AGENT_CHAT_WAIT_MS);
     if (receipt?.accepted !== true) throw new Error("子代理会话未接受这条输入");
-    state.draft = "";
     state.sending = false;
+    state.awaiting = true;
     await loadAgentConversation(ref, { force: true });
+    dropPendingIfEchoed(state, text);
+    // timed_out = 回合还在跑（回执先到）：立刻进轮询，状态行显示"等待回复"，
+    // 用户能看出消息被收下了，而不是盯着一个没动静的输入框。
     if (receipt.timed_out === true) startAgentConversationPoll(state);
+    else state.awaiting = false;
   } catch (error) {
     state.sending = false;
+    state.awaiting = false;
+    state.pending = "";
     state.sendError = error?.message || String(error);
+    state.draft = text;
   }
   paintAgentConversationSurfaces();
 }
 
+// dropPendingIfEchoed：后端已经把这句话写进记录时撤掉乐观回显，避免同一句话画两遍。
+function dropPendingIfEchoed(state, text) {
+  const records = state.page?.records;
+  if (!state.pending || !Array.isArray(records)) return;
+  const needle = text.trim();
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (!record || typeof record !== "object") continue;
+    const isUser = record.kind === "user" || record.role === "user";
+    if (isUser && String(record.content ?? "").trim() === needle) {
+      state.pending = "";
+      return;
+    }
+  }
+}
+
+// 子代理/teammate 的输入框活在三个**动态重建**的宿主里（团队详情页、角色会话弹层、
+// 节点详情弹层），逐次 addEventListener 会在重建后丢掉；所以在 document 上各挂一条
+// 委托就够了。capture 阶段先跑：避免任何后续处理器再把这棵子树当成主 composer。
+document.addEventListener("submit", event => {
+  const form = event.target?.closest?.("[data-agent-chat-form]");
+  if (!form) return;
+  event.preventDefault();
+  void submitAgentConversation(form);
+}, true);
+
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter" || event.shiftKey || event.defaultPrevented) return;
+  const area = event.target;
+  if (!area?.matches?.("textarea") || !area.closest?.("[data-agent-chat-form]")) return;
+  // 输入法组字中的 Enter 是"确认候选词"，不是发送（与主 composer 同一判据）。
+  if (isComposingEnter(event, composerComposing)) return;
+  event.preventDefault();
+  area.closest("[data-agent-chat-form]").requestSubmit();
+});
+
+// startAgentConversationPoll 在回执超时后跟住这条回合。
+//
+// 口径：**跟着变化走**，不是"变一次就收工"。回合会连续写多条记录（思考、工具调用、
+// 工具结果、正文），首次变化就停等于只看到第一帧，用户还是会觉得"没有反馈"。
+// 停止条件只有两个：窗口用完（AGENT_POLL_WINDOW_MS），或连续 AGENT_POLL_IDLE_STREAK
+// 次没有任何新记录（判定回合告一段落）。
+const AGENT_POLL_IDLE_STREAK = 4;
+
 function startAgentConversationPoll(state) {
   if (!state || state.pollTimer) return;
   const startedAt = Date.now();
-  const signature = JSON.stringify(state.page?.records?.at?.(-1) || null);
+  let lastSignature = JSON.stringify(state.page?.records?.at?.(-1) || null);
+  let idle = 0;
   state.pollTimer = window.setInterval(async () => {
-    const current = agentConversationStates.get(state.key);
-    if (!current || Date.now() - startedAt > 30000) {
-      window.clearInterval(state.pollTimer);
-      state.pollTimer = 0;
+    const current = agentConversationStates.get(state.key) || state;
+    const stop = () => {
+      window.clearInterval(current.pollTimer);
+      current.pollTimer = 0;
+      current.awaiting = false;
+      current.pending = "";
+      paintAgentConversationSurfaces();
+    };
+    if (Date.now() - startedAt > AGENT_POLL_WINDOW_MS) {
+      stop();
       return;
     }
     await loadAgentConversation(current.ref, { force: true });
+    dropPendingIfEchoed(current, current.pending);
     const next = JSON.stringify(current.page?.records?.at?.(-1) || null);
-    if (next !== signature) {
-      window.clearInterval(state.pollTimer);
-      state.pollTimer = 0;
+    if (next !== lastSignature) {
+      lastSignature = next;
+      idle = 0;
+      paintAgentConversationSurfaces();
+      return;
     }
+    idle += 1;
+    if (idle >= AGENT_POLL_IDLE_STREAK) stop();
   }, 1500);
 }
 
@@ -3835,7 +3925,8 @@ function renderRoleSessionView(snapshot) {
       ref: detail.agentRef,
       loading: state.loading,
       error: state.error,
-      sending: state.sending
+      sending: state.sending,
+      pending: state.pending || ""
     });
     mountAgentConversationComposers(elements["role-session-view"]);
     return;
@@ -4382,7 +4473,8 @@ function mountActiveNodeAgentConversationPanel() {
     ref: activeNodeAgentRef,
     loading: state.loading,
     error: state.error,
-    sending: state.sending
+    sending: state.sending,
+    pending: state.pending || ""
   });
   mountAgentConversationPanel(host, {
     ref: activeNodeAgentRef,
@@ -4390,6 +4482,7 @@ function mountActiveNodeAgentConversationPanel() {
     loading: state.loading,
     error: state.error,
     sending: state.sending,
+    pending: state.pending || "",
     notify: showToast
   });
 }

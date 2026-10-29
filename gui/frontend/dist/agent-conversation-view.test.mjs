@@ -127,3 +127,33 @@ test("空 page 不得抛 null 读取：teammate 首次打开「当前会话」�
   assert.equal(mapped.length, 1);
   assert.equal(mapped[0].role, "user");
 });
+
+test("乐观回显：pending 正文立刻出现在面板里，且空记录时不算空态", () => {
+  // 回归（2026-10-29 用户实测「发消息他不收、没有及时反馈」）：按下发送到后端写下这条
+  // 记录之间可能有几十秒，这段时间必须让用户看见自己那句话已经出去了。
+  const ref = { kind: "subagent", session_id: "node-x", main_session_id: "main" };
+  const blank = renderAgentConversationPanel(null, { ref, pending: "看下这个报错" });
+  assert.match(blank, /看下这个报错/);
+  // 有 pending 时不能落到 loading 占位（首屏还在读记录就要能看见自己刚发的那句）。
+  assert.doesNotMatch(blank, /conversation-switch-loading/);
+  // 没有 pending、page 还是 null → 仍是 loading 占位。
+  assert.match(renderAgentConversationPanel(null, { ref }), /conversation-switch-loading/);
+  // 记录为空（page 已到但没记录）且无 pending → 空态文案。
+  assert.match(renderAgentConversationPanel({ records: [] }, { ref }), /还没有对话记录/);
+});
+
+test("agent 输入框必须真的绑上提交：发送键是 type=submit，没有监听就什么都不发生", () => {
+  const app = read("app.js");
+  // submitAgentConversation 必须既有定义、也被委托调用（2026-10-29 之前它是死代码：
+  // 全仓只出现一次，就是定义本身，于是按下发送只剩浏览器原生提交）。
+  const occurrences = (app.match(/submitAgentConversation/g) || []).length;
+  assert.ok(occurrences >= 2, `submitAgentConversation 必须有调用点，实际出现 ${occurrences} 次`);
+  assert.match(app, /addEventListener\("submit"[\s\S]{0,200}\[data-agent-chat-form\]/);
+  // Enter 必须能发送（否则 textarea 只会换行），且组字中的 Enter 不算发送。
+  assert.match(app, /addEventListener\("keydown"[\s\S]{0,300}\[data-agent-chat-form\]/);
+  assert.match(app, /isComposingEnter\(event, composerComposing\)/);
+  // 反馈链路：状态行要说出"发送中/已发出"，且超时后进轮询而不是干等。
+  assert.match(app, /state\.sending \? "发送中…"/);
+  assert.match(app, /state\.awaiting \? "已发出，等待回复…"/);
+  assert.match(app, /startAgentConversationPoll\(state\)/);
+});

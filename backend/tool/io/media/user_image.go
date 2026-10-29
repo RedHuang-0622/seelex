@@ -25,6 +25,7 @@ import (
 	bridgecomputer "github.com/RedHuang-0622/seelex/backend/tool/computer"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/imageattach"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	storeartifact "github.com/RedHuang-0622/seelex/store/artifact"
 )
 
 // userImageKind 是媒体资产的来源标记（只用于溯源展示，与截图的 "screenshot" 并列）。
@@ -118,7 +119,9 @@ func (m *SessionMedia) MediaFilePath(ctx context.Context, sessionID, ref string)
 	if m == nil || m.host == nil {
 		return "", errors.New("media: 会话存储未装配")
 	}
-	return m.host.MediaPathWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, ref)
+	return readAcrossProjects(m, ctx, sessionID, func(projectID string) (string, error) {
+		return m.host.MediaPathWorkspace(ctx, projectID, sessionID, ref)
+	})
 }
 
 // imageName 给出落盘名：保留用户给的文件名主干，扩展名按 MIME 归一。
@@ -156,7 +159,6 @@ func (m *SessionMedia) ResolveUserImages(ctx context.Context, sessionID string, 
 	if len(refs) == 0 {
 		return nil, nil
 	}
-	projectID := m.ProjectIDFor(ctx, sessionID)
 	images := make([]dto.ComposerImage, 0, len(refs))
 	seen := make(map[string]struct{}, len(refs))
 	for _, raw := range refs {
@@ -168,7 +170,12 @@ func (m *SessionMedia) ResolveUserImages(ctx context.Context, sessionID string, 
 			continue
 		}
 		seen[ref] = struct{}{}
-		item, err := m.host.MediaMetaWorkspace(ctx, projectID, sessionID, ref)
+		// 绑定可能在附件落盘之后才建立（先有会话、后绑项目），所以这里与其它读面同一
+		// 口径：先在当前绑定分区找，找不到再回默认项目分区找一次。否则一条带图的旧消息
+		// 会因为项目漂移而整条发不出去。
+		item, err := readAcrossProjects(m, ctx, sessionID, func(candidate string) (storeartifact.MediaRef, error) {
+			return m.host.MediaMetaWorkspace(ctx, candidate, sessionID, ref)
+		})
 		if err != nil {
 			return nil, fmt.Errorf("composer: 图片 %q 不在本会话媒体分区里：%w", ref, err)
 		}
@@ -203,10 +210,14 @@ func (m *SessionMedia) ReadUserImage(ctx context.Context, sessionID, ref string)
 	if m == nil || m.host == nil {
 		return dto.ComposerImageData{}, errors.New("media: 会话存储未装配")
 	}
-	item, data, err := m.host.ReadMediaWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, ref)
+	got, err := readAcrossProjects(m, ctx, sessionID, func(projectID string) (mediaBytes, error) {
+		item, data, err := m.host.ReadMediaWorkspace(ctx, projectID, sessionID, ref)
+		return mediaBytes{item: item, data: data}, err
+	})
 	if err != nil {
 		return dto.ComposerImageData{}, err
 	}
+	item, data := got.item, got.data
 	return dto.ComposerImageData{
 		Ref:        item.Ref,
 		MimeType:   item.MimeType,

@@ -11,6 +11,7 @@ package media
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/agent"
@@ -158,10 +159,14 @@ func (m *SessionMedia) LoadMedia(ctx context.Context, ref string) (types.FilePar
 	if m == nil || m.host == nil {
 		return types.FilePart{}, errors.New("computer: 会话存储未装配，无法按 ref 读取媒体")
 	}
-	item, data, err := m.host.ReadMediaWorkspace(ctx, m.ProjectIDFor(ctx, sessionID), sessionID, ref)
+	got, err := readAcrossProjects(m, ctx, sessionID, func(projectID string) (mediaBytes, error) {
+		item, data, err := m.host.ReadMediaWorkspace(ctx, projectID, sessionID, ref)
+		return mediaBytes{item: item, data: data}, err
+	})
 	if err != nil {
 		return types.FilePart{}, err
 	}
+	item, data := got.item, got.data
 	kind := types.FileKindImage
 	if !strings.HasPrefix(strings.ToLower(item.MimeType), "image/") {
 		kind = types.FileKindDocument
@@ -174,6 +179,55 @@ func (m *SessionMedia) LoadMedia(ctx context.Context, ref string) (types.FilePar
 		Height:   item.Height,
 		Name:     item.Name,
 	}, nil
+}
+
+// mediaProjectCandidates 列出读取某会话媒体分区时要试的项目，按优先级：
+//
+//  1. 会话当前绑定的项目；
+//  2. 默认项目 ""（未绑定）。
+//
+// 读为什么允许两个候选：媒体**落盘**用的是"那一刻"的绑定，而绑定可以在会话生命周期
+// 内才建立（先有会话、后绑项目）。只按当前绑定读，先落盘的图就会变成"路径不存在"——
+// 2026-10-29 用户实测的
+//
+//	open .seelex\...\project-<x>\...\meta.json: The system cannot find the path specified
+//
+// 正是这个漂移：图写在 project-e3b0c44298fc1c14（hash16("") = 默认项目），会话绑定真实
+// 项目后按项目去找就找不到了。
+//
+// 隔离性不降：候选只影响**项目段**，会话段仍由同一个 sessionID 的 hash 决定，所以读不到
+// 别的会话；跨项目"猜"也只限默认项目这一格，不扫全库。
+func (m *SessionMedia) mediaProjectCandidates(ctx context.Context, sessionID string) []string {
+	resolved := m.ProjectIDFor(ctx, sessionID)
+	if resolved == "" {
+		return []string{""}
+	}
+	return []string{resolved, ""}
+}
+
+// readAcrossProjects 按候选项目依次读一次，返回第一个成功的结果。
+// 只有"这个分区里没有这个 ref"（fs.ErrNotExist）才换下一个候选；其它错误立刻返回，
+// 免得把分区损坏 / IO 失败吞成"没找到"。
+func readAcrossProjects[T any](m *SessionMedia, ctx context.Context, sessionID string, read func(projectID string) (T, error)) (T, error) {
+	var zero T
+	var lastErr error
+	for _, projectID := range m.mediaProjectCandidates(ctx, sessionID) {
+		value, err := read(projectID)
+		if err == nil {
+			return value, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return zero, err
+		}
+		lastErr = err
+	}
+	return zero, lastErr
+}
+
+// mediaBytes 是「元数据 + 字节」这一对读回结果的载体（readAcrossProjects 只有一个返回值）。
+type mediaBytes struct {
+	item storeartifact.MediaRef
+	data []byte
 }
 
 // ProjectIDFor 解析媒体资产的归属项目（store 的 projectID 与

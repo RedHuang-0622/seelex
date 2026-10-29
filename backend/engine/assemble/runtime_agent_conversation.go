@@ -68,19 +68,7 @@ func (r *Runtime) ChatAgentConversation(ctx context.Context, ref dto.Conversatio
 	case dto.ConversationTeammate:
 		return r.chatTeammateConversation(ctx, ref, request.Message, request.WaitMS)
 	case dto.ConversationSubagent:
-		if request.WaitMS > 0 {
-			timeout := time.Duration(request.WaitMS) * time.Millisecond
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, timeout)
-			defer cancel()
-		}
-		reply, err := r.chatSubagentConversation(ctx, ref, request.Message)
-		receipt := dto.ChatReceipt{Accepted: err == nil, SessionID: ref.SessionID, Reply: reply, State: dto.RecoveryLive}
-		if errors.Is(err, context.DeadlineExceeded) {
-			receipt.Accepted, receipt.TimedOut = true, true
-			return receipt, nil
-		}
-		return receipt, err
+		return r.chatSubagentConversationWithWait(ctx, ref, request.Message, request.WaitMS)
 	default:
 		return dto.ChatReceipt{}, fmt.Errorf("conversation: agent adapter does not handle kind %q", ref.Kind)
 	}
@@ -279,6 +267,72 @@ func (r *Runtime) chatTeammateConversation(ctx context.Context, ref dto.Conversa
 		return receipt, fmt.Errorf("conversation: teammate chat ended in state %s", jobRecord.State)
 	}
 	return receipt, nil
+}
+
+// subagentChatRunBudget 是一次子代理回合的绝对上限。它只防"跑不完的回合"，
+// 与前端愿意等多久（WaitMS）是两件事，见 chatSubagentConversationWithWait。
+const subagentChatRunBudget = 30 * time.Minute
+
+// runDetachedWithBudget 在**不受等待预算约束**的 ctx 上跑 run，最多等 waitMS 取结果。
+// 返回 timedOut=true 表示"这次没等到，但 run 还在跑"——不是失败，也不是取消。
+func runDetachedWithBudget(ctx context.Context, waitMS int, run func(context.Context) (string, error)) (reply string, timedOut bool, err error) {
+	// 有界脱离：既不随这次 RPC 的取消而死，也不会无限期挂着。
+	runCtx, cancelRun := context.WithTimeout(context.WithoutCancel(ctx), subagentChatRunBudget)
+	done := make(chan outcome, 1)
+	go func() {
+		defer cancelRun()
+		reply, err := run(runCtx)
+		done <- outcome{reply: reply, err: err}
+	}()
+	if waitMS <= 0 {
+		select {
+		case result := <-done:
+			return result.reply, false, result.err
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		}
+	}
+	timer := time.NewTimer(time.Duration(waitMS) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case result := <-done:
+		return result.reply, false, result.err
+	case <-timer.C:
+		return "", true, nil
+	case <-ctx.Done():
+		return "", false, ctx.Err()
+	}
+}
+
+type outcome struct {
+	reply string
+	err   error
+}
+
+// chatSubagentConversationWithWait 把「这次回执等多久」与「回合能跑多久」拆开。
+//
+// 2026-10-29 用户实测「给他发消息他不收、没有及时反馈」的后半段根因就在这里：原实现用
+// context.WithTimeout(WaitMS) 包住 ChatStream——WaitMS 本来是前端愿意等回执的时长（几秒），
+// 却把整个回合的 ctx 一起取消。于是一条正常回合跑到预算点就被掐断，而回执仍报
+// accepted+timed_out，前端只能对着一个**已经死掉的回合**轮询，永远等不到回复。
+//
+// 现在：回合跑在不受这次等待约束的 ctx 上（WithoutCancel 保留 trace/session 值），WaitMS
+// 只决定「这一次回执是否立刻返回」。超时回执的语义与 teammate 一致：消息已收下（accepted），
+// 回合继续跑，前端靠 ConversationView 轮询取后续记录。
+func (r *Runtime) chatSubagentConversationWithWait(ctx context.Context, ref dto.ConversationSessionRef, message string, waitMS int) (dto.ChatReceipt, error) {
+	reply, timedOut, err := runDetachedWithBudget(ctx, waitMS, func(runCtx context.Context) (string, error) {
+		return r.chatSubagentConversation(runCtx, ref, message)
+	})
+	if timedOut {
+		// 回合还在跑：先给回执（消息已收下），让它继续跑。前端据此进轮询。
+		return dto.ChatReceipt{
+			Accepted: true, TimedOut: true, SessionID: ref.SessionID, State: dto.RecoveryLive,
+		}, nil
+	}
+	return dto.ChatReceipt{
+		Accepted: err == nil, SessionID: ref.SessionID,
+		Reply: reply, State: dto.RecoveryLive,
+	}, err
 }
 
 func (r *Runtime) chatSubagentConversation(ctx context.Context, ref dto.ConversationSessionRef, message string) (string, error) {

@@ -185,7 +185,13 @@ function agentConversationModel(page, options) {
       payloads: new Map()
     };
   }
-  if (options.loading === true || !page) {
+  // 乐观回显：这句正文还没进后端记录，但必须立刻可见——否则"按下发送"到"后端写下这条"
+  // 之间那段（可能几十秒的长回合）用户只能盯着一个没反应的输入框，读成"他不收"。
+  // 后端一旦把这句话写进记录，app.js 的 dropPendingIfEchoed 会撤掉它，不会画两遍。
+  const pending = String(options.pending || "").trim();
+  // pending 优先于 loading 占位：首屏还在读记录时用户已经能按发送，此时只画"Loading…"
+  // 等于把刚发出去的那句话藏起来——正是"没有及时反馈"的另一种形态。
+  if ((options.loading === true || !page) && !pending) {
     return {
       items: [{
         key: "agent:loading",
@@ -196,6 +202,9 @@ function agentConversationModel(page, options) {
     };
   }
   const messages = agentConversationMessages(page);
+  if (pending) {
+    messages.push({ id: "pending:user", role: "user", round_id: 0, content: pending });
+  }
   if (!messages.length) {
     return {
       items: [{
@@ -323,7 +332,8 @@ export function mountAgentConversationPanel(root, options = {}) {
     ref,
     loading: options.loading === true,
     error: options.error || "",
-    sending: options.sending === true
+    sending: options.sending === true,
+    pending: options.pending || ""
   });
   const messageCount = agentConversationMessages(options.page || null).length;
   view.render(model, {
@@ -347,7 +357,8 @@ export function mountAgentConversationPanel(root, options = {}) {
       ref,
       loading: renderOptions.loading === true,
       error: renderOptions.error || "",
-      sending: renderOptions.sending === true
+      sending: renderOptions.sending === true,
+      pending: renderOptions.pending || ""
     });
     view.render(nextModel, {
       scrollMode: renderOptions.scrollMode || "auto",
