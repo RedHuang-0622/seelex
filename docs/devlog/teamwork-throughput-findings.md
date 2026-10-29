@@ -38,6 +38,30 @@
 反向教训：本轮把两件事做反了——把「6 小时的探针实现」留在自己手里（该派），
 把「几分钟的代码定位」留着（不该派，且后来确实又派了一轮让 teammate 重新摸）。
 
+## 6. 后续实测：这一轮的"久"有第二个原因，与编排无关
+
+2026-10-29 14:11 派出的两件（`wi-spur-persist` / `wi-spur-surface`）跑了 30+ 分钟，其中一件是**根本没跑完**：
+
+```
+spur/wi-spur-persist  failed  session loop 203
+  HTTP 402 {"message":"Insufficient Balance","type":"insufficient_balance_error"}
+```
+
+`wi-spur-surface` 34 分钟交付（19 文件 / 1055 行），`wi-spur-persist` 在同一时段空转 **203 个 session loop**
+后撞上 402 退出。两个作业并行争夺同一个账号（`account-1`），余额耗尽后重试不报"欠费"，而是继续开 loop，
+表现为**看不出卡住的长跑**。
+
+由此得到两条纪律：
+
+1. **欠费/限流不是"慢"，是失败**——但它伪装成长跑：`bytes=0` 且 loop 计数持续上涨，就是它。
+   判据：一个作业长时间无任何产出增量，先去查 loop 计数与最近一次 bridge 错误，别等。
+2. **并行作业共享账号额度**：并发度越高，额度消耗越快，撞 402 的时间点越早。别把"并发"当免费。
+
+另一条与编排无关但影响交付的：`wi-spur-surface` 的分支**没有自动合入 main**（自动合并未发生），
+我手动 merge 时被 `local changes would be overwritten` 挡回——因为 codex 正在同一个工作区改前缀相关文件。
+**同一仓库并行两拨人（人或 agent）时，main 工作区是争用点**：要么各自用 worktree 并约定 main 只由一人合，
+要么把不互相依赖的活分到不同 clone。
+
 ## 5. 其他摩擦（工具面）
 
 - `jobs_manage` 不支持批量句柄（`handles: [...]` → `json: unknown field "handles"`），`team_join` 会回
