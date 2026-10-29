@@ -40,7 +40,11 @@ func IsActiveSkillContent(content string) bool {
 func IsInternalContent(content string) bool {
 	return contextruntime.IsTaskContextCheckpoint(content) ||
 		contextruntime.IsProviderOnlyHistoryContent(content) ||
-		contextruntime.IsActiveSkillContent(content)
+		contextruntime.IsActiveSkillContent(content) ||
+		// plan 帧（计划投影 + 执行政策段）是给模型看的内部材料：它是
+		// wire_material 的 internal 事件，不是用户说过的话。落进 transcript 是为了
+		// 位置稳定（D1），进可见会话则是把内部状态材料冒充成一句用户消息。
+		contextruntime.IsActivePlanContext(content)
 }
 
 func IsOversizedToolResult(content string, limit int) bool {

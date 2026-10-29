@@ -61,19 +61,24 @@ type Coordinator struct {
 
 // sessionTaskRuntime 是单个会话的任务/plan 运行时状态（M2 分片单元）。
 type sessionTaskRuntime struct {
-	sessionID               string
-	taskExecution           *TaskExecutionState
-	taskService             *TaskService // 当前任务的 TaskService（与 taskExecution 同生命周期）
-	transcript              []model.TranscriptEvent
-	transcriptSeq           uint64
-	pendingProviderCalls    []model.TranscriptToolCall
-	pendingToolResults      []model.StoredToolResult
-	toolResultRefs          []model.ToolResultRef
-	resultRefsByToolCallID  map[string]string
-	taskCheckpoints         []model.TaskCheckpoint
-	planStack               []model.SessionPlanFrame
-	activePlanID            string
-	planSequence            uint64
+	sessionID              string
+	taskExecution          *TaskExecutionState
+	taskService            *TaskService // 当前任务的 TaskService（与 taskExecution 同生命周期）
+	transcript             []model.TranscriptEvent
+	transcriptSeq          uint64
+	pendingProviderCalls   []model.TranscriptToolCall
+	pendingToolResults     []model.StoredToolResult
+	toolResultRefs         []model.ToolResultRef
+	resultRefsByToolCallID map[string]string
+	taskCheckpoints        []model.TaskCheckpoint
+	planStack              []model.SessionPlanFrame
+	activePlanID           string
+	planSequence           uint64
+	// planFrameHash 是**已经落进 transcript 的那一帧**的内容哈希（见
+	// plan_frame.go）：同哈希 = 计划没变 = 一条不发（D1 ②）。冷加载/恢复后由
+	// seedPlanFrameHashLocked 从事件流里最后一条 plan 帧对齐，避免每次装载都
+	// 重发一条同内容帧。
+	planFrameHash           string
 	replanInFlight          map[string]struct{}
 	reactBudget             *activeReActBudget
 	contextControlFailure   error
@@ -372,7 +377,10 @@ func (c *Coordinator) ClearActivePlanLocked() {
 }
 
 func (c *Coordinator) _ClearActivePlanLocked() {
-	c.activeSessionLocked().activePlanID = ""
+	st := c.activeSessionLocked()
+	st.activePlanID = ""
+	// 计划被清除：发墓碑覆盖历史里那一帧，否则模型继续把旧计划当权威。
+	c.recordPlanFrameLocked(st)
 }
 
 func (c *Coordinator) ResetPlanStateLocked() {
@@ -383,9 +391,14 @@ func (c *Coordinator) ResetPlanStateLocked() {
 
 func (c *Coordinator) _ResetPlanStateLocked() {
 	st := c.activeSessionLocked()
+	hadFrame := st.planFrameHash != ""
 	st.planStack = nil
 	st.activePlanID = ""
 	st.planSequence = 0
+	if hadFrame {
+		// 记录过 plan 帧而计划整栈清空：发墓碑，别让旧计划继续留在墙上。
+		c.recordPlanFrameLocked(st)
+	}
 }
 
 // SetPlanStateLocked 装载活跃会话 plan 帧栈与激活帧（测试/恢复路径；调用
@@ -401,6 +414,9 @@ func (c *Coordinator) _SetPlanStateLocked(stack []model.SessionPlanFrame, active
 	st.planStack = stack
 	st.activePlanID = activeID
 	st.planSequence = uint64(len(stack))
+	// 计划状态写入的那一刻就是 plan 帧的**记录时刻**（D1）：此刻追加的事件排在
+	// 本会话下一个用户提问之前，此后按记录位置重放，位置不再随历史变长而漂。
+	c.recordPlanFrameLocked(st)
 }
 
 // SetResultRefByCallIDLocked 登记活跃会话 callID → resultRef（测试/恢复
@@ -762,6 +778,9 @@ func (c *Coordinator) _RestoreSessionTaskLockedFor(sessionID string, restored Re
 	st.pendingToolResults = nil
 	st.resultRefsByToolCallID = make(map[string]string)
 	c.restoreTaskProjectionLocked(st, restored, sessionID)
+	// 恢复只负责**对齐**去重基线：历史里已经有一条同内容的 plan 帧时一条不发
+	// （D1 ②），内容变了才在尾部追加新帧（旧帧留史）。
+	c.recordPlanFrameLocked(st)
 }
 
 // ResetForNewSessionLocked 清空活跃会话任务/plan 状态（BeginNewSession /

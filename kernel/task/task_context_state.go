@@ -1631,6 +1631,7 @@ func (c *Coordinator) _SyncActivePlanFrameLocked(now time.Time) {
 		return
 	}
 	c.syncActivePlanFrameLocked(st, now)
+	c.recordPlanFrameLocked(st)
 }
 
 // SyncActivePlanFrameLockedFor 把当前快照 Plan 收敛进指定会话激活帧（调用
@@ -1649,6 +1650,7 @@ func (c *Coordinator) _SyncActivePlanFrameLockedFor(sessionID string, now time.T
 		return
 	}
 	c.syncActivePlanFrameLocked(st, now)
+	c.recordPlanFrameLocked(st)
 }
 
 func (c *Coordinator) syncActivePlanFrameLocked(st *sessionTaskRuntime, now time.Time) {
@@ -1690,6 +1692,8 @@ func (c *Coordinator) _PushLoadedPlanLocked(arguments string, now time.Time) {
 		UpdatedAt: now,
 	})
 	st.activePlanID = planID
+	// plan_load 也是计划状态写入：装载完立刻落帧，随后这一轮就能按记录位置看到它。
+	c.recordPlanFrameLocked(st)
 }
 
 // RemoveCommittedToolResultsLocked 清理活跃会话已随会话快照提交的待定工具

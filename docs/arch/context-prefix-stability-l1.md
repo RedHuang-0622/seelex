@@ -300,7 +300,7 @@ draft 未提交就被中断（用户按停、进程死），重放时必须区�
 
 ### 6.3 已实测复现 → 已修复（M0 复现，M1 转绿，2026-10-29）
 
-本节两条实测：用户消息字节分叉（M0 复现 → M1 已修复，6.3.1）、plan 帧位置漂移（仍开放，6.3.2）。
+本节两条实测：用户消息字节分叉（M0 复现 → M1 已修复，6.3.1）、plan 帧位置漂移（M0 复现 → M1 已修复，6.3.2）。
 
 #### 6.3.1 user 消息字节分叉（M0 复现 → M1 修复，已转绿）
 
@@ -330,7 +330,7 @@ draft 未提交就被中断（用户按停、进程死），重放时必须区�
 1. **分叉点落在"承载动态块的那条 user 消息"上，其后的全部历史都被重算。** 本夹具里它是 `msg#0`（因为是首轮输入）；生产里它在多轮历史的中间某处。关键不在于位置，而在于 **history 全部排在 system 之后**——一处污染 ⇒ 从该点起整段重算（本例 16766 B 之后全 miss），而不是只丢一条尾巴。这解释了生产上"命中率莫名掉一大截"而不是"掉一点"。
 2. **比率区分不了健康与缺陷：回合内 82.4%（健康，尾部新增）与跨轮 80.5%（缺陷，从头失效）看起来只差 2 个点。** 能区分的是前缀关系（`HasPrefix`）。这就是 §7.5 把判据定成前缀关系而非比率的原因——同一份实测数据即证。
 
-#### 6.3.2 plan 帧：位置漂移（仍开放）
+#### 6.3.2 plan 帧：位置漂移（M0 复现 → M1 已修复，2026-10-29）
 
 `context_prefix_plan_frame_test.go` 钉住的不是"plan 正文变了"，而是更糟的一类：**帧位置漂移**。
 
@@ -353,6 +353,50 @@ LCP 断在 byte 16869 / char 16767，msg#1：
 3. `plan_hash` 变化 ⇒ 在**尾部**追加一条新帧，旧帧留在历史里不删，靠"后写覆盖前写"的读法约定。
 
 判定"这一格是不是 plan 帧"用固定前缀 `<!-- seelex:active-plan:v1 -->`（`planContextPrefix`），探针据此把它与对话消息分开归因。
+
+**M1 落地（2026-10-29）：帧改在"计划状态写入那一刻"落 transcript，装配不再现插**
+
+修复形态（不是"装配时把帧插到更靠前的位置"，那条路走不通，理由见下）：
+
+| 判据 | 落地位置（文件:符号） |
+|---|---|
+| ① 帧首现即作为 internal 事件（`Kind=internal`、`WireMaterial=true`）落 transcript | `kernel/task/plan_frame.go`：`recordPlanFrameLocked`（渲染 `PlanContextMessage`、`planFrameHash` 去重、`appendTranscriptEventLocked` 追加） |
+| ② `plan_hash` 不变 ⇒ 一条不发 | 同上 `recordPlanFrameLocked` 的 `digest == st.planFrameHash` 早退；冷加载用 `seedPlanFrameHashLocked` 从事件流对齐基线 |
+| ③ 变化 ⇒ 尾部追加新帧、旧帧留史 | 同上；计划清除/收尾发墓碑 `PlanContextClearedMessage`（后写覆盖前写） |
+| 帧自成协议单元，wire 上仍是 system | `kernel/task/plan_transcript.go`：`transcriptProtocolUnitList` 的 `planFrameUnit` 分支 + `providerRoleForTranscriptEvent` |
+| 装配侧不再每轮插入 | `kernel/context/coordinator.go`：`tryFitExecutionHistory` 删掉 plan 消息追加；`planContextMessageLocked` 只保留给自主压缩帧 |
+| 记录时刻的挂点 | `SetPlanStateLocked` / `RestoreSessionTaskLockedFor` / `PushLoadedPlanLocked` / `SyncActivePlanFrameLocked(For)` / `ClearActivePlanLocked` / `ResetPlanStateLocked`（kernel/task），`mirrorActivePlanAfterTerminal`（application/assembly/chat.go），另在装配前兜底收敛一次（`RecordPlanFrameForLocked`，幂等） |
+| 不冒充用户消息 | `application/conversation/context.IsInternalContent` 增 `IsActivePlanContext`（否则帧会作为一条 user 消息进可见会话/归档） |
+
+**为什么不能"在装配时把帧插进去"**：装配发生在**本回合用户提问事件已经落进 transcript 之后**（`turn_process.go:BeginLocked` 先写 user 事件，再 `PrepareExecutionContextFor`），而请求的形态是 `历史 + 当前输入`——当前输入被 `excludeCurrentInputEvent` 从事件流里剔掉后**追加在末尾**。于是任何在装配时追加的帧都排在提问事件之后：本轮请求里它落在"输入之前"（因为提问被剔掉了），下一轮重放它却落在"提问之后"——两轮对同一格的读法不同，前缀照样断。帧必须记在提问事件**之前**，也就是只能记在计划状态写入的那一刻。
+
+**翻转前后两次运行（同一夹具、同一判据）**
+
+翻转前（缺陷态，`TestContextPrefixPlanFrame_KnownDefect`，HEAD b2cbca2b）：
+
+```
+call=t1.iter1 msgs=1 / t2.iter1 msgs=3 / t3.iter1 msgs=4
+turn=3 prefix BREAK byte=16869 char=16767 segment=truth msg#1 role=user [UNEXPECTED] hit=16767/17520 (95.7%) new=753
+  prev roles=[user system user]
+  cur  roles=[user user system user]
+累计: requests=2 hit=34186/34939 (97.8%) unexpected=1
+```
+
+翻转后（`TestContextPrefixPlanFrame`，含"计划不变的第 4 轮"）：
+
+```
+call=t1.iter1 msgs=1 / t2.iter1 msgs=3 / t3.iter1 msgs=5 / t4.iter1 msgs=6
+turn=3 prefix OK hit=17419/18091 (96.3%) new=672
+turn=4 prefix OK hit=18091/18192 (99.4%) new=101
+累计: requests=3 hit=52929/53702 (98.6%) unexpected=0
+transcript plan 帧 #0 seq=2 kind=internal wire_material=true chars=441
+transcript plan 帧 #1 seq=4 kind=internal wire_material=true chars=441
+plan 帧去重: 计划未变化的第 4 轮帧数保持 2
+```
+
+`turn=3` 的 msgs 由 4 变 5、`turn=4` 多出的一格，正是"plan 变化才追加"的那一帧落在记录位置上的结果：第 3 轮请求是 `[user(t1) plan(v1) user(t2) plan(v2) user(t3)]`，第 4 轮是它的严格扩展（`hit=18091/18192=99.4%`，新增 101 字符全部来自本轮输入）。
+
+单元级判据：`kernel/task/plan_frame_test.go`（① 首现即 internal+wire_material、provider role=system、不算用户提问；② 同内容幂等；③ 变化追加且 seq 递增；墓碑；冷加载基线对齐；独立协议单元）。
 
 ---
 
@@ -475,7 +519,7 @@ ratioChars   = sharedChars / totalChars
 
 ## 8. 实施计划（M0–M5，每步带验收判据）
 
-> **进度（2026-10-29）**：M0 ✅（字符级探针 + worktable / plan 两个变体钉死；env / compact 变体与 `cached_tokens` 待补——后者是 Seele 上游依赖）· M1 ◐（用户消息字节冻结已完成并实测 **80.5% → 98.3%**；**plan / task 帧的追加化仍开放**，见 §6.3.2 与 D1 修正）· M2–M5 未开工。
+> **进度（2026-10-29）**：M0 ✅（字符级探针 + worktable / plan 两个变体钉死；env / compact 变体与 `cached_tokens` 待补——后者是 Seele 上游依赖）· M1 ◐（用户消息字节冻结已完成并实测 **80.5% → 98.3%**；**plan 帧已落 transcript 并实测转绿（task 帧仍是开放口）**，见 §6.3.2 与 D1 修正）· M2–M5 未开工。
 
 > 纪律：**先红后绿**。M0 不改任何行为，只把不变量变成可执行判据；之后每一步都要让 M0 的某条红灯转绿。
 
@@ -497,7 +541,9 @@ ratioChars   = sharedChars / totalChars
 
 **已落地（用户消息半边）**：`TurnInputApplication.Prepare` 在 `Normalize` 之后调 `RecordWire` → `task_context.RecordUserWireContentLocked`（`kernel/task/task_wire_content.go`），把最终送进引擎的正文写回该轮 user 事件的 `ProviderContent`；作用域限定 `requestID`，幂等，wire==Content 时清空以保持记录紧凑。夹具 `prefixProbeHarness.beginTurn` 同步镜像该步（否则测的是生产里已不存在的分叉）。
 
-**未落地（plan / task 帧半边）**：依据 `context_prefix_plan_frame_test.go` 的实测（§6.3.2），帧必须落进 transcript 才不漂；这是 D1 的完整形态，与工具集哨兵共用"后写覆盖前写"读法约定。
+**已落地（plan 帧半边，2026-10-29）**：依据 `context_prefix_plan_frame_test.go` 的实测（§6.3.2），帧必须落进 transcript 才不漂；这是 D1 的完整形态，与工具集哨兵共用"后写覆盖前写"读法约定。
+
+**落地（2026-10-29）**：`kernel/task/plan_frame.go` 在计划状态写入的那一刻把帧记为 internal 事件（`wire_material`），装配侧删掉每轮现插（`kernel/context/coordinator.go:tryFitExecutionHistory`）；`context_prefix_plan_frame_test.go` 已由"钉死缺陷"翻转为"断言前缀完整"，实测 turn3 `hit=17419/18091 (96.3%)`、turn4 `hit=18091/18192 (99.4%)`、累计 `UnexpectedMiss=0`（翻转前 turn3 断在 char 16767、`95.7%`、`UnexpectedMiss=1`，详见 §6.3.2）。task 帧（检查点/任务状态材料）仍走原路径，未并入本次改动。
 
 **验收**：M0 的跨轮用例转绿（env + plan + memory 三种拉开分别各有一条用例）；`cached_tokens` 在真 API 冒烟里出现在第二轮之后。
 

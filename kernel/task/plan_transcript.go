@@ -380,6 +380,14 @@ func transcriptProtocolUnitList(events []model.TranscriptEvent) []transcriptProt
 		event := events[index]
 		switch {
 		case event.Role == "user":
+			if planFrameUnit(event) {
+				// plan 帧是自成一格的内部状态材料：wire 上是 system 角色
+				// （providerRoleForTranscriptEvent），既不是用户提问、也不该
+				// 把下一轮的 assistant 消息卷进自己的单元。
+				units = append(units, transcriptProtocolUnit{start: index, events: []model.TranscriptEvent{event}})
+				index++
+				continue
+			}
 			if isActiveSkillEvent(event) {
 				// 激活技能正文事件是独立 internal 指令轮次：不要求随附
 				// assistant 回复（transcriptUserUnit 对孤立 user 的丢弃规则

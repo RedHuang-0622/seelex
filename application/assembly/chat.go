@@ -100,6 +100,8 @@ func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context) {
 	defer service.ViewMu.Unlock()
 	if sessionID == service.Core.Snapshot.Session.ID {
 		service.Core.Snapshot.Runtime.Plan = plan
+		// D1：计划状态写入即落帧（task 域去重追加，内容没变一条不发）。
+		service.components.tasks.RecordPlanFrameForLocked(sessionID)
 	}
 }
 

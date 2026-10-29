@@ -2,7 +2,6 @@ package context_runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,7 +21,7 @@ import (
 
 const (
 	TaskContextCheckpointPrefix = "<!-- seelex:context-checkpoint:v1 -->"
-	planContextPrefix           = "<!-- seelex:active-plan:v1 -->"
+	planContextPrefix           = task_context.PlanContextPrefix
 	// ActiveSkillPrefix 标记激活技能正文 internal 事件：作为 append-only user
 	// 轮次进入 transcript（与 task_context.ActiveSkillMarker 同源字符串），并
 	// **以 wire material 落盘**（resume 回放、检索回读）；装配/存档/import 用
@@ -622,6 +621,15 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			options.decision.NoEpoch = true
 		}
 		return currentInput, nil
+	}
+	// plan 帧的**记录时刻**是"计划状态写入那一刻"（SetPlanStateLocked / restore /
+	// plan_load / 终态镜像，见 kernel/task/plan_frame.go）。这里补一次兜底收敛：
+	// 计划状态被直接写进快照（迁移期宿主/测试/外部装载）时没有写入点可挂，就在
+	// 装配前把差异补落成一条事件——内容没变则一条不发（幂等）。
+	//
+	// 位置必须在事件快照之前：帧要在本轮请求里可见，且只在本轮出现一次。
+	if recorder, ok := c.tasks.(interface{ RecordPlanFrameForLocked(string) bool }); ok {
+		recorder.RecordPlanFrameForLocked(sessionID)
 	}
 	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
 	events = excludeCurrentInputEvent(events, requestID, currentInput)
@@ -1328,9 +1336,11 @@ func (c *Coordinator) tryFitExecutionHistory(
 	tail, retainedFrom := task_context.TranscriptTailWindowBy(events, target, maxUnits, c.transcriptUnitTokens)
 	history = append(history, tail...)
 	// plan 后置贴近当前输入（LLM 循环会把当前输入追加到历史尾部）。
-	if planMessage != "" {
-		history = append(history, contract.EngineMessage{Role: "system", Content: planMessage, ContentSet: true})
-	}
+	// plan 帧不再在这里现插：它由 task 域在**计划状态写入的那一刻**作为 internal
+	// 事件落进 transcript（kernel/task/plan_frame.go），随后按记录位置从事件流重放。
+	// 每轮现插会让帧的位置随历史变长而后移——上一轮帧占的那一格被新历史占住，
+	// 从该格起到请求尾整段重算（实测 hit=16767/17520=95.7%，见
+	// docs/arch/context-prefix-stability-l1.md §6.3.2）。
 	return history, retainedFrom, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
 }
 
@@ -1417,62 +1427,26 @@ func retainedMatchesTranscriptPrefix(systems []contract.EngineMessage, events []
 	return true
 }
 
-func (c *Coordinator) planContextMessageLocked(sessionID string) string {
-	projection := c.tasks.ActivePlanProjectionLockedFor(sessionID)
-	if projection == nil || projection.Status == string(model.PlanCompleted) {
-		return ""
-	}
-	payload := map[string]any{
-		"plan_ref": projection.CanonicalPlanRef, "plan_id": projection.PlanID,
-		"status": projection.Status, "current": projection.CurrentNode,
-		"completed": projection.CompletedNodes, "failed": projection.FailedNodes,
-		"pending": projection.PendingNodes,
-	}
-	if frame := task_context.ActivePlanFrame(c.tasks.PlanStackFor(sessionID), c.tasks.ActivePlanIDFor(sessionID)); frame != nil {
-		payload["current_slice"] = currentPlanSlice(frame.Arguments, projection.CurrentNode)
-	}
-	encoded, _ := json.Marshal(payload)
-	// plan 执行指令并入尾部（原本在 system 的 Active Plan Execution Policy 段，
-	// 会随 plan 加载/完成改写 system 头部 → 一次前缀悬崖）。尾部消息每轮随节点
-	// 状态重建，本来就在缓存未命中区，指令放这里零额外失效成本。
-	return planContextPrefix + "\n" + string(encoded) + "\n\n## Active Plan Execution Policy\n" +
-		"The Plan is validated and authoritative for this task. Do not silently replace or reorder it. " +
-		"Execute the current node and its declared dependencies in stable order. Use read_plan for omitted node detail. " +
-		"plan_ref=" + projection.CanonicalPlanRef
+// IsActivePlanContext 判定正文是否 plan 上下文帧（计划投影 + 执行政策段）。
+//
+// 它是"这一格是 plan 帧"的唯一判据：装配侧的分类键（planContextPrefix）、
+// 可见会话的内部行过滤（application/conversation/context.IsInternalContent）、
+// 以及探针的段表归因都读它。plan 帧是**给模型看的内部材料**，不是用户说过的话
+// ——漏掉这条过滤，它就会作为一条 user 消息出现在可见会话里。
+func IsActivePlanContext(content string) bool {
+	return strings.HasPrefix(content, planContextPrefix)
 }
 
-func currentPlanSlice(arguments, currentNode string) any {
-	var plan struct {
-		Nodes map[string]json.RawMessage `json:"nodes"`
-		Edges map[string][]string        `json:"edges"`
+func (c *Coordinator) planContextMessageLocked(sessionID string) string {
+	projection := c.tasks.ActivePlanProjectionLockedFor(sessionID)
+	if projection == nil {
+		return ""
 	}
-	if json.Unmarshal([]byte(arguments), &plan) != nil {
-		return nil
-	}
-	nodes := make(map[string]json.RawMessage)
-	edges := make(map[string][]string)
-	if node, ok := plan.Nodes[currentNode]; ok {
-		nodes[currentNode] = node
-	}
-	for source, targets := range plan.Edges {
-		if source == currentNode {
-			edges[source] = append([]string(nil), targets...)
-			for _, target := range targets {
-				if node, ok := plan.Nodes[target]; ok {
-					nodes[target] = node
-				}
-			}
-		}
-		for _, target := range targets {
-			if target == currentNode {
-				edges[source] = task_context.AppendUniqueStrings(edges[source], target)
-				if node, ok := plan.Nodes[source]; ok {
-					nodes[source] = node
-				}
-			}
-		}
-	}
-	return map[string]any{"nodes": nodes, "edges": edges}
+	// 正文渲染只有一份（task_context.PlanContextMessage）：落进 transcript 的
+	// plan 帧与这里的压缩帧正文同源，两条路径的字节才不会分叉——否则"同一
+	// plan_hash 一条不发"的去重判据会被两份措辞拆掉。
+	return task_context.PlanContextMessage(projection,
+		task_context.ActivePlanFrame(c.tasks.PlanStackFor(sessionID), c.tasks.ActivePlanIDFor(sessionID)))
 }
 
 func excludeCurrentInputEvent(events []model.TranscriptEvent, requestID, currentInput string) []model.TranscriptEvent {
@@ -1480,7 +1454,11 @@ func excludeCurrentInputEvent(events []model.TranscriptEvent, requestID, current
 		return events
 	}
 	last := events[len(events)-1]
-	if last.TaskID == requestID && last.Role == "user" {
+	// 只剔除**本轮的提问行**：内部材料行（plan 帧等）同样是 Role=user + 本回合
+	// TaskID，但它是状态材料、必须留在历史里；把它当成"当前输入"剔掉，plan 帧
+	// 就会在装配时凭空消失（正是"落了帧却看不见计划"的那种假绿）。
+	if last.TaskID == requestID && last.Role == "user" && !last.WireMaterial &&
+		last.Kind != model.TranscriptEventKindInternal {
 		return events[:len(events)-1]
 	}
 	return events
