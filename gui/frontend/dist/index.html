@@ -24,7 +24,7 @@
   <style>
     /* 选择器用 .modal-card.node-detail-card（与 styles.css 的
        .modal-card[data-resizable] 同特异性且更靠后）才能覆盖其 overflow。 */
-    .modal-card.node-detail-card { display: flex; flex-direction: column; width: min(760px, 94vw); max-height: min(84vh, 760px); overflow: hidden; }
+    .modal-card.node-detail-card { display: flex; flex-direction: column; width: min(1040px, calc(100vw - 48px)); max-height: min(88dvh, 920px); overflow: hidden; }
     .node-detail-card #node-detail-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; }
     .node-detail, .node-detail > *, .node-tab-panel { min-width: 0; max-width: 100%; }
     .node-conversation, .node-context { width: 100%; max-width: 100%; min-width: 0; max-height: min(52vh, 520px); resize: vertical; overflow: auto; }
@@ -225,19 +225,23 @@
            那几条"，必须跟着输入框走，所以不放进对话滚动区（.conversation）。
            空的时候 :empty 规则整块收起，不吃高度也不吃指针。 -->
       <div id="message-queue" class="message-queue-host" aria-live="polite"></div>
-      <form id="composer" class="composer">
+      <!-- 主会话与子代理会话共用同一个 composer 结构。模板只定义一次；app.js
+           在元素登记前把同一份内容挂到主输入框，各子代理会话再以独立前缀克隆，
+           避免复制第二份输入框 DOM。 -->
+      <form id="composer" class="composer"></form>
+      <template id="composer-template">
         <!-- 草稿区上沿的引用 chip 条（J-1b）：`@文件` / `+` 加号 / 拖拽三个入口产出同一条
              工作区相对路径引用，这里与对话正文共用**同一枚 chip**（file-reference.js 的
              fileReferenceChipHTML 的两种宿主）。没有引用时整块收起（:empty）。 -->
-        <div id="composer-file-refs" class="composer-file-refs" aria-live="polite"></div>
+        <div id="composer-file-refs" class="composer-file-refs" aria-live="polite" data-main-only></div>
         <!-- 图片附件条（拖拽 / 粘贴）：缩略图留在输入框里（**不打开**的预览），
              点缩略图才交给系统默认图片查看器打开原图。空的时候靠 :empty 整块收起，
              不吃高度也不吃指针（与上面的引用 chip 条同款）。 -->
-        <div id="composer-attachments" class="composer-attachments" aria-live="polite"></div>
-        <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
+        <div id="composer-attachments" class="composer-attachments" aria-live="polite" data-main-only></div>
+        <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden" data-main-only></div>
         <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 引用工作区文件"></textarea>
         <div class="composer-actions">
-          <div class="composer-tools">
+          <div class="composer-tools" data-main-only>
             <button id="file-button" class="icon-button composer-icon" type="button" title="添加文件引用（工作区相对路径）" aria-label="添加文件引用" aria-haspopup="dialog" aria-expanded="false" data-icon="plus"></button>
             <button id="command-button" class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)" data-icon="command"></button>
             <button id="runtime-button" class="icon-button composer-icon" type="button" title="运行状态" aria-label="运行状态" data-icon="runtime"></button>
@@ -251,7 +255,7 @@
                循环次数是"这一趟跑多少轮"，是运行期预算，落在运行状态弹窗里（见下方
                runtime modal 的 .runtime-knobs）——两者不再挤在输入框底部同一行。
                滑杆行为只有一份实现（knob-slider.js）。 -->
-          <div id="reasoning-effort-control" class="effort-control effort-inline knob-slider" data-effort="low" role="group" aria-label="推理强度（reasoning effort）">
+          <div id="reasoning-effort-control" class="effort-control effort-inline knob-slider" data-effort="low" role="group" aria-label="推理强度（reasoning effort）" data-main-only>
             <span class="knob-label">思考</span>
             <div class="effort-syringe">
               <div class="syringe-barrel">
@@ -262,13 +266,13 @@
             </div>
             <span id="reasoning-effort-value" class="effort-value" aria-live="polite">Low</span>
           </div>
-          <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
+          <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop" data-main-only></button>
           <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
         </div>
         <!-- `+` 加号的候选面板（J-1b）：候选来自**已加载的工作区树索引**（不必逐键读盘），
              点一行就把该路径插进草稿（与 `@文件` 完全同一套代码：fileReferenceCandidates +
              applyFileReference）。行样式复用命令面板的 .command-result。 -->
-        <div id="composer-file-picker" class="composer-file-picker hidden" role="dialog" aria-modal="false" aria-label="添加文件引用">
+        <div id="composer-file-picker" class="composer-file-picker hidden" role="dialog" aria-modal="false" aria-label="添加文件引用" data-main-only>
           <div class="composer-file-picker-head">
             <span>引用工作区文件</span>
             <button id="composer-file-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button>
@@ -276,7 +280,7 @@
           <input id="composer-file-search" class="composer-file-search" type="text" autocomplete="off" spellcheck="false" placeholder="输入路径片段筛选…" aria-label="筛选工作区路径" />
           <div id="composer-file-results" class="command-results composer-file-results"></div>
         </div>
-      </form>
+      </template>
       <!-- 下栏终端（VS Code 式）：顶边分隔条可拉动调高，头部可收起/展开，
            标签条支持多开与逐个关闭。终端会话在后端（gui/terminal），这里
            只画布局。 -->

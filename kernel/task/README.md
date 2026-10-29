@@ -62,6 +62,9 @@
   存储面。memory 与 tools 共用 epoch seq 分配器；memory fold 校验 Digest，
   tool catalog 只有显式变化才 bump epoch。两类表随 `SessionRecord.Execution`
   原子落盘并在冷加载原样恢复。
+- 做：L1 命中量的前端投影（`ContextCacheViewFor`）。它只报告本地前缀复用：
+  hit/miss/rebuilt、复用事件、累计/最近复用字符、最近失效格和 `prefix_key`
+  摘要；不冒充 provider `cached_tokens`。
 - 做：**跨会话 task 台账**（`ledger.go`）。工作表格是**跨会话台账**，会话只是
   条目的产生地：全局读面（`Ledger.Snapshot`）合并实时注册表（归当前视图会话）
   与各会话 scope 分区（归分区键），按跨会话身份去重（幂等键优先、否则行 ID）

@@ -6726,6 +6726,169 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
   box-shadow: none;
 }
 
+/* ---------- 统一 agent 会话（main 组件复用） ----------
+   Work Item、teammate 与 subagent 的详情不再各画一套执行记录表：
+   正文使用主会话的 message / tool-run，输入框使用 #composer-template
+   的同一份 DOM。这里只负责把它们装进弹层里的稳定三段布局。 */
+.agent-conversation-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: min(62dvh, 680px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: var(--surface);
+}
+.agent-conversation-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-width: 0;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--panel-solid);
+}
+.agent-conversation-title,
+.agent-conversation-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.agent-conversation-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font: 650 12px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-conversation-kind {
+  color: var(--accent);
+  font: 750 9.5px var(--font-mono);
+  letter-spacing: .08em;
+}
+.agent-conversation-window,
+.agent-conversation-session {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--faint);
+  font: 9.5px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-conversation-session { max-width: 210px; }
+.agent-conversation-recovery.is-live { color: var(--status-done); }
+.agent-conversation-recovery.is-interrupted { color: var(--status-failed); }
+.agent-conversation-recovery.is-cold { color: var(--status-running); }
+.agent-conversation-stream {
+  min-height: 0;
+  padding: 10px 14px 18px;
+  background: var(--surface);
+}
+.agent-conversation-stream .message,
+.agent-conversation-stream .tool-run {
+  width: min(760px, 100%);
+}
+.agent-conversation-empty {
+  display: grid;
+  place-content: center;
+  gap: 5px;
+  min-height: 140px;
+  padding: 24px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.agent-conversation-empty strong { color: var(--text-strong); font-size: 12px; }
+.agent-conversation-empty span { max-width: 46ch; font-size: 11px; line-height: 1.55; }
+.agent-conversation-empty.is-error strong { color: var(--status-failed); }
+.agent-conversation-composer-slot {
+  display: grid;
+  gap: 6px;
+  padding: 8px 11px 11px;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--panel-solid);
+}
+.agent-conversation-target-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: var(--faint);
+  font-size: 10px;
+}
+.agent-conversation-target-note code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-mid);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-conversation-composer {
+  position: static;
+  inset: auto;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px 8px;
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+.agent-conversation-composer [data-main-only][hidden] { display: none !important; }
+.agent-conversation-composer .composer-actions { margin-top: 3px; }
+.agent-conversation-composer textarea {
+  min-height: 38px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* 团队详情原先只有 760px 的窄弹层，正文又是每行一段的长列表；改为
+   可调整的大对话面。三段各自滚动，弹窗本身不再把尾部裁掉。 */
+.role-session-card {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 48px));
+  height: min(86dvh, 900px);
+  max-height: min(86dvh, 900px);
+  overflow: hidden;
+}
+.role-session-view {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.role-session-view.is-agent-conversation { display: flex; padding: 0; overflow: hidden; }
+.role-session-view.is-agent-conversation .agent-conversation-panel { height: 100%; border: 0; border-radius: 0; }
+.node-detail-card {
+  width: min(1040px, calc(100vw - 48px));
+  max-height: min(88dvh, 920px);
+}
+.node-detail-card #node-detail-content { overflow: auto; }
+.node-detail-card .node-conversation {
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  resize: none;
+}
+
+@media (max-width: 720px) {
+  .role-session-card,
+  .node-detail-card {
+    width: calc(100vw - 24px);
+    height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+  .agent-conversation-panel { height: min(68dvh, 620px); }
+  .agent-conversation-head { align-items: flex-start; flex-direction: column; }
+  .agent-conversation-session { max-width: 100%; }
+}
+
 /* k) 正文内联代码：浅底胶囊（浅色皮肤下不再靠深色块反白） */
 .message-body code {
   padding: 2px 6px;

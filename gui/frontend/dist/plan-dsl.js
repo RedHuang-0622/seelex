@@ -765,7 +765,7 @@ function renderDetailErrorText(text) {
 // 口径说明：详情弹窗的「工具活动」不再单独成 tab——它与「功能打点」是同一
 // 类节点执行打点，统一并入功能打点表（工作台 trace 与子代理工具调用合并、
 // 按时间倒序），避免同一事实两处渲染。
-export function setNodeDetailConversation(detail) {
+export function setNodeDetailConversation(detail, agentConversation = null, agentRef = null, options = {}) {
   const container = document.querySelector("[data-node-detail] [data-node-conversation]");
   const contextContainer = document.querySelector("[data-node-detail] [data-node-context]");
   const errorContainer = document.querySelector("[data-node-detail] [data-node-detail-error]");
@@ -776,7 +776,13 @@ export function setNodeDetailConversation(detail) {
   }
   if (!container && !contextContainer) return;
   const messages = (detail?.conversation || []);
-  if (container && messages.length === 0) {
+  if (container && agentRef) {
+    // 渲染件保持零 DOM 依赖；app.js 在这个稳定宿主里挂统一 agent 会话面板。
+    // data 属性只携带宿主身份，真正的 ConversationView / composer 共用件不在这里复制。
+    if (!container.querySelector?.("[data-agent-conversation-embed]")) {
+      container.innerHTML = '<div class="agent-conversation-embed" data-agent-conversation-embed></div>';
+    }
+  } else if (container && messages.length === 0) {
     const goal = detail?.goal ? `；目标 ${escapeHTML(outputSummary(detail.goal))}` : "";
     const status = detail?.status ? `；状态 ${escapeHTML(statusLabel(detail.status))}` : "";
     const assignee = detail?.assignee ? `；Assignee ${escapeHTML(detail.assignee)}` : "";

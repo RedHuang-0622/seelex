@@ -89,6 +89,26 @@ func TestContextL1ColdRebuildUsesPersistedWireMaterial(t *testing.T) {
 	}
 }
 
+func TestContextCacheViewReportsL1ReuseVolume(t *testing.T) {
+	coordinator := newContextL1TestCoordinator()
+	key := prefixprobe.Key{SystemDigest: "system-v1", CompactSeq: 2, ToolsEpoch: 3, RetainedFrom: 4}
+	events := []model.TranscriptEvent{{Seq: 1, Role: "user", Content: "first"}}
+	coordinator.RecordContextL1("session-a", ContextL1Snapshot{
+		Key: key, System: "system", Messages: TranscriptEventMessages(events),
+		RetainedFrom: 4, ThroughSeq: 1, EventCount: 1, Tokens: 50, TruthTokens: 20,
+	})
+	events = append(events, model.TranscriptEvent{Seq: 2, Role: "assistant", Content: "answer"})
+	if _, ok := coordinator.ResumeContextL1("session-a", key, events, 4, 0); !ok {
+		t.Fatal("expected L1 hit")
+	}
+	view := coordinator.ContextCacheViewFor("session-a")
+	if view == nil || !view.Available || view.Hits != 1 || view.ReusedEvents != 1 ||
+		view.ReusedChars <= 0 || view.LastReusedChars != view.ReusedChars ||
+		view.PrefixKey.CompactSeq != 2 || view.PrefixKey.RetainedFrom != 4 {
+		t.Fatalf("context cache view = %+v", view)
+	}
+}
+
 func newContextL1TestCoordinator() *Coordinator {
 	return NewCoordinator(Deps{
 		CurrentSessionID: func() string { return "session-a" },

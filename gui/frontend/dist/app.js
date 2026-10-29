@@ -44,8 +44,9 @@ import { createFilePreviewController } from "./file-preview.js";
 import { decideReviewApply, reviewRequestEntries } from "./review-request.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
+import { contextCacheStatus } from "./context-cache.js";
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
-import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, parseTeamPageRef, renderTeamBoard, renderTeamPage, renderTeammateLiveSession, teamPageTitle, teammateSessionEntry } from "./team-board-view.js";
+import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, parseTeamPageRef, renderTeamBoard, renderTeamPage, teamPageTitle, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { buildScheduledTaskSpec, renderScheduledTasks, scheduledTaskFormFields } from "./scheduled-tasks-view.js";
 import { renderToolRecordBoard, TOOL_RECORD_CSS } from "./tool-record-board.js";
@@ -110,6 +111,19 @@ import { REFRESH_STATUS, createExplorerRefresh } from "./explorer-refresh.js";
 import { createPerfHooks } from "./perf-hooks.js";
 import { createLiveDiag } from "./live-diag.js";
 import { createTerminalPanel } from "./terminal-panel.js";
+import {
+  agentConversationKey,
+  agentConversationTargetFromForm,
+  mountAgentConversationPanel,
+  normalizeAgentConversationRef,
+  refreshAgentConversationPanel,
+  renderAgentConversationPanel
+} from "./agent-conversation-view.js";
+import { mountComposerTemplate } from "./composer-shell.js";
+
+// 主输入框与子代理输入框共用 index.html 里的唯一模板。必须在下面的 elements
+// 登记前挂载，主会话才能继续按既有 id 读取同一批控件。
+mountComposerTemplate(document.getElementById("composer"));
 
 const state = {
   info: null,
@@ -1995,6 +2009,7 @@ function renderProjectStatus(snapshot, running) {
   const pendingApprovals = (snapshot.sessions || []).reduce(
     (sum, session) => sum + Number(session.approval_count || 0), 0
   );
+  const contextCache = contextCacheStatus(snapshot.runtime?.context_cache);
   // 条目化（键值两列）：状态信息是"一眼扫过"的清单，两列网格卡片会把
   // 标签与数值排成自由布局，窄栏里还会错位；表格行则始终对齐。
   const rows = [
@@ -2003,13 +2018,14 @@ function renderProjectStatus(snapshot, running) {
     ["消息", String(snapshot.conversation?.length || 0)],
     ["任务", snapshot.task ? snapshot.task.status : "idle"],
     ["待审批", pendingApprovals > 0 ? `${pendingApprovals} 项` : "0"],
+    ["L1 缓存", contextCache.value, contextCache.title],
     ["文件数", fileCountLabel()]
   ];
   elements["project-status"].innerHTML = `<div class="status-table" role="table" aria-label="项目状态">
     <div class="status-row is-head" role="row"><span role="columnheader">项</span><span role="columnheader">值</span></div>
-    ${rows.map(([label, value]) => `<div class="status-row" role="row">
+    ${rows.map(([label, value, title = value]) => `<div class="status-row" role="row">
       <span role="cell" class="status-label">${escapeHtml(label)}</span>
-      <span role="cell" class="status-value" title="${escapeHtml(value)}">${escapeHtml(value)}</span>
+      <span role="cell" class="status-value" title="${escapeHtml(title)}">${escapeHtml(value)}</span>
     </div>`).join("")}
   </div>`;
 }
@@ -3060,12 +3076,11 @@ function ensureTeamBoardStyles() {
 
 const teamPageStack = [];
 
-// teamPageLive 是当前 Work Item 页「执行会话」页签的读数（进程内执行面的投影）。
-// 按页记 + 只在**切到那个页签时**才去读：进详情页就为每个工作项拉一次正文，等于把一次
-// 点击变成一串 RPC，而用户多半只是想看一眼字段。
-let teamPageLive = null;
 let teamPageExecution = null;
 let teamPageInspection = null;
+const agentConversationStates = new Map();
+const AGENT_CONVERSATION_LIMIT = 200;
+const AGENT_CONVERSATION_CACHE_LIMIT = 32;
 
 function teamPageTop() {
   return teamPageStack[teamPageStack.length - 1] || null;
@@ -3080,7 +3095,6 @@ function openTeamPage(kind, id) {
     return;
   }
   teamPageStack.push({ ref, kind: String(kind), id: String(id), tab: "" });
-  teamPageLive = null;
   teamPageExecution = null;
   teamPageInspection = null;
   ensureTeamBoardStyles();
@@ -3092,7 +3106,6 @@ function openTeamPage(kind, id) {
 function teamPageBack() {
   if (teamPageStack.length === 0) return;
   teamPageStack.pop();
-  teamPageLive = null;
   teamPageExecution = null;
   teamPageInspection = null;
   if (teamPageStack.length === 0) {
@@ -3104,7 +3117,6 @@ function teamPageBack() {
 
 function closeTeamPage() {
   teamPageStack.length = 0;
-  teamPageLive = null;
   teamPageExecution = null;
   teamPageInspection = null;
   setModal("team-page-modal", false);
@@ -3122,6 +3134,8 @@ function paintTeamPage() {
   if (!top) return;
   const input = currentTeamBoardInput;
   if (!input) return;
+  const agentRef = teamPageAgentRef(top);
+  const agentState = agentRef ? agentConversationState(agentRef) : null;
   const parent = teamPageStack[teamPageStack.length - 2] || null;
   // 弹窗头只写"这是什么"(团队详情)：**标题归页自己的抬头**（teamPageHead：类种 + id · 名字）。
   // 之前两处都写标题，同一句话在屏幕上出现两遍——上栏看着就是乱的。
@@ -3133,17 +3147,25 @@ function paintTeamPage() {
     ref: top.ref,
     tab: top.tab,
     // 只画**属于这一页**的读数：换页时上一页的执行面正文不许跟着漂过来。
-    live: teamPageLive?.ref === top.ref ? teamPageLive.view : null,
     execution: teamPageExecution?.ref === top.ref ? teamPageExecution.view : null,
     inspection: teamPageInspection?.ref === top.ref ? teamPageInspection.view : null,
-    liveLoading: top.kind === "item" && top.tab === "session" && teamPageLive?.ref !== top.ref,
+    agentRef,
+    agentConversation: agentState?.page || null,
+    agentLoading: Boolean(agentState?.loading || (top.tab === "session" && !agentState?.page)),
+    agentError: agentState?.error || "",
+    deferAgentConversation: true,
+    liveLoading: false,
     parent: parent ? { ref: parent.ref, label: teamPageTitle({ plan: input.plan, ref: parent.ref }) } : null,
   });
-  if (teamPagePainted.title === title && teamPagePainted.html === html) return;
+  if (teamPagePainted.title === title && teamPagePainted.html === html) {
+    refreshAgentConversationViews(elements["team-page-view"]);
+    return;
+  }
   teamPagePainted = { title, html };
   elements["team-page-modal-title"].innerHTML = title;
   elements["team-page-view"].className = "team-page-view";
   elements["team-page-view"].innerHTML = html;
+  mountAgentConversationComposers(elements["team-page-view"]);
 }
 
 function planItemOf(id) {
@@ -3151,32 +3173,212 @@ function planItemOf(id) {
   return items.find(item => String(item?.id || "") === String(id || "")) || null;
 }
 
-// loadTeamPageSession 读这一页对应的**执行面**（一 Work Item 一套 Session，正文不落盘）。
-// 读失败不抛给用户一个红 toast：这一页本来就有"读不到"的正当情形（重启过 / 已收口），
-// 渲染件会把话说清楚（running=false 的那一支）。
-async function loadTeamPageSession(top) {
-  if (!top || top.kind !== "item") return;
-  const sessionID = String(planItemOf(top.id)?.session_id || "").trim();
-  if (!sessionID) {
-    teamPageLive = { ref: top.ref, sessionID: "", view: null };
-    paintTeamPage();
-    return;
+function agentRefForWorkItem(item) {
+  if (!item) return null;
+  const sessionID = String(item.session_id || "").trim();
+  const mainSessionID = String(currentTeamBoardInput?.mainSessionID || "").trim();
+  if (!sessionID || !mainSessionID) return null;
+  return normalizeAgentConversationRef({
+    kind: "teammate",
+    session_id: sessionID,
+    main_session_id: mainSessionID,
+    team_id: String(currentTeamBoardInput?.plan?.team_id || ""),
+    role: String(item.role || ""),
+    work_item_id: String(item.id || "")
+  });
+}
+
+function teamPageAgentRef(top) {
+  if (!top) return null;
+  if (top.kind === "item") return agentRefForWorkItem(planItemOf(top.id));
+  if (top.kind !== "teammate") return null;
+  const current = planItemOf(teamPageInspection?.view?.current_work_item?.id || "");
+  return agentRefForWorkItem(current);
+}
+
+function agentConversationState(ref) {
+  const normalized = normalizeAgentConversationRef(ref);
+  const key = agentConversationKey(normalized);
+  let state = agentConversationStates.get(key);
+  if (state) {
+    agentConversationStates.delete(key);
+    agentConversationStates.set(key, state);
+    return state;
   }
-  let view = null;
+  state = {
+    key, ref: normalized, page: null, loading: false, error: "", promise: null,
+    sending: false, sendError: "", draft: "", pollTimer: 0
+  };
+  agentConversationStates.set(key, state);
+  while (agentConversationStates.size > AGENT_CONVERSATION_CACHE_LIMIT) {
+    const [oldestKey, oldest] = agentConversationStates.entries().next().value;
+    if (oldest?.pollTimer) window.clearInterval(oldest.pollTimer);
+    agentConversationStates.delete(oldestKey);
+  }
+  return state;
+}
+
+// loadAgentConversation 读统一 ConversationView。先取一页拿 total，再从尾部
+// 取最近记录：子代理会话需要看到“此刻在说什么”，不能把尾页挤到用户还得手动翻。
+async function loadAgentConversation(ref, options = {}) {
+  const state = agentConversationState(ref);
+  if (state.promise) {
+    if (options.force !== true) return state.promise;
+    await state.promise;
+    return loadAgentConversation(ref, { force: true });
+  }
+  const hadPage = Boolean(state.page);
+  state.loading = !hadPage;
+  state.error = "";
+  if (!hadPage) paintAgentConversationSurfaces();
+  state.promise = (async () => {
+    try {
+      const first = await invoke("ConversationView", state.ref, 0, AGENT_CONVERSATION_LIMIT);
+      let page = first;
+      const total = Number(first?.total) || 0;
+      const shown = Array.isArray(first?.records) ? first.records.length : 0;
+      if (total > shown) {
+        page = await invoke(
+          "ConversationView",
+          state.ref,
+          Math.max(0, total - AGENT_CONVERSATION_LIMIT),
+          AGENT_CONVERSATION_LIMIT
+        );
+      }
+      state.page = page;
+      return page;
+    } catch (error) {
+      if (!hadPage) {
+        state.error = error?.message || String(error);
+        state.page = null;
+      }
+      return null;
+    } finally {
+      state.loading = false;
+      state.promise = null;
+      paintAgentConversationSurfaces();
+    }
+  })();
+  return state.promise;
+}
+
+function mountAgentConversationComposers(root = document) {
+  for (const form of root?.querySelectorAll?.("[data-agent-chat-form]:not([data-agent-composer-mounted])") || []) {
+    const ref = agentConversationTargetFromForm(form);
+    const state = ref ? agentConversationState(ref) : null;
+    mountAgentConversationPanel(form.closest?.(".agent-conversation-panel") || root, {
+      ref,
+      page: state?.page || null,
+      loading: state?.loading === true,
+      error: state?.error || "",
+      sending: state?.sending === true,
+      notify: showToast
+    });
+    syncAgentComposerState(form);
+  }
+}
+
+function refreshAgentConversationViews(root = document) {
+  for (const panel of root?.querySelectorAll?.(".agent-conversation-panel") || []) {
+    const form = panel.querySelector("[data-agent-chat-form]");
+    const ref = agentConversationTargetFromForm(form);
+    if (!ref) continue;
+    const state = agentConversationState(ref);
+    refreshAgentConversationPanel(panel, {
+      ref,
+      page: state.page,
+      loading: state.loading,
+      error: state.error,
+      sending: state.sending,
+      notify: showToast
+    });
+    syncAgentComposerState(form);
+  }
+}
+
+function syncAgentComposerState(form) {
+  const ref = agentConversationTargetFromForm(form);
+  if (!ref) return;
+  const state = agentConversationState(ref);
+  const prompt = form.querySelector("textarea");
+  const send = form.querySelector('button[type="submit"]');
+  const status = form.querySelector(".composer-actions > span");
+  if (prompt) {
+    if (!prompt.matches(":focus") && prompt.value !== state.draft) prompt.value = state.draft;
+    prompt.disabled = state.sending;
+    prompt.placeholder = state.sending
+      ? `正在发送到 ${ref.session_id}…`
+      : ref.kind === "teammate"
+        ? `继续对 ${ref.role || "teammate"} 说（${ref.work_item_id || "WorkItem"}）`
+        : `继续对 ${ref.session_id} 说`;
+  }
+  if (send) send.disabled = state.sending;
+  if (status) {
+    status.textContent = state.sendError
+      ? state.sendError
+      : state.sending ? "发送中" : "该会话专属";
+  }
+  form.classList.toggle("is-running", state.sending);
+}
+
+async function submitAgentConversation(form) {
+  const ref = agentConversationTargetFromForm(form);
+  const prompt = form.querySelector("textarea");
+  const text = String(prompt?.value || "");
+  if (!ref?.session_id || !text.trim()) return;
+  const state = agentConversationState(ref);
+  if (state.sending) return;
+  state.draft = text;
+  state.sendError = "";
+  state.sending = true;
+  paintAgentConversationSurfaces();
   try {
-    view = await invoke("TeammateSessionLive", sessionID);
+    const receipt = await invoke("ConversationChat", ref, text, 20000);
+    if (receipt?.accepted !== true) throw new Error("子代理会话未接受这条输入");
+    state.draft = "";
+    state.sending = false;
+    await loadAgentConversation(ref, { force: true });
+    if (receipt.timed_out === true) startAgentConversationPoll(state);
   } catch (error) {
-    view = null;
+    state.sending = false;
+    state.sendError = error?.message || String(error);
   }
-  // 取数期间用户可能已经返回/换页：只有还停在同一页时才回写。
-  if (teamPageTop()?.ref !== top.ref) return;
-  teamPageLive = { ref: top.ref, sessionID, view };
-  paintTeamPage();
+  paintAgentConversationSurfaces();
+}
+
+function startAgentConversationPoll(state) {
+  if (!state || state.pollTimer) return;
+  const startedAt = Date.now();
+  const signature = JSON.stringify(state.page?.records?.at?.(-1) || null);
+  state.pollTimer = window.setInterval(async () => {
+    const current = agentConversationStates.get(state.key);
+    if (!current || Date.now() - startedAt > 30000) {
+      window.clearInterval(state.pollTimer);
+      state.pollTimer = 0;
+      return;
+    }
+    await loadAgentConversation(current.ref, { force: true });
+    const next = JSON.stringify(current.page?.records?.at?.(-1) || null);
+    if (next !== signature) {
+      window.clearInterval(state.pollTimer);
+      state.pollTimer = 0;
+    }
+  }, 1500);
+}
+
+function paintAgentConversationSurfaces() {
+  if (!elements["team-page-modal"]?.classList?.contains("hidden")) paintTeamPage();
+  if (!elements["role-session-modal"]?.classList?.contains("hidden") && roleSessionDetail?.agentRef) {
+    renderRoleSessionView(roleSessionDetail.snapshot || null);
+  }
+  paintActiveNodeAgentConversation();
 }
 
 async function loadWorkItemExecution(top, itemID) {
   const mainSessionID = String(currentTeamBoardInput?.mainSessionID || "").trim();
   if (!top || !mainSessionID || !itemID) return;
+  const ref = agentRefForWorkItem(planItemOf(itemID));
+  const conversation = ref ? loadAgentConversation(ref) : Promise.resolve(null);
   try {
     const view = await invoke("WorkItemExecution", mainSessionID, String(itemID), 0, TEAMMATE_LIVE_PAGE_SIZE);
     if (teamPageTop()?.ref !== top.ref) return;
@@ -3187,6 +3389,7 @@ async function loadWorkItemExecution(top, itemID) {
     teamPageExecution = { ref: top.ref, itemID: String(itemID), view: null };
     paintTeamPage();
   }
+  await conversation;
 }
 
 async function loadTeammateInspection(top) {
@@ -3203,23 +3406,6 @@ async function loadTeammateInspection(top) {
     if (teamPageTop()?.ref !== top.ref) return;
     teamPageInspection = { ref: top.ref, view: null };
     paintTeamPage();
-  }
-}
-
-// openTeamPageLivePage 翻「这一页的执行会话」的一页（读法是后端的 TeammateSessionLivePage：
-// 判据只有一份，前端只搬 offset）。
-async function openTeamPageLivePage(offset) {
-  const top = teamPageTop();
-  if (!top || top.kind !== "item" || teamPageLive?.ref !== top.ref) return;
-  const sessionID = String(teamPageLive.sessionID || "");
-  if (!sessionID) return;
-  try {
-    const view = await invoke("TeammateSessionLivePage", sessionID, offset, TEAMMATE_LIVE_PAGE_SIZE);
-    if (teamPageTop()?.ref !== top.ref) return;
-    teamPageLive = { ref: top.ref, sessionID, view };
-    paintTeamPage();
-  } catch (error) {
-    showToast(error);
   }
 }
 
@@ -3243,6 +3429,10 @@ function switchTeamPageTab(key) {
   paintTeamPage();
   if (top.kind === "item" && top.tab === "session" && teamPageExecution?.ref !== top.ref) {
     loadWorkItemExecution(top, top.id);
+  }
+  if (top.kind === "item" && top.tab === "session") {
+    const ref = agentRefForWorkItem(planItemOf(top.id));
+    if (ref && !agentConversationState(ref).page) loadAgentConversation(ref);
   }
   if (top.kind === "teammate" && top.tab === "session" && teamPageExecution?.ref !== top.ref) {
     if (teamPageInspection?.ref !== top.ref) loadTeammateInspection(top);
@@ -3563,15 +3753,23 @@ async function openRoleSessionDetail(roleName, roleSessionID, workItemID) {
   }
   try {
     if (workItem) {
-      // 这件事自己的会话：读**实时执行面**（进程内、正文不落盘）。读不到时渲染件会如实
-      // 说明（而不是把主会话历史画成"当前会话"）。
-      const live = await invoke("TeammateSessionLive", sessionID);
+      // WorkItem 是 teammate 唯一允许的对话窗口：View/Chat 都显式带 team、role
+      // 与 work_item，后端据此拒绝“绕过 WorkItem 的角色私聊”或串到别的会话。
+      const ref = normalizeAgentConversationRef({
+        kind: "teammate",
+        session_id: sessionID,
+        main_session_id: String(currentTeamBoardInput?.mainSessionID || client.current()?.session?.id || ""),
+        team_id: String(currentTeamPlan?.team_id || ""),
+        role: name,
+        work_item_id: workItem
+      });
       roleSessionDetail = {
         roleName: name, roleSessionID: sessionID, workItem,
-        live: true, members: roleSessionTargets(), snapshot: null
+        live: true, agentRef: ref, members: roleSessionTargets(), snapshot: null
       };
-      renderTeammateSessionView(live);
+      renderRoleSessionView(null);
       setModal("role-session-modal", true);
+      await loadAgentConversation(ref);
       return;
     }
     const snapshot = await invoke("AgentTeamRoleSnapshot", "", name, sessionID);
@@ -3581,38 +3779,6 @@ async function openRoleSessionDetail(roleName, roleSessionID, workItemID) {
     };
     renderRoleSessionView(snapshot);
     setModal("role-session-modal", true);
-  } catch (error) {
-    showToast(error);
-  }
-}
-
-// renderTeammateSessionView 画"这件事自己的会话"（实时执行面那一路）。
-//
-// 与 renderRoleSessionView 分开：两者读的是**两个不同的东西**（进程内执行面 vs 落盘的
-// 角色会话），标题也各自说清是哪个——混成一个标题，用户就分不清看到的是当前的活还是历史。
-function renderTeammateSessionView(live) {
-  const detail = roleSessionDetail || { roleName: "", roleSessionID: "", workItem: "" };
-  // 记住这一页的位置与"后面还有没有"：刷新键/实时事件重绘时按**同一页**再读一次，
-  // 而不是把用户翻到的位置拽回尾巴（后端读数里的 offset/has_more 是权威值，前端只记）。
-  detail.liveOffset = Number.isFinite(Number(live?.offset)) ? Number(live.offset) : 0;
-  detail.liveHasMore = live?.has_more === true;
-  elements["role-session-modal-title"].innerHTML =
-    `<span class="eyebrow">teammate · 这件事的会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))} · ${escapeHtml(detail.workItem || "—")}</h2>`;
-  elements["role-session-view"].className = "role-session-view";
-  elements["role-session-view"].innerHTML = renderTeammateLiveSession(live, {
-    role: detail.roleName, work_item: detail.workItem
-  });
-}
-
-// openTeammateLivePage 翻「这件事的会话」的一页（读法是后端的
-// TeammateSessionLivePage：判据只有一份，前端只搬 offset）。
-async function openTeammateLivePage(offset) {
-  const detail = roleSessionDetail;
-  if (!detail?.live || !detail.roleSessionID) return;
-  try {
-    const page = await invoke("TeammateSessionLivePage", detail.roleSessionID, offset, TEAMMATE_LIVE_PAGE_SIZE);
-    // 取数期间用户可能已关掉/切走：只有目标还是同一份时才回写。
-    if (roleSessionDetail === detail) renderTeammateSessionView(page);
   } catch (error) {
     showToast(error);
   }
@@ -3653,11 +3819,27 @@ function applyTeammateToolActivity(payload) {
 // renderRoleSessionView 只重绘视图内容（标题 + 正文），不动弹窗开合：刷新键、切员工
 // 与实时工具活动都复用它，避免"刷新一下弹窗闪一下"。
 function renderRoleSessionView(snapshot) {
-  if (roleSessionDetail?.live) {
-    // 实时那一路由 renderTeammateSessionView 独占（形状不同：它是这件事自己的会话）。
+  const detail = roleSessionDetail || { roleName: "", roleSessionID: "", members: [] };
+  if (detail.agentRef) {
+    const state = agentConversationState(detail.agentRef);
+    elements["role-session-modal-title"].innerHTML =
+      `<span class="eyebrow">teammate · 这件事的会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))} · ${escapeHtml(detail.workItem || "—")}</h2>`;
+    const existing = elements["role-session-view"].querySelector?.(".agent-conversation-panel");
+    if (existing?.dataset.agentConversation === agentConversationKey(detail.agentRef)) {
+      elements["role-session-view"].className = "role-session-view is-agent-conversation";
+      refreshAgentConversationViews(elements["role-session-view"]);
+      return;
+    }
+    elements["role-session-view"].className = "role-session-view is-agent-conversation";
+    elements["role-session-view"].innerHTML = renderAgentConversationPanel(state.page, {
+      ref: detail.agentRef,
+      loading: state.loading,
+      error: state.error,
+      sending: state.sending
+    });
+    mountAgentConversationComposers(elements["role-session-view"]);
     return;
   }
-  const detail = roleSessionDetail || { roleName: "", roleSessionID: "", members: [] };
   elements["role-session-modal-title"].innerHTML = `<span class="eyebrow">角色会话 · 只读观察面</span><h2>${escapeHtml(roleDisplayName(detail.roleName))}</h2>`;
   elements["role-session-view"].className = "role-session-view";
   // 实时工具活动按角色会话取（没有就是空数组：渲染件据此不画空壳）。
@@ -3672,15 +3854,8 @@ async function refreshRoleSessionDetail() {
   if (!detail || !detail.roleName) return;
   if (elements["role-session-modal"]?.classList?.contains("hidden")) return;
   try {
-    if (detail.live) {
-      // 用户翻在**尾巴**（后面没有更多）时按默认页再读：新消息自然露出来；翻在中间页
-      // 时停在**同一页**（否则"刷新一下跳回尾巴"）。
-      const live = detail.liveHasMore
-        ? await invoke("TeammateSessionLivePage", detail.roleSessionID, detail.liveOffset || 0, TEAMMATE_LIVE_PAGE_SIZE)
-        : await invoke("TeammateSessionLive", detail.roleSessionID);
-      if (roleSessionDetail === detail) {
-        renderTeammateSessionView(live);
-      }
+    if (detail.agentRef) {
+      await loadAgentConversation(detail.agentRef, { force: true });
       return;
     }
     const snapshot = await invoke("AgentTeamRoleSnapshot", "", detail.roleName, detail.roleSessionID);
@@ -3724,10 +3899,6 @@ elements["team-page-view"]?.addEventListener("click", event => {
     openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession, openRole.dataset.teamItem || "");
     return;
   }
-  const livePage = event.target.closest?.("[data-teammate-live-page]");
-  if (livePage?.dataset?.teammateLivePage !== undefined && !livePage.disabled) {
-    openTeamPageLivePage(Number.parseInt(livePage.dataset.teammateLivePage, 10) || 0);
-  }
 });
 elements["team-page-close"]?.addEventListener("click", closeTeamPage);
 document.addEventListener("keydown", event => {
@@ -3742,11 +3913,6 @@ elements["role-session-modal"]?.addEventListener("click", event => {
   }
   if (event.target.closest?.("[data-role-session-refresh]")) {
     refreshRoleSessionDetail();
-    return;
-  }
-  const livePage = event.target.closest?.("[data-teammate-live-page]");
-  if (livePage?.dataset?.teammateLivePage !== undefined && !livePage.disabled) {
-    openTeammateLivePage(Number.parseInt(livePage.dataset.teammateLivePage, 10) || 0);
     return;
   }
   const swap = event.target.closest?.("[data-role-session-switch]");
@@ -4037,6 +4203,8 @@ initModalResize();
 // 拉取；弹窗内不再有任何实时查看通道与流式生命周期。
 let activeNodeDetailKey = "";
 let activeNodeDetailID = "";
+let activeNodeDetail = null;
+let activeNodeAgentRef = null;
 let nodeDetailGeneration = 0;
 let nodeDetailRefreshTimer = 0;
 let nodeDetailLastSignature = "";
@@ -4063,6 +4231,10 @@ async function openNodeDetail(nodeKey) {
   const fromTree = Boolean(findSubagentTreeNode(nodeKey));
   activeNodeDetailKey = nodeKey;
   activeNodeDetailID = node.id;
+  activeNodeDetail = null;
+  activeNodeAgentRef = (fromTree || String(node.kind || "") === "subagent")
+    ? subagentConversationRef(node.id)
+    : null;
   const generation = nodeDetailGeneration += 1;
   // Plan DSL 节点带 plan/tasklist 模式徽标；子代理树投影节点固定 plan 模式。
   const rendered = renderNodeDetail({ ...node, mode: node.mode || lastPlanDsl?.mode || "plan" });
@@ -4075,6 +4247,7 @@ async function openNodeDetail(nodeKey) {
     elements["node-detail-content"].querySelector('[data-node-tab="context"]')?.click();
   }
   setModal("node-detail-modal", true);
+  if (activeNodeAgentRef) void loadAgentConversation(activeNodeAgentRef);
   await refreshNodeDetail(node.id, generation);
   if (nodeDetailRefreshTimer) window.clearInterval(nodeDetailRefreshTimer);
   // 弹窗打开期间低频权威刷新：三块数据面（会话记录/上下文/功能打点）按内容
@@ -4099,6 +4272,18 @@ function refreshOpenNodeDetail() {
   scheduleNodeDetailRefresh();
 }
 
+function subagentConversationRef(nodeID, node = null) {
+  const mainSessionID = String(client.current()?.session?.id || "").trim();
+  const id = String(nodeID || "").trim();
+  if (!mainSessionID || !id) return null;
+  if (node && node.kind && node.kind !== "subagent") return null;
+  return normalizeAgentConversationRef({
+    kind: "subagent",
+    session_id: id,
+    main_session_id: mainSessionID
+  });
+}
+
 // refreshNodeDetail 拉取一次子代理详情（三块数据面）并渲染。
 async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
   let detail = null;
@@ -4108,19 +4293,35 @@ async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
     const timeout = new Promise((_, reject) => {
       window.setTimeout(() => reject(new Error("subagent detail timeout")), 10000);
     });
-    detail = await Promise.race([invoke("SubagentSessionDetail", nodeID), timeout]);
+    const agentConversation = activeNodeAgentRef
+      ? loadAgentConversation(activeNodeAgentRef, { force: true })
+      : Promise.resolve(null);
+    [detail] = await Promise.all([
+      Promise.race([invoke("SubagentSessionDetail", nodeID), timeout]),
+      agentConversation
+    ]);
   } catch { /* 节点无会话记录或非 agent 节点 → 面板保持占位 */ }
   if (generation !== nodeDetailGeneration || nodeID !== activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
-  const signature = nodeDetailSignature(detail);
+  activeNodeDetail = detail || null;
+  const agentState = activeNodeAgentRef ? agentConversationState(activeNodeAgentRef) : null;
+  const signature = nodeDetailSignature(detail, agentState);
   if (signature === nodeDetailLastSignature) return;
   nodeDetailLastSignature = signature;
-  setNodeDetailConversation(detail || null);
+  setNodeDetailConversation(
+    detail || null,
+    agentState?.page || null,
+    activeNodeAgentRef,
+    { loading: agentState?.loading === true, error: agentState?.error || "", sending: agentState?.sending === true }
+  );
+  mountActiveNodeAgentConversationPanel();
 }
 
 function closeNodeDetail() {
   nodeDetailGeneration += 1;
   activeNodeDetailKey = "";
   activeNodeDetailID = "";
+  activeNodeDetail = null;
+  activeNodeAgentRef = null;
   nodeDetailLastSignature = "";
   if (nodeDetailRefreshTimer) {
     window.clearInterval(nodeDetailRefreshTimer);
@@ -4141,9 +4342,9 @@ function scheduleNodeDetailRefresh() {
 }
 
 // nodeDetailSignature 详情内容签名：仅在这三块数据面有实质变化时重建。
-function nodeDetailSignature(detail) {
-  if (!detail) return "";
-  const conversation = detail.conversation || [];
+function nodeDetailSignature(detail, agentState = null) {
+  if (!detail && !agentState?.page) return "";
+  const conversation = detail?.conversation || [];
   const last = conversation[conversation.length - 1];
   return JSON.stringify([
     detail.status || "",
@@ -4152,8 +4353,45 @@ function nodeDetailSignature(detail) {
     last?.content?.length || 0,
     detail.context?.message_count || 0,
     (detail.tool_events || []).length,
-    (detail.trace || []).length
+    (detail.trace || []).length,
+    agentState?.page?.status || "",
+    agentState?.page?.recovery || "",
+    agentState?.page?.records?.length || 0,
+    agentState?.page?.records?.at?.(-1)?.content?.length || 0,
+    agentState?.sending === true,
+    agentState?.error || ""
   ]);
+}
+
+function paintActiveNodeAgentConversation() {
+  if (!activeNodeAgentRef || !activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
+  mountActiveNodeAgentConversationPanel();
+}
+
+function mountActiveNodeAgentConversationPanel() {
+  if (!activeNodeAgentRef) return;
+  const host = document.querySelector("[data-node-detail] [data-agent-conversation-embed]");
+  if (!host) return;
+  const state = agentConversationState(activeNodeAgentRef);
+  const existing = host.querySelector(".agent-conversation-panel");
+  if (existing?.dataset.agentConversation === agentConversationKey(activeNodeAgentRef)) {
+    refreshAgentConversationViews(host);
+    return;
+  }
+  host.innerHTML = renderAgentConversationPanel(state.page, {
+    ref: activeNodeAgentRef,
+    loading: state.loading,
+    error: state.error,
+    sending: state.sending
+  });
+  mountAgentConversationPanel(host, {
+    ref: activeNodeAgentRef,
+    page: state.page,
+    loading: state.loading,
+    error: state.error,
+    sending: state.sending,
+    notify: showToast
+  });
 }
 
 function renderInteraction(interaction) {

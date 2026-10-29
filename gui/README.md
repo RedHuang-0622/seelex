@@ -219,6 +219,11 @@ node 第一视角实时回放的**分页**读法同形落在
 返回当前 WorkItem、base/effective prompt、安全插件能力、limit 与权限向量。插件投影只含
 名称、工具、技能、MCP 名称/transport 与来源，不含 command/env/URL、绝对路径或 Prompt 正文。
 
+前端消费同一个读面：`agent-conversation-view.js` 把统一记录映射回主会话组件，并挂载
+同一个 `createConversationView`（动效、骨架、滚动与流式语义不复写）；输入框从
+`#composer-template` 克隆，提交时显式调用 `ConversationChat(ref, message)`，因此
+subagent 与 teammate 的输入永远对齐它们各自的会话，不会落到主会话 ambient view。
+
 会话内用户输入索引：`Bridge.SessionInputIndex(sessionID)` 返回该会话**全量**
 用户输入索引（seq/round 序号 + 有界问题摘要 + 该轮最后一条非空 assistant 回复
 开头 + 是否在当前已加载窗口），轻量零正文（不依赖已加载视图，未驻留会话也可用）；

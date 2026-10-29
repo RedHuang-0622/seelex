@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>团队看板 · 依赖槽位甘特图</title>
+  <link rel="stylesheet" href="../dist/styles.css">
+  <style>
+    html, body { min-height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    main { width: min(760px, calc(100vw - 32px)); margin: 20px auto; }
+  </style>
+</head>
+<body>
+  <main id="preview"></main>
+  <script type="module">
+    import { TEAM_BOARD_CSS, renderTeamBoard } from "../dist/team-board-view.js";
+
+    const style = document.createElement("style");
+    style.textContent = TEAM_BOARD_CSS;
+    document.head.append(style);
+
+    const plan = {
+      team_id: "seelex-release",
+      version: 4,
+      members: [
+        { role: "leader", status: "free", worktree: "seelex/main", tools_policy: "readwrite" },
+        { role: "frontend", status: "running", worktree: "seelex/frontend", tools_policy: "readwrite" },
+        { role: "reviewer", status: "free", worktree: "seelex/review", tools_policy: "readonly" },
+      ],
+      milestones: [
+        { id: "m-contract", name: "契约与结构", status: "done", content: "数据面与渲染职责边界冻结" },
+        { id: "m-ui", name: "看板实现", depends_on: ["m-contract"], status: "active", content: "依赖槽位甘特图与成员卡片" },
+        { id: "m-verify", name: "回归验收", depends_on: ["m-ui"], status: "pending", content: "前端契约、无障碍与视觉回归" },
+      ],
+      work_items: [
+        { id: "wi-contract", milestone: "m-contract", role: "leader", name: "冻结 DTO 与槽位语义", status: "done" },
+        { id: "wi-model", milestone: "m-ui", role: "frontend", name: "把格栅改造成左表 + 右甘特图", status: "running", depends_on: ["wi-contract"] },
+        { id: "wi-icons", milestone: "m-ui", role: "frontend", name: "替换表情图标并统一 Material Symbols", status: "done", depends_on: ["wi-contract"] },
+        { id: "wi-members", milestone: "m-ui", role: "frontend", name: "重做团队成员信息卡", status: "review", depends_on: ["wi-model"] },
+        { id: "wi-tests", milestone: "m-verify", role: "reviewer", name: "核对槽位几何与详情下钻", status: "pending", depends_on: ["wi-model"] },
+        { id: "wi-a11y", milestone: "m-verify", role: "reviewer", name: "检查键盘焦点与 reduced-motion", status: "pending", depends_on: ["wi-members"] },
+        { id: "wi-final", milestone: "m-verify", role: "leader", name: "汇总结构证据并交付", status: "pending", depends_on: ["wi-tests", "wi-a11y"] },
+      ],
+    };
+
+    document.querySelector("#preview").innerHTML = renderTeamBoard({
+      plan,
+      events: [
+        { at: "2026-10-29T14:10", kind: "dispatch", role: "frontend", node: "wi-model", detail: "开始重做团队看板" },
+        { at: "2026-10-29T14:22", kind: "milestone", role: "leader", milestone: "m-ui", detail: "契约里程碑已完成" },
+      ],
+      jobs: [{ handle: "job-42", state: "running", node: "wi-model", role: "frontend" }],
+      maxMembers: 6,
+      maxJobs: 4,
+    });
+  </script>
+</body>
+</html>

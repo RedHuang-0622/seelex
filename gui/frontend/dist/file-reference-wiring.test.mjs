@@ -82,7 +82,7 @@ test("index.html：`+` 加号、草稿 chip 条与选择器面板都在场", asy
   for (const id of ["file-button", "composer-file-refs", "composer-file-picker", "composer-file-search", "composer-file-results"]) {
     assert.ok(html.includes(`id="${id}"`), `缺 ${id}`);
   }
-  assert.match(html, /<div class="composer-tools">[\s\S]*id="file-button"/, "加号落在 composer 工具条里");
+  assert.match(html, /<div class="composer-tools"[^>]*>[\s\S]*id="file-button"/, "加号落在共享 composer 模板的工具条里");
   assert.doesNotMatch(html, /data-trigger="@"/, "命令面板不再有 `@ Team` 触发位（J-1a 的残留一并清掉）");
 });
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context/prefixprobe"
 )
@@ -69,6 +70,8 @@ type ContextL1Stats struct {
 	Misses          int
 	Rebuilt         int
 	ReusedEvents    int
+	ReusedChars     int64
+	LastReusedChars int64
 	RebuiltMessages int
 	Last            string
 	LastChanged     []string
@@ -84,9 +87,10 @@ func (stats ContextL1Stats) Terse() string {
 	if last == "" {
 		last = "none"
 	}
-	return fmt.Sprintf("l1=%s hits=%d misses=%d rebuilt=%d reused_events=%d rebuilt_messages=%d changed=[%s] key{%s}",
+	return fmt.Sprintf("l1=%s hits=%d misses=%d rebuilt=%d reused_events=%d reused_chars=%d last_reused_chars=%d rebuilt_messages=%d changed=[%s] key{%s}",
 		last, stats.Hits, stats.Misses, stats.Rebuilt, stats.ReusedEvents,
-		stats.RebuiltMessages, strings.Join(stats.LastChanged, ","), stats.LastKey.Terse())
+		stats.ReusedChars, stats.LastReusedChars, stats.RebuiltMessages,
+		strings.Join(stats.LastChanged, ","), stats.LastKey.Terse())
 }
 
 // RecordContextL1 登记一次从 truth 重建设配结果。只有上一条快照不存在时才计入
@@ -98,6 +102,7 @@ func (coordinator *Coordinator) RecordContextL1(sessionID string, snapshot Conte
 	stats := runtime.l1Stats
 	stats.LastKey = snapshot.Key
 	stats.LastChanged = nil
+	stats.LastReusedChars = 0
 	if runtime.l1 == nil {
 		stats.Misses++
 		stats.Rebuilt++
@@ -173,12 +178,45 @@ func (coordinator *Coordinator) ResumeContextL1(
 	next.TokenGeneration = tokenGeneration
 	clone := next.Clone()
 	runtime.l1 = &clone
+	reusedChars := int64(previous.Chars())
 	runtime.l1Stats.Hits++
 	runtime.l1Stats.ReusedEvents += len(delta)
+	runtime.l1Stats.ReusedChars += reusedChars
+	runtime.l1Stats.LastReusedChars = reusedChars
 	runtime.l1Stats.Last = "hit"
 	runtime.l1Stats.LastChanged = nil
 	runtime.l1Stats.LastKey = key
 	return next, true
+}
+
+// ContextCacheViewFor 把 L1 命中统计投影成前端 DTO。这里没有 provider
+// cached_tokens：数值只回答“本地 L1 复用了多少已装配前缀”。
+func (coordinator *Coordinator) ContextCacheViewFor(sessionID string) *dto.ContextCacheView {
+	coordinator.stateMu.Lock()
+	defer coordinator.stateMu.Unlock()
+	runtime := coordinator.sessionStateLocked(sessionID)
+	stats := runtime.l1Stats
+	if stats.Last == "" {
+		return nil
+	}
+	key := stats.LastKey
+	return &dto.ContextCacheView{
+		Available:       true,
+		Status:          stats.Last,
+		Hits:            stats.Hits,
+		Misses:          stats.Misses,
+		Rebuilt:         stats.Rebuilt,
+		ReusedEvents:    stats.ReusedEvents,
+		ReusedChars:     stats.ReusedChars,
+		LastReusedChars: stats.LastReusedChars,
+		LastChanged:     append([]string(nil), stats.LastChanged...),
+		PrefixKey: dto.ContextPrefixKeyView{
+			SystemDigest: key.SystemDigest, ProjectVersion: key.ProjectVersion,
+			MemoryEpoch: key.MemoryEpoch, CompactSeq: key.CompactSeq,
+			ToolsEpoch: key.ToolsEpoch, ToolsDigest: key.ToolsDigest,
+			RetainedFrom: key.RetainedFrom,
+		},
+	}
 }
 
 // ContextL1For 返回当前快照副本（未装配过 → false）。

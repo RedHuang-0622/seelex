@@ -291,6 +291,11 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 	if c.tasks != nil {
 		projection.Runtime.ActiveSkills = append([]string(nil), c.activeSkillIDsFor(sessionID)...)
 		projection.Runtime.GoalSkillActive = c.goalSkillActiveFor(sessionID)
+		if cachePort, ok := c.tasks.(interface {
+			ContextCacheViewFor(string) *dto.ContextCacheView
+		}); ok {
+			projection.Runtime.ContextCache = cachePort.ContextCacheViewFor(sessionID)
+		}
 	}
 	if c.goals != nil {
 		if goalView := c.goals.GoalGovernanceViewFor(sessionID); goalView != nil {

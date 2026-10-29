@@ -1361,6 +1361,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			TruthTokens:     c.tasks.CountRequestTokens("", truthMessages, "", nil),
 		})
 	}
+	c.publishContextCache(sessionID, requestID)
 	return currentInput, nil
 }
 

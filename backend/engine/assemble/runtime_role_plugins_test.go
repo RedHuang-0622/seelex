@@ -19,7 +19,9 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	storeteamwork "github.com/RedHuang-0622/seelex/store/teamwork"
+	storeworkunit "github.com/RedHuang-0622/seelex/store/workunit"
 )
 
 func pluginFaceToolsOf(names ...string) []types.Tool {
@@ -191,6 +193,41 @@ func TestRoleSkillCatalogAndAssemblyReadings(t *testing.T) {
 	// 空集必须在回执里**说出来**（不靠字段缺失暗示），且不注入目录。
 	if inherited.Mode != assemblyModeInheritHost || len(inherited.Plugins) != 0 || inherited.SkillCatalogRunes != 0 {
 		t.Fatalf("空集读数得 %#v", inherited)
+	}
+}
+
+func TestHistoricalAgentPromptUsesCurrentRoleAssembly(t *testing.T) {
+	runtime := newPluginAssemblyRuntime(t)
+	defer runtime.Shutdown()
+	runtime.SetRolePromptProvider(func(role string) string {
+		if role == "ui-eng" {
+			return "当前角色提示词"
+		}
+		return ""
+	})
+	registry := skill.NewRegistry()
+	registry.SetPluginSkills("docs", []skill.Skill{{Name: "readme", Description: "how to read docs"}})
+	runtime.SetSkillRegistry(registry)
+
+	current := runtime.roleConversationSystemPrompt("ui-eng", []string{"docs"})
+	if !strings.Contains(current, "当前角色提示词") ||
+		!strings.Contains(current, "readme: how to read docs") ||
+		!strings.Contains(current, "cannot switch plugins") {
+		t.Fatalf("历史对话没有使用当前角色装配：%q", current)
+	}
+
+	records := ensureSystemRecord([]dto.ConversationRecord{
+		{ID: "old-system", Kind: dto.ConversationRecordSystem, Content: "旧提示词"},
+		{ID: "user-1", Kind: dto.ConversationRecordUser, Content: "继续"},
+	}, current)
+	if len(records) != 2 || records[0].Content != current || records[0].ID != "system:effective" ||
+		records[1].ID != "user-1" {
+		t.Fatalf("历史 system record 未被当前提示词替换：%+v", records)
+	}
+
+	subagent := runtime.subagentConversationPrompt("node-1", storeworkunit.Record{Goal: "修复前缀问题"})
+	if !strings.Contains(subagent, "# Role") || !strings.Contains(subagent, "修复前缀问题") {
+		t.Fatalf("subagent 历史提示词没有重建当前 charter：%q", subagent)
 	}
 }
 

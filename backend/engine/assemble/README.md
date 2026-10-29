@@ -131,6 +131,11 @@ flowchart TB
 - `runtime_workitem_execution.go`：WorkItem 详情与 teammate 进度页共用的
   `WorkItemExecutionView` 唯一 adapter。
 - `runtime_teammate_inspection.go`：当前 WorkItem、base/effective prompt、安全插件能力、
+
+历史 subagent / teammate 会话续聊按**当前代码路径**重建提示词，而不是复用存档里的旧
+`SystemPrompt`：teammate 使用当前角色提示词 + 当前 Plugins 的技能目录；subagent
+重新挂载当前节点 charter / skill blocks。历史正文仍按原记录投影，不重写用户与
+assistant 消息字节。
   limit 与权限向量的只读聚合。
 - `runtime_teamwork_items.go`：WorkItem worktree 使用 `BeginNamedStrict`，失败返回
   `approval_required` typed error；只有显式 `workspace=main` 才走已批准主工作区。

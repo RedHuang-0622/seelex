@@ -115,6 +115,15 @@ func (r *Runtime) rolePluginAssembly(spec roleRoundSpec) []string {
 	return teamdomain.ResolvePluginAssembly(spec.Plugins, r.rolePluginsFor(spec.RoleName))
 }
 
+// roleConversationSystemPrompt 重建“历史会话继续对话”应使用的最新 system prompt：
+// 当前角色提示词 + 当前插件装配的技能目录。它与 runRoleRound 共用同一套
+// rolePluginAssembly/roleSkillCatalog，不能另拼一份目录口径。
+func (r *Runtime) roleConversationSystemPrompt(roleName string, plugins []string) string {
+	base := r.roleTurnSystemPrompt(roleName)
+	assembly := r.rolePluginAssembly(roleRoundSpec{RoleName: roleName, Plugins: plugins})
+	return appendSkillCatalog(base, r.roleSkillCatalog(assembly))
+}
+
 // normalizePluginNames 是团队域 `NormalizePluginNames` 的**同身份别名**
 // （读侧/传输侧规范化只有一份实现，既有调用点零改动）。
 var normalizePluginNames = teamdomain.NormalizePluginNames

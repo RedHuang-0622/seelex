@@ -26,6 +26,9 @@ core、conversation、policy、admin 与 cold/session 组件直接消费本包�
 - 做：前端 Snapshot 的 wire 形状兜底。消息编辑注解会通过 typed-nil 复制空会话，
   组合边界必须把注解后的空 `conversation` 收敛回 `[]`，否则 Wails 发送 `null`，
   新建会话和 restoring 空壳都会被前端契约判为缺少 `conversation`。
+- 做：Runtime 投影在任务端口实现 `ContextCacheViewFor` 时携带
+  `Runtime.ContextCache`。它只投影当前会话的 L1 前缀复用命中量，供右栏
+  “状态 → L1 缓存”读取；不读取 provider usage，也不进会话持久化。
 - 窗口锚点（2026-09-11）：可见窗口是 `[HistoryOffset, HistoryOffset + 窗口条数)`
   的连续区间。**贴尾**（`viewWindowTailAligned`：窗口末尾即 durable 末尾）时新
   消息照常追加并保持贴尾；**回看历史**（用户翻到更早位置）时窗口锚定不动，

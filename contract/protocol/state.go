@@ -312,10 +312,13 @@ type RuntimeState struct {
 	PermissionTier string `json:"permission_tier,omitempty"`
 	// PermissionTiers 是档位目录（进程级只读原件，前端据此渲染可选列表；
 	// 后端下发避免前后端各写一套档位名）。
-	PermissionTiers   []dto.PermissionTierInfo   `json:"permission_tiers,omitempty"`
-	VisibleTools      []Tool                     `json:"visible_tools"`
-	Skills            []SkillInfo                `json:"skills"`
-	Tokens            string                     `json:"tokens"`
+	PermissionTiers []dto.PermissionTierInfo `json:"permission_tiers,omitempty"`
+	VisibleTools    []Tool                   `json:"visible_tools"`
+	Skills          []SkillInfo              `json:"skills"`
+	Tokens          string                   `json:"tokens"`
+	// ContextCache 是 L1 前缀复用读面。只报告本地复用命中量，不冒充
+	// provider usage / cached_tokens。
+	ContextCache      *dto.ContextCacheView      `json:"context_cache,omitempty"`
 	Replan            ReplanMonitor              `json:"replan"`
 	Plan              *PlanState                 `json:"plan,omitempty"`
 	Plugins           []PluginInfo               `json:"plugins,omitempty"`            // 完整插件列表（含描述）
@@ -1175,6 +1178,11 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime.PermissionTiers = append([]dto.PermissionTierInfo(nil), runtime.PermissionTiers...)
 	copyRuntime.TodoItems = append([]dto.TodoItem(nil), runtime.TodoItems...)
 	copyRuntime.ActiveSkills = append([]string(nil), runtime.ActiveSkills...)
+	if runtime.ContextCache != nil {
+		cache := *runtime.ContextCache
+		cache.LastChanged = append([]string(nil), runtime.ContextCache.LastChanged...)
+		copyRuntime.ContextCache = &cache
+	}
 	if runtime.GoalGovernance != nil {
 		goalView := *runtime.GoalGovernance
 		copyRuntime.GoalGovernance = &goalView

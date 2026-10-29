@@ -12,7 +12,16 @@ const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url)
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
-const { renderChatActivity, renderConversationComponent, renderConversationLoading, renderConversationModel, renderMessageQueue, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+const { renderChatActivity, renderConversationComponent, renderConversationLoading, renderConversationModel, renderMessageQueue, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY, materialIcon } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+
+test("materialIcon uses the offline Google Material Symbols path pipeline", () => {
+  const html = materialIcon("lock", 14);
+  assert.match(html, /class="icon material-icon"/);
+  assert.match(html, /viewBox="0 -960 960 960"/);
+  assert.match(html, /fill="currentColor"/);
+  assert.match(html, /<path d="/);
+  assert.doesNotMatch(html, /https?:\/\/|🔒/);
+});
 
 test("assigns each message the identity of the agent that owns the round", () => {
   assert.equal(roleIdentity({ role: "assistant", role_name: "main" }), "EXEC");

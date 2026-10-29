@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -106,6 +107,16 @@ func TestContextL1ReusesTruthDeltaAndColdRebuildMatches(t *testing.T) {
 	stats, ok = harness.service.components.context.PrefixL1StatsFor(harness.session)
 	if !ok || stats.Hits != 1 || stats.ReusedEvents == 0 {
 		t.Fatalf("第二轮应只追加新增 truth 事件，实际 ok=%t stats=%+v", ok, stats)
+	}
+	projection := harness.service.components.view.CollectRuntimeProjectionFor(context.Background(), harness.session)
+	cache := projection.Runtime.ContextCache
+	if cache == nil || !cache.Available || cache.Hits != 1 || cache.ReusedChars <= 0 ||
+		cache.PrefixKey.SystemDigest == "" {
+		t.Fatalf("Snapshot projection missing L1 cache stats: %+v", cache)
+	}
+	liveCache := harness.service.components.frontendSnapshot.Snapshot().Runtime.ContextCache
+	if liveCache == nil || liveCache.Hits != 1 || liveCache.ReusedChars <= 0 {
+		t.Fatalf("assembly did not publish L1 cache immediately: %+v", liveCache)
 	}
 	before := append([]contract.EngineMessage(nil), harness.engine.History()...)
 

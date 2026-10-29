@@ -55,7 +55,7 @@ func (r *Runtime) TeammateInspection(ctx context.Context, mainSessionID, role st
 		return dto.TeammateInspectionView{}, err
 	}
 	basePrompt := r.roleTurnSystemPrompt(role)
-	effectivePrompt := basePrompt
+	effectivePrompt := r.roleConversationSystemPrompt(role, teamMember.Plugins)
 	var currentItem *dto.TeamworkWorkItemView
 	if itemID := strings.TrimSpace(member.CurrentWorkItem); itemID != "" {
 		for index := range board.WorkItems {
@@ -66,19 +66,11 @@ func (r *Runtime) TeammateInspection(ctx context.Context, mainSessionID, role st
 			}
 		}
 	}
-	reader := r.teamUnitReader(mainSessionID, r.teamSceneIndex(mainSessionID))
 	if currentItem != nil {
 		if handle := r.roleSessionHandleFor(currentItem.SessionID); handle != nil {
 			if prompt := strings.TrimSpace(handle.effectiveSystemPrompt()); prompt != "" {
 				effectivePrompt = prompt
 			}
-		}
-		record, found, readErr := reader.Record(teamwork.SceneNodeID(role, currentItem.ID))
-		if readErr != nil {
-			return dto.TeammateInspectionView{}, readErr
-		}
-		if found && strings.TrimSpace(record.Unit.SystemPrompt) != "" {
-			effectivePrompt = record.Unit.SystemPrompt
 		}
 	}
 	assembly := (*dto.PluginAssemblyView)(nil)

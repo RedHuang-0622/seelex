@@ -9,6 +9,11 @@
 其中定义动作到语义的映射、统一 motion token、工具行 running 流光、流式 cadence
 与 reduced-motion 门禁；模块 README 和组件注释不得降低该宪法要求。
 
+右栏“状态”面板的 `L1 缓存` 行读取 `Snapshot.Runtime.ContextCache`：
+显示本地 L1 命中率与累计复用字符量，悬停展开 hit/miss、复用事件、最近失效格和
+key 水位。该口径只表示 L1 已装配前缀复用，不表示 provider `cached_tokens`；
+格式化唯一实现在 `dist/context-cache.js`。
+
 运行时实现把 CSS 时长/缓动集中在 `styles.css` 的 `--duration-*` / `--ease-*`
 token（旧 `--dur-*` 只做 alias），流式的 50/100/150ms cadence 只由
 runtime 交互的物理手感由 `spring-motion.js` 以 `stiffness` / `damping` / `mass`
@@ -71,6 +76,8 @@ flowchart TB
 | `dist/spring-motion.js` | 交互弹簧的唯一物理事实源：`press/state/enter/exit/settle` 五个 `stiffness/damping/mass` preset、阻尼比与阶跃响应、CSS `linear()` easing 生成和 Web Animations 入口。`enter` 为 `ζ≈0.83` 的轻欠阻尼，`exit` 为 `ζ=1.2` 的过阻尼；不在组件里复制物理参数或手写关键帧时长。 |
 | `dist/stream-cadence.js` | 流式输出节奏调度：`STREAM_TICK_MS=50`、进入滞回 100ms、退出滞回 150ms、首包下一帧、最多 50ms 合并、terminal 先 flush 尾包。只决定何时渲染，不改变 Snapshot/Event/revision。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。会话切换是渲染边界：清空上一会话的 keyed 行缓存、立即显示 4 行消息骨架与整行 Shimmer（不显示说明文字、不播放会从 `opacity: 0` 起步的通用入场动画），整批装载后在新布局上重新贴尾。切换结束清位后按最终快照再完整重绘正文。批量恢复或历史装载一次出现很多新行时禁用逐行入场；只有小批增量（≤2 行）才播入场。`markEntering` 的兜底超时同时 cancel WAAPI，避免 WebView 丢帧后残留 `fill:both` 的透明首帧——这正是“高度被占住但正文看不见”的复现根因。`conversationRenderProbe` 记录目标会话、快照消息数、DOM 行数、实际绘制行数、透明行数、最大行高与最大行间空档，判定 `ok / loading / target-not-loaded / snapshot-empty / frontend-dropped / layout-hidden / rows-transparent / layout-gap / tall-row`；结果写到 `window.__SEELEX_CONVERSATION_PROBE__`、`#conversation[data-conversation-probe]` 与开发版顶栏徽标。用户消息编辑器在此挂载：稳定 `operation_id`、`ConversationRevision` CAS、loading 防双击、失败保留文本；DOM reconcile 后重新挂载未提交编辑器。**沙箱帧不走"整行重建"**：换行前把旧行里的 `seelex-html` 帧交给 `embed-buffering.js` 领养（内容没变的帧原样搬过去，不重载），换行后才发起离屏挂载——见下节「渲染时序」。 |
+| `dist/agent-conversation-view.js` | **主会话、subagent、teammate 共用的对话与输入组件**。`ConversationRecord[]` 只在这里映射回主会话的 message/tool-run 形状；正文直接挂 `createConversationView`，因此增量入场、滚动锚点、完成态 settle、embed 帧缓冲、流式 cadence 与 reduced-motion 都是同一份逻辑。加载态直接复用主会话的四行结构骨架；输入框由 `composer-shell.js` 克隆唯一模板，并把 `ConversationChat` 固定到当前 `ConversationSessionRef`（subagent 用自身 session，teammate 必须带 WorkItem）。Work Item、团队详情与子代理详情都消费这一件，不再维护“完整执行记录”的第二套列表 UI。 |
+| `dist/composer-shell.js` | 输入框 DOM 的唯一模板装配器：主会话把 `#composer-template` 挂到 `#composer`，子代理会话按稳定前缀克隆同一份模板并重写 id/ARIA 引用。前缀只隔离 DOM 身份，不复制输入规则或业务状态。 |
 | `dist/embed-buffering.js` | 会话内 HTML 渲染块的**帧缓冲**（治闪屏）：纯决策 `shouldDeferMount`（流式 / settle 窗口内不挂）与 `planEmbedMounts(prev, next, opts)`（按 `(key, srcdoc)` 分成 adopt / mount / defer / unmount 四类）+ DOM 适配 `createEmbedFrameBuffer`（领养、离屏挂载等 `load`、流式同高占位、双缓冲开关、token 防串、并发 4 上限排队、行移除清理）。零 import、可离线单测（`embed-buffering.test.mjs`）。**不改沙箱口径**：帧属性原样克隆，唯一改动是离屏副本的 `loading`（lazy 在离屏容器里可能永不加载）。 |
 | `dist/conversation-wheel.js` | 右侧「会话内用户输入索引」：一条刻度 = 一条用户输入，且**覆盖整会话**（刻度表来自后端全量索引 `Bridge.SessionInputIndex`，含尚未加载到窗口的早期轮次；`app.js` 推入 + 宿主回读通道 `locateInput`）。位置：已加载轮次用问题节点在内容里的真实高度比例，未加载轮次按确定性比例布点；只索引用户输入（不再退回助手步骤/多类别刻度）。**波浪刻度轨（2026-10-29）**：刻度贴内容基线向左伸出，刻线取当前主题的 `--text` 形成背景反色，指针进入后按距离用 `transform` 伸长/回缩成连续波浪，`requestAnimationFrame` 合并指针更新，reduced-motion 下静止；当前刻度保持 `--tick-hot`。摘要卡第一层以主文本色显示用户问题，第二层以弱文本色显示该轮最后一条非空 assistant 回复开头（`reply_summary`），无回复时写「这一轮还没有 LLM 回复」。当前输入高亮、点击跳到对应输入——未加载的目标先按页回读（`planInputLocate`/`locateInput`）再定位；键盘 ↑↓/PgUp/PgDn/Home/End 只作用于用户输入刻度。纯函数（`normalizeInputIndex`/`planInputLocate`/`inputAtOffset`/`activeInputIndex`/`scrollTopForFraction`/`wheelWaveStrength`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
 | `dist/trajectory.js` | 轨迹（DevTools Network 风格请求/响应检查器）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、左表渲染、右侧 `renderTrajectoryInspector` 抽屉式入参/出参/THINK 详情与紧凑分轨上下文轴。`AXIS_LANES` 是轨定义与顺序的单一事实源；六条轨各占 9px、可见条 4px。记录轨按本页槽数建立 CSS Grid，每块用 `--slot` 占据自己的完整列，因此所有块天然是横向短条；不再依赖百分比 `width` 或 `max()` 计算，避免 WebView 把横条压成刻度点。`axisRangeForDrag` / `trajectoryRecordsInRange` 支持在轴上拖拽闭区间并只查看该范围。轴还内联前缀注入、压缩刻度与分界虚线，并由 `renderAxisDetail` 展示分页读回的压缩帧正文。 |
@@ -85,6 +92,7 @@ flowchart TB
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`、`mermaid/`（markdown ```mermaid 围栏的图表渲染，约 3.3MB，懒加载）、`xterm/`（终端仿真器 + 容器自适应插件，见 `vendor/xterm/README.md`）。版本与许可登记、按需加载通道见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
 | `dist/role-session-view.js` | **角色会话只读观察面**（团队看板在编行「当前会话」chip 的落点）：从原 `agent-team-view.js`（**已删除**：2026-10-12 J-1a）**切出来的那一半**——Agent Team 面板本体已于 2026-10-12（J-1a，用户裁决：`@<团队>` 手动召唤直接删除）整块退场，只读的这一面随渲染件搬到本文件（面板的完整旧行文留 git 历史）。数据源 `Bridge.AgentTeamRoleSnapshot`（`dto.RoleSnapshot`，后端保留且不改名）；导出 `roleDisplayName` / `normalizeRoleSession` / `renderRoleSessionSwitcher` / `renderRoleSessionDetail` / `renderRoleLiveTools` / `renderRoleRecordTable`（纯渲染，不写状态）。入口与判定在团队看板一侧：`team-board-view.js` 写 `data-team-role-open` / `data-team-role-session` 钩子，`app.js` 的 `bindTeamBoardActions` 绑委托 → `openRoleSessionDetail`；「切员工」名册来自 `runtime.teamwork_board` 的 `members[]`（`roleSessionTargets`，不在前端另编一份名册）。用例见 `role-session-view.test.mjs` / `role-session-refresh.test.mjs`。 |
+| `dist/team-board-view.js` | 团队看板纯渲染件：左侧里程碑/工作项表 + 右侧**依赖槽位甘特图**（一格恒等于一层依赖，不使用 execution time 或伪造工期）。里程碑保留分组进度、屏障与汇总条；工作项一行一条并保持详情下钻。团队成员改为卡片：角色、状态、完成度、工作区、权责与当前会话入口分层展示。锁、状态、成员、审计等入口通过 `components.js` 的 `materialIcon()` 使用离线的 Google Material Symbols Rounded 路径，不再以 emoji 充当图标。样式仍只由本文件导出的 `TEAM_BOARD_CSS` 提供。 |
 | `dist/agent-team-retirement.test.mjs` | **Agent Team 退场守卫**（2026-10-12 J-1a）：退场最容易留下的不是报错而是**半条通道**（少了监听器的入口、作废不存在的缓存、指回已删模块的 import）。这里把"退场后的形状"钉成断言——退场资产不再存在、`app.js` 只许剩 `AgentTeamRoleSnapshot` 两处调用、`index.html` 无 `#team-section`、空态/placeholder 不再提「`@` 手动召唤团队」；同时钉住**保留面**：团队看板（`#team-board-section` + `runtime.teamwork_board`）与角色会话只读观察面原样在场。 |
 | `dist/agent-team-css-retirement.test.mjs` | **退场样式回流闸**（2026-10-12 J-1a / wi-j1a-css）：面板删面后，`styles.css` 里那批面板选择器成了**永远匹配不到**的死规则（DOM 已不存在），本条目按"存活侧引用数 0"（`dist/**.js` / `index.html` / `dist/themes/*.css`）逐条证明后整块摘除，并用这个文件把"已退场前缀"钉成 **0 命中**（按**选择器里的类名 token** 匹配前缀，不做整文件子串匹配——`team-board-*` 是活体、`scheduled-*` 不是 `schedule-*`），覆盖基础段 / hover / `:focus-visible` / `[hidden]` / `@media` 与 `reduced-motion`；**同时钉住脚本侧不许让类名复活**，以及保留面：`team-board-*`（`team-board-view.js` 自带 `TEAM_BOARD_CSS`）、角色会话读面仍在用的 `team-block` / `team-floor-chip` / `team-member-name` / `team-view`、看板表格件 `team-table` / `team-kv*`。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台现由内联摘要承载）。 |
@@ -139,7 +147,9 @@ flowchart TB
 - 界面词统一为中文：就绪 / 执行中 / 排队 / 手动 / 自动改文件 / 自动执行 / 全权；弹窗 eyebrow 不再使用英文机器词。
 - 图标管线：静态按钮以 `data-icon` 占位，启动时由 `components.js` 的
   `hydrateIcons()` 注入统一 stroke SVG（ICONS 注册表）；顶部连接点
-  `.status-dot` 由 `chat-view.js` 追加 `online` 类切换语义色。
+  `.status-dot` 由 `chat-view.js` 追加 `online` 类切换语义色。需要在渲染件里直接
+  输出的语义图标用 `materialIcon()`；它是同一 `components.js` 管线内的离线
+  Google Material Symbols Rounded 子集，不引 CDN，也不用 emoji 代替图标。
 - 信息层级：对话区子页（`对话 / 轨迹`）与右侧栏三个子页（`状态 / 工作台 /
   资源管理器`）同属一套停靠布局（`seelex.dock.v1` localStorage 记忆）：默认
   会话两页在主视图、右栏三页在右栏；页签可点击切换、拖拽换序、跨栏置换
@@ -836,6 +846,9 @@ go test ./gui -count=1
 ```
 
 `runtime-events.test.mjs` 验证 Wails runtime 延迟就绪时不会漏绑或重复绑定。`event-chain.test.mjs` mock Wails `seelex:event` 并验证主代理/子代理工具完成状态和权威 `runtime.full_access` 通过 `createGUIClient`/`protocol.js` 后可见，且连续事件不会退化为 Snapshot reload；主代理工具卡明确断言完成后不再显示 `Waiting for output…`。
+`agent-conversation-view.test.mjs` 钉住三类 agent 会话共用主会话消息/工具组件、同一
+`createConversationView` 动效入口、同一四行加载骨架和唯一 composer 模板；并静态断言
+Work Item / 子代理详情已切到统一面板、不再恢复第二份执行记录列表。
 `motion-contract.test.mjs` / `shape-spacing.test.mjs` 钉住 token、属性白名单、
 圆角与单侧 margin 禁令、reduced-motion 和视图进入/退出节奏；
 `spring-motion.test.mjs` 钉住阻尼比分类、进入的受控过冲、退出不回弹和

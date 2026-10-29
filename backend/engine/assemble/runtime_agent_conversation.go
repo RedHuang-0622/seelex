@@ -12,6 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -133,13 +134,19 @@ func (r *Runtime) teammateConversationRecords(ctx context.Context, ref dto.Conve
 	if hasRec && (recovery == dto.RecoveryInterrupted || recovery == dto.RecoveryCold) {
 		records = prependRecoveryNote(records, record, workunit.KindTeammate)
 	}
-	effective := ""
-	if hasRec {
-		effective = strings.TrimSpace(record.Unit.SystemPrompt)
+	coordinator, err := r.coordinatorForSession(ref.MainSessionID)
+	if err != nil {
+		return nil, "", dto.RecoveryMissing, err
 	}
-	if effective == "" {
-		effective = r.roleTurnSystemPrompt(item.Role)
+	plan, err := coordinator.Plan(ctx)
+	if err != nil {
+		return nil, "", dto.RecoveryMissing, err
 	}
+	member, ok := teamwork.MemberOf(plan, item.Role)
+	if !ok {
+		return nil, "", dto.RecoveryMissing, fmt.Errorf("conversation: role %q is not in the team plan", item.Role)
+	}
+	effective := r.roleConversationSystemPrompt(item.Role, member.Plugins)
 	records = ensureSystemRecord(records, effective)
 	if hasRec {
 		for _, stage := range workunit.ProgressOf(workunit.KindTeammate, record).Stages {
@@ -174,6 +181,9 @@ func (r *Runtime) subagentConversationRecords(ref dto.ConversationSessionRef) ([
 		}
 	}
 	records := conversationRecordsFromHistory(history)
+	if hasRecord {
+		records = ensureSystemRecord(records, r.subagentConversationPrompt(nodeID, record))
+	}
 	if hasRecord && recovery != dto.RecoveryLive {
 		records = prependRecoveryNote(records, record, workunit.KindSubagent)
 	}
@@ -228,18 +238,11 @@ func (r *Runtime) chatTeammateConversation(ctx context.Context, ref dto.Conversa
 	if err != nil {
 		return dto.ChatReceipt{}, err
 	}
-	_, ok := teamwork.MemberOf(plan, item.Role)
+	member, ok := teamwork.MemberOf(plan, item.Role)
 	if !ok {
 		return dto.ChatReceipt{}, fmt.Errorf("conversation: role %q is not in the team plan", item.Role)
 	}
-	systemPrompt := r.roleTurnSystemPrompt(item.Role)
-	record, hasRecord, err := r.teamUnitReader(ref.MainSessionID, r.teamSceneIndex(ref.MainSessionID)).Record(teamwork.SceneNodeID(item.Role, item.ID))
-	if err != nil {
-		return dto.ChatReceipt{}, err
-	}
-	if hasRecord && strings.TrimSpace(record.Unit.SystemPrompt) != "" {
-		systemPrompt = record.Unit.SystemPrompt
-	}
+	systemPrompt := r.roleConversationSystemPrompt(item.Role, member.Plugins)
 	dispatch, err := coordinator.DeclareTeammateMessage(ctx, ref, message, systemPrompt)
 	if err != nil {
 		return dto.ChatReceipt{}, err
@@ -280,13 +283,14 @@ func (r *Runtime) chatTeammateConversation(ctx context.Context, ref dto.Conversa
 
 func (r *Runtime) chatSubagentConversation(ctx context.Context, ref dto.ConversationSessionRef, message string) (string, error) {
 	nodeID := strings.TrimSpace(ref.SessionID)
+	record, hasRecord := r.loadSubagentRecord(ref.MainSessionID, nodeID)
 	sess := r.subagentSessions.Session(nodeID)
 	if sess == nil {
 		if r.subagentSessionFactory == nil {
 			return "", errors.New("conversation: subagent session factory is not configured")
 		}
 		var resume []types.Message
-		if record, hasRecord := r.loadSubagentRecord(ref.MainSessionID, nodeID); hasRecord {
+		if hasRecord {
 			resume = record.History
 		}
 		created, err := r.subagentSessionFactory.NewWithIDForWithHistory(ref.MainSessionID, nodeID, nil, resume)
@@ -299,6 +303,11 @@ func (r *Runtime) chatSubagentConversation(ctx context.Context, ref dto.Conversa
 	chatCtx = dto.WithSceneScope(chatCtx, dto.SceneScope{
 		SceneID: nodeID, Role: dto.RoleSubAgent, BranchID: nodeID,
 	})
+	if hasRecord && r.node != nil {
+		chatCtx = seenode.WithNodePromptBlocks(chatCtx, r.node.PromptBlocks(seenode.SeelexNodeInput{
+			ID: nodeID, Input: record.Goal, Kind: "agent",
+		}))
+	}
 	output, err := sess.ChatStream(chatCtx, message, nil)
 	if err != nil {
 		return "", err
@@ -372,16 +381,33 @@ func ensureSystemRecord(records []dto.ConversationRecord, prompt string) []dto.C
 	if strings.TrimSpace(prompt) == "" {
 		return records
 	}
+	filtered := make([]dto.ConversationRecord, 0, len(records))
 	for _, record := range records {
-		if record.Kind == dto.ConversationRecordSystem {
-			return records
+		if record.Kind != dto.ConversationRecordSystem {
+			filtered = append(filtered, record)
 		}
 	}
 	prefix := []dto.ConversationRecord{{
 		ID: "system:effective", Kind: dto.ConversationRecordSystem,
 		Role: workunit.RecoveryNoteRole, Content: prompt,
 	}}
-	return append(prefix, records...)
+	return append(prefix, filtered...)
+}
+
+func (r *Runtime) subagentConversationPrompt(nodeID string, record storeworkunit.Record) string {
+	if r == nil || r.node == nil {
+		return ""
+	}
+	blocks := r.node.PromptBlocks(seenode.SeelexNodeInput{ID: nodeID, Input: record.Goal, Kind: "agent"})
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		for _, message := range block.Messages {
+			if message.Content != nil && strings.TrimSpace(*message.Content) != "" {
+				parts = append(parts, *message.Content)
+			}
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func prependRecoveryNote(records []dto.ConversationRecord, record storeworkunit.Record, kind workunit.Kind) []dto.ConversationRecord {

@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context/prefixprobe"
+	"github.com/RedHuang-0622/seelex/kernel/event"
 	task_context "github.com/RedHuang-0622/seelex/kernel/task"
 )
 
@@ -276,6 +278,7 @@ func (c *Coordinator) contextL1Store() interface {
 	ResumeContextL1(string, prefixprobe.Key, []model.TranscriptEvent, int, uint64) (task_context.ContextL1Snapshot, bool)
 	ContextL1For(string) (task_context.ContextL1Snapshot, bool)
 	ContextL1StatsFor(string) task_context.ContextL1Stats
+	ContextCacheViewFor(string) *dto.ContextCacheView
 	TokenGeneration() uint64
 } {
 	store, _ := c.tasks.(interface {
@@ -283,6 +286,7 @@ func (c *Coordinator) contextL1Store() interface {
 		ResumeContextL1(string, prefixprobe.Key, []model.TranscriptEvent, int, uint64) (task_context.ContextL1Snapshot, bool)
 		ContextL1For(string) (task_context.ContextL1Snapshot, bool)
 		ContextL1StatsFor(string) task_context.ContextL1Stats
+		ContextCacheViewFor(string) *dto.ContextCacheView
 		TokenGeneration() uint64
 	})
 	return store
@@ -329,4 +333,37 @@ func (c *Coordinator) recordContextL1(sessionID string, snapshot task_context.Co
 		return task_context.ContextL1Stats{}
 	}
 	return store.RecordContextL1(sessionID, snapshot)
+}
+
+// publishContextCache immediately projects the latest L1 hit/miss decision to
+// the active Snapshot. Background sessions wait for their normal runtime-slot
+// projection; the active view must not wait for the next assistant/tool event.
+func (c *Coordinator) publishContextCache(sessionID, requestID string) {
+	store := c.contextL1Store()
+	if store == nil {
+		return
+	}
+	cache := store.ContextCacheViewFor(sessionID)
+	if cache == nil {
+		return
+	}
+	c.ViewMu.Lock()
+	if c.Snapshot.Session.ID != sessionID {
+		c.ViewMu.Unlock()
+		return
+	}
+	c.Snapshot.Runtime.ContextCache = cache
+	var revision uint64
+	if c.view != nil {
+		revision = c.view.BumpLocked()
+	}
+	c.ViewMu.Unlock()
+	if revision == 0 || c.Events == nil {
+		return
+	}
+	if hub, ok := c.Events.(event.SessionAwareHub); ok {
+		hub.PublishSession(event.EventSnapshotChanged, revision, requestID, sessionID, nil)
+		return
+	}
+	c.Events.Publish(event.EventSnapshotChanged, revision, requestID, nil)
 }

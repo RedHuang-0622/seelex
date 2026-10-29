@@ -549,6 +549,10 @@ ratioChars   = sharedChars / totalChars
 ### 7.7 上报与阈值
 
 - 运行期：`ProbeCounters` 随 `TokenAudit` 落盘（会话级一行汇总 + 最近 N 条明细，避免膨胀）。
+- 运行期 L1：`ContextL1Stats` 经 `Runtime.ContextCache` 投影到 Snapshot/右栏；
+  展示 hit/miss/rebuilt、复用事件、累计/最近复用字符和最近失效格。该读数明确是
+  **本地 L1 前缀复用**，不是 provider `cached_tokens`。字节级 `prefixprobe`
+  继续作为测试/归因底座。
 - 冒烟：`docs/test/` 报告加三列——`charRatio(cum)` / `charRatio(last)` / `unexpectedMiss`。
 - 阈值（建议值，实现时按实测调）：同一 `prefix_key` 下 `unexpectedMiss` 必须为 **0**；`byTurn` 相邻跌幅 > **2%** 判回归；字符比与 provider token 比偏差 > **5%** 判代理失真。
 
