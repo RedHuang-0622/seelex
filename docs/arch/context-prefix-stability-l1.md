@@ -271,7 +271,7 @@ ToolsUpdate {
 | 每轮重切窗口 | `coordinator.go:1328` `TranscriptTailWindowBy(events, target, maxUnits, …)` 每次装配都跑 | 违反 I3 | 改成 `truth[retained_from:]` 直接切片 |
 | user 消息 wire ≠ 记录 | 探针 harness 复刻生产形状：`AppendTranscriptEventLocked(Content: 原始输入)` + `{Content: currentInput}` 进 wire（`context_probe_harness_test.go:119-131`） | **违反 I1（最普遍）；已实测复现，见 §6.3** | `composeRequestTail` 产物落 `ProviderContent` |
 | `ProviderContent` 覆盖面 | `contract/protocol/context.go:94-107`：注释明写"当前只有工具结果会分叉" | 覆盖不足 | 扩到**所有**消息（user / plan / task 帧） |
-| plan 上下文消息 | `coordinator.go:1331` 现算现插在 events 之后、当前输入之前；`planContextMessageLocked:1420` 注释自陈"本来就在缓存未命中区" | **违反 I2**（跨轮该判断不成立） | 改为 draft 追加条目 |
+| plan 上下文消息 | 已改：`kernel/task/plan_frame.go:recordPlanFrameLocked` 在计划状态写入那一刻落 internal 事件（`WireMaterial=true`），`coordinator.go:tryFitExecutionHistory` 删除每轮现插（旧形态是"现算现插在 events 之后、当前输入之前"） | **已修**（§6.3.2 实测 `UnexpectedMiss` 1 → 0） | 已落地；用例 `context_prefix_plan_frame_test.go` + `kernel/task/plan_frame_test.go` |
 | plan/task 尾帧 | plan 半边已改「落 transcript、按记录位置重放」（`kernel/task/plan_frame.go`）；task 半边仍在 `backend/engine/context/seelectx/assembler.go:120-122` 追加在 WorkingHistory 之后，装配不写回历史 | plan 半边**已修**（§6.3.2）；task 半边经核对**不漂**（§6.3.3：损坏面上界 = 帧自身字节，前缀本体一字不丢） | plan 已落地；task 不改，开回归用例钉住机制（`assembler` 包的 `TestTailFrameStaysAtRequestSuffix`） |
 | memory 位置与键 | `assembler.go:88` `Memories(ctx, LastUserQuery(...))`，渲染在 prefix 主体之前；生产已接线（`backend/engine/assemble/runtime_context.go` 的 `Memories`） | **违反 I4** | 改为 epoch 快照 + §5 纪元表 |
 | 工具定义顺序 | `vendor/.../Seele/tools/tools.go:171` `providers map[string]ToolProvider`；`:286` 直接 `range` | **违反 I4** | 发布前按 name 排序；`tools_digest` 进键 |
