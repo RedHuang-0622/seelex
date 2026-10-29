@@ -77,6 +77,13 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Required:    []string{"Interaction inside the block", "data-seelex-action", "ask-agent", "interactive=1", "pointer-events:none", "prefers-reduced-motion"},
 		},
 		{
+			Name:        "visual-answer-uses-builtin-components-and-theme-tokens",
+			Effort:      "high",
+			UserRequest: "用卡片和表格把这几轮任务的耗时对比画出来。",
+			Expected:    "块内直接用内置组件（article/button/table/progress 与 .sx-* 别名）并只引用 --sx-* 主题变量取色；警告/危险/成功/信息用各自的语义色，不跟品牌色走；不写死 #fff/#000 之类的固定底色。",
+			Required:    []string{"Built-in components and theme tokens", ".sx-chip", "--sx-accent", "--sx-warn", "never the brand accent", "hardcoded `#fff` / `#000`"},
+		},
+		{
 			Name:        "tasklist-vs-fork-distinction",
 			Effort:      "high",
 			UserRequest: "区分串行任务清单与并行子代理派发。",

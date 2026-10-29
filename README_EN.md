@@ -56,9 +56,12 @@ It is an agent for **one person**, not a team-collaboration workbench: teamwork 
   into MCP tool descriptions), plus plugin/skill/MCP self-management tools;
 - sandboxed `seelex-html` embeds for visual answers: a fenced block renders inside an offline iframe
   (`sandbox="allow-scripts"`, no same-origin, inline CSP, `data:` images only, height clamped to
-  120–640px), while cross-frame traffic is limited to the whitelisted `ask-agent` / `fill-composer` /
-  `copy-text` / `open-source` actions and driving the conversation needs `interactive=1` plus a real
-  in-frame gesture;
+  120–640px), with a built-in component layer (`article` / `button` / `table` / `.sx-chip`, all
+  `:where()`-scoped) and `--sx-*` color tokens that follow the active skin and light/dark mode —
+  semantic warning/info colors follow light/dark only, never the brand accent; frame loading shows a
+  status line after a 100ms first delay and frame swaps cross-fade, while cross-frame traffic is
+  limited to the whitelisted `ask-agent` / `fill-composer` / `copy-text` / `open-source` actions and
+  driving the conversation needs `interactive=1` plus a real in-frame gesture;
 - scheduled (periodic and one-shot) tasks, web search providers (tavily / bochaai / searxng) and
   worktree-scoped execution;
 - JSON v8 session persistence with an append-only order log, project/session isolation, per-module head

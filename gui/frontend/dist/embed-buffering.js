@@ -13,8 +13,17 @@
 //        按 (key, srcdoc) 把「旧行里的帧」和「新行要的帧」分成四类处置。
 //   2) DOM 适配 `createEmbedFrameBuffer(...)`：
 //      领养（把旧帧原样搬进新行）、离屏挂载（load + 一帧 rAF 后再交换）、流式延迟
-//      挂载（同高占位）、双缓冲（两层绝对定位重叠 + opacity 过渡）、token 防串、
-//      并发 pending 上限排队、行移除时的清理。
+//      挂载（同高占位）、**加载态状态机**（100ms 首延迟 → 状态文字 + 活动条）、
+//      **交叉淡入淡出**（旧帧淡出 150ms、新帧淡入 250ms）、token 防串、并发 pending
+//      上限排队、行移除时的清理。
+//
+// 为什么不再有"双缓冲开关"（2026-10-29）：双缓冲的本意是"换帧不露白"，但它把**加载
+// 过程本身**一起缓冲没了——用户在离屏加载期间看到的是一块不动的旧画面，帧换上去的
+// 瞬间才"啪"地出现，既没有进度也没有变化感。现在改成两件事同时成立：
+//   · 加载态**可见**（宪法 §2.1/§2.2：100ms 内不显示，之后显示状态文字 + 局部活动）；
+//   · 交换只做**淡入淡出**（opacity，宪法 §4.5 白名单内），旧帧以 `--duration-fast`
+//     退出、新帧以 `--duration-normal` 进入，全程在固定高度的落位台内，零 CLS。
+// 只有一条路径，没有"开/关两种行为"的第二套兼容分支（宪法 §9 迁移纪律）。
 //
 // 安全口径**一个字都没动**：帧的 `sandbox="allow-scripts"`、`referrerpolicy`、CSP 与
 // srcdoc 文档全部原样来自 `html-embed.js` 生成的标记。本文件只做搬运与克隆
@@ -28,11 +37,24 @@
 export const EMBED_SETTLE_MS = 150;
 export const EMBED_MAX_PENDING = 4;
 export const EMBED_LOAD_TIMEOUT_MS = 2500;
-export const EMBED_TRANSITION_MS = 180;
+// 加载态首延迟：短于它就不显示任何指示器（宪法 §2.2 的 idle → pending → active）。
+export const EMBED_LOADING_FIRST_DELAY_MS = 100;
+// 旧帧淡出时长，与 `--duration-fast` 同值；CSS 侧用的是 token，这里只用于"到点撤帧"。
+export const EMBED_FADE_OUT_MS = 150;
 
 export const EMBED_KEY_ATTR = "data-embed-key";
 export const EMBED_STAGE_ATTR = "data-embed-stage";
-export const EMBED_PENDING_ATTR = "data-embed-pending";
+export const EMBED_LOADING_ATTR = "data-embed-loading";
+export const EMBED_FADE_ATTR = "data-embed-fade";
+export const EMBED_LOADING_TEXT_ATTR = "data-embed-loading-text";
+
+// 加载态文案：宪法 §2.3 要求先说明"在做什么"，不写"加载中"。两个状态各有说法——
+// 流式期间内容还在变，说"等待内容稳定"是事实；真正在装帧才说"正在渲染图形"。
+const EMBED_LOADING_TEXT = Object.freeze({
+  defer: "等待内容稳定",
+  pending: "正在渲染图形",
+  active: "正在渲染图形"
+});
 
 // shouldDeferMount 判定「这一帧现在能不能挂」。
 //   - 会话还在流式：一律不挂（每帧重建才是闪屏的根因，流式期间挂载次数必须是 0）；
@@ -100,8 +122,8 @@ export function createEmbedFrameBuffer(options = {}) {
   const doc = options.document || (typeof globalThis !== "undefined" ? globalThis.document : null);
   const settleMs = Number.isFinite(options.settleMs) ? Number(options.settleMs) : EMBED_SETTLE_MS;
   const maxPending = Math.max(1, Number.isFinite(options.maxPending) ? Math.trunc(options.maxPending) : EMBED_MAX_PENDING);
-  const doubleBuffer = options.doubleBuffer === true;
-  const transitionMs = Number.isFinite(options.transitionMs) ? Number(options.transitionMs) : EMBED_TRANSITION_MS;
+  const loadingDelayMs = Number.isFinite(options.loadingDelayMs) ? Number(options.loadingDelayMs) : EMBED_LOADING_FIRST_DELAY_MS;
+  const fadeOutMs = Number.isFinite(options.fadeOutMs) ? Number(options.fadeOutMs) : EMBED_FADE_OUT_MS;
   const loadTimeoutMs = Number.isFinite(options.loadTimeoutMs) ? Number(options.loadTimeoutMs) : EMBED_LOAD_TIMEOUT_MS;
   const clock = typeof options.now === "function" ? options.now : () => Date.now();
   const schedule = typeof options.schedule === "function" ? options.schedule : (fn, ms) => setTimeout(fn, ms);
@@ -143,7 +165,7 @@ export function createEmbedFrameBuffer(options = {}) {
   function slotEntry(state, key) {
     let entry = state.slots.get(key);
     if (!entry) {
-      entry = { key, mode: "absent", srcdoc: "", token: 0, template: null };
+      entry = { key, mode: "absent", srcdoc: "", token: 0, template: null, loadingTimer: null, loadingActive: false };
       state.slots.set(key, entry);
     }
     return entry;
@@ -180,11 +202,61 @@ export function createEmbedFrameBuffer(options = {}) {
     return String(frame.getAttribute("srcdoc") ?? "");
   }
 
-  function markPending(slot, pending) {
+  // ── 加载态（宪法 §2：idle → pending → active → settled）─────────────────
+  // 状态挂在 `.html-embed-body` 上（这块里**实际变化的**最小区域），CSS 据此决定
+  // 要不要露出状态文字与活动条。`pending` 视觉上是空的（前 100ms 不显示指示器），
+  // `active` 才可见；落帧即摘掉标记，CSS 把加载层淡出。
+  function setLoading(slot, state) {
     const target = slot && (slot.figure || slot.stage);
-    if (!target) return;
-    if (pending) target.setAttribute(EMBED_PENDING_ATTR, "1");
-    else if (typeof target.removeAttribute === "function") target.removeAttribute(EMBED_PENDING_ATTR);
+    if (!target || typeof target.setAttribute !== "function") return;
+    if (state) {
+      target.setAttribute(EMBED_LOADING_ATTR, state);
+      target.setAttribute("aria-busy", "true");
+    } else if (typeof target.removeAttribute === "function") {
+      target.removeAttribute(EMBED_LOADING_ATTR);
+      target.removeAttribute("aria-busy");
+    }
+    const text = typeof target.querySelector === "function"
+      ? target.querySelector(`[${EMBED_LOADING_TEXT_ATTR}]`)
+      : null;
+    if (text) text.textContent = state ? (EMBED_LOADING_TEXT[state] || "") : "";
+  }
+
+  // syncLoading 由"这一槽当下处在什么阶段"推出加载态，避免各处各写一套判断
+  // （宪法 §7.3：同一状态只有一套判据）。
+  function syncLoading(slot, entry) {
+    if (!entry) return;
+    if (entry.mode === "settled" || entry.mode === "absent") {
+      setLoading(slot, null);
+      return;
+    }
+    if (entry.mode === "defer") {
+      // 流式期间只是"内容还没稳定"，不是"在装帧"：给静态文案，不放活动条。
+      setLoading(slot, streaming ? "defer" : "pending");
+      return;
+    }
+    setLoading(slot, entry.loadingActive ? "active" : "pending");
+  }
+
+  function stopLoadingTimer(entry) {
+    if (!entry || !entry.loadingTimer) return;
+    cancelTimerHandle(entry.loadingTimer);
+    entry.loadingTimer = null;
+  }
+
+  // armLoadingTimer：挂载一开始只记 pending（不可见），100ms 后仍未交付才允许露出来。
+  // 短于 100ms 的加载因此只有"最终内容"，不会闪一下 loader（宪法 §2.2）。
+  function armLoadingTimer(state, key, entry) {
+    stopLoadingTimer(entry);
+    entry.loadingActive = false;
+    syncLoading(findSlot(state.row, key), entry);
+    entry.loadingTimer = schedule(() => {
+      entry.loadingTimer = null;
+      // 已交付或被丢弃（token 清零）：不再露加载层。
+      if (!entry.token) return;
+      entry.loadingActive = true;
+      syncLoading(findSlot(state.row, key), entry);
+    }, loadingDelayMs);
   }
 
   function ensureMountHost() {
@@ -253,7 +325,7 @@ export function createEmbedFrameBuffer(options = {}) {
           entry.template = null;
           entry.srcdoc = content;
           counters.adopted += 1;
-          markPending(slot, false);
+          syncLoading(slot, entry);
           continue;
         }
         // 旧行这个槽还是占位（还没挂上过）：内容没变，在途的挂载继续用（token 保留），
@@ -263,10 +335,10 @@ export function createEmbedFrameBuffer(options = {}) {
           entry.srcdoc = content;
           entry.template = template;
           if (!entry.token) entry.mode = "defer";
-          markPending(slot, true);
+          syncLoading(slot, entry);
         } else {
           entry.srcdoc = content;
-          markPending(slot, Boolean(entry.token));
+          syncLoading(slot, entry);
         }
         continue;
       }
@@ -293,7 +365,7 @@ export function createEmbedFrameBuffer(options = {}) {
       } else if (!entry.token) {
         entry.mode = "mount";
       }
-      markPending(slot, true);
+      syncLoading(slot, entry);
     }
     for (const key of plan.unmount) {
       cancelSlot(state, key);
@@ -317,8 +389,7 @@ export function createEmbedFrameBuffer(options = {}) {
       if (entry.mode !== "mount" && entry.mode !== "defer") continue;
       if (deferNow) {
         entry.mode = "defer";
-        const slot = findSlot(row, key);
-        if (slot) markPending(slot, true);
+        syncLoading(findSlot(row, key), entry);
         continue;
       }
       entry.mode = "mount";
@@ -364,11 +435,14 @@ export function createEmbedFrameBuffer(options = {}) {
       entry.mode = "queued";
       waitQueue.push({ rowKey: state.rowKey, key });
       counters.queued += 1;
+      // 排队期间只是"还没轮到"，先记 pending（不可见），轮到再起 100ms 计时。
+      syncLoading(findSlot(state.row, key), entry);
       return;
     }
     const frame = cloneFrame(entry.template);
     if (!frame) {
       entry.mode = "defer";
+      syncLoading(findSlot(state.row, key), entry);
       return;
     }
     if (typeof frame.removeAttribute === "function") frame.removeAttribute("loading");
@@ -387,10 +461,12 @@ export function createEmbedFrameBuffer(options = {}) {
       entry.token = 0;
       entry.mode = "defer";
       inFlight.delete(token);
+      syncLoading(findSlot(state.row, key), entry);
       return;
     }
     // 插进离屏容器这一刻才开始解析 srcdoc；load 之前它一个像素都没进可视区。
     host.appendChild(frame);
+    armLoadingTimer(state, key, entry);
     record.timer = schedule(() => commit(record, true), loadTimeoutMs);
   }
 
@@ -431,29 +507,28 @@ export function createEmbedFrameBuffer(options = {}) {
       record.frame.removeEventListener("load", record.onLoad);
     }
     inFlight.delete(record.token);
+    stopLoadingTimer(entry);
+    entry.loadingActive = false;
     entry.token = 0;
     entry.mode = "settled";
     entry.template = null;
     const previous = firstFrameIn(slot.stage);
-    if (doubleBuffer && previous && previous !== record.frame) {
-      // 双缓冲：两层绝对定位重叠，新帧 fade in，过渡结束再撤旧帧。
-      record.frame.setAttribute("data-embed-layer", "new");
-      slot.stage.appendChild(record.frame);
-      nextFrame(() => {
-        if (typeof record.frame.setAttribute === "function") record.frame.setAttribute("data-embed-live", "1");
-      });
+    // 交叉淡入淡出（唯一一条路径）：新帧以 opacity:0 叠上去，下一帧放到 1；旧帧同时
+    // 淡出，过渡结束才撤。落位台高度固定，两层叠着也不产生任何布局变化（零 CLS）。
+    record.frame.setAttribute(EMBED_FADE_ATTR, "in");
+    slot.stage.appendChild(record.frame);
+    if (previous && previous !== record.frame) previous.setAttribute(EMBED_FADE_ATTR, "out");
+    nextFrame(() => {
+      // 等一帧再切到终态，浏览器才有"初始 opacity:0"可过渡（同一帧内改动不会触发动画）。
+      if (typeof record.frame.setAttribute === "function") record.frame.setAttribute(EMBED_FADE_ATTR, "settled");
+    });
+    if (previous && previous !== record.frame) {
       schedule(() => {
-        if (previous && previous.parentNode === slot.stage && typeof previous.remove === "function") previous.remove();
-        if (typeof record.frame.removeAttribute === "function") {
-          record.frame.removeAttribute("data-embed-layer");
-          record.frame.removeAttribute("data-embed-live");
-        }
-      }, transitionMs);
-    } else {
-      // 单缓冲：一次性换上去（旧帧在这一步一起离场，中间没有空白期）。
-      slot.stage.replaceChildren(record.frame);
+        if (previous.parentNode === slot.stage && typeof previous.remove === "function") previous.remove();
+      }, fadeOutMs);
     }
-    markPending(slot, false);
+    // 加载层在这里退场（CSS 淡出），与帧的淡入同时进行。
+    setLoading(slot, null);
     counters.mounted += 1;
     // 超时兜底（load 没来也先把帧放上去）：记一笔，方便诊断"帧挂上了但内容迟"。
     if (forced) counters.timedOut = (counters.timedOut || 0) + 1;
@@ -493,6 +568,7 @@ export function createEmbedFrameBuffer(options = {}) {
     const entry = state && state.slots.get(key);
     if (!entry) return;
     const token = entry.token;
+    stopLoadingTimer(entry);
     entry.token = 0;
     entry.mode = "absent";
     state.slots.delete(key);
@@ -540,7 +616,6 @@ export function createEmbedFrameBuffer(options = {}) {
     }),
     // 便于诊断：当前所有在途/排队的帧 key
     pendingKeys: () => [...inFlight.values()].map(record => `${record.rowKey}::${record.key}`),
-    doubleBuffer: () => doubleBuffer,
     mountRoot: () => mountHost
   };
 }

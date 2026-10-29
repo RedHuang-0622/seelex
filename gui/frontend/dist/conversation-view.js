@@ -89,8 +89,7 @@ export function createConversationView(container, options = {}) {
   // "行 html 一变就整行重建、iframe 跟着重建"，判据（领养/挂载/延迟/卸载）在
   // embed-buffering.js 里是纯函数，可离线单测。
   const embedBuffer = options.embedBuffer || createEmbedFrameBuffer({
-    mountRoot: options.embedMountRoot || null,
-    doubleBuffer: options.doubleBuffer === true
+    mountRoot: options.embedMountRoot || null
   });
 
   // loadOlder 翻更早的一页。

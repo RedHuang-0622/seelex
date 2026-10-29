@@ -16,6 +16,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  EMBED_FADE_OUT_MS,
+  EMBED_LOADING_FIRST_DELAY_MS,
   EMBED_SETTLE_MS,
   createEmbedFrameBuffer,
   planEmbedMounts,
@@ -119,10 +121,15 @@ class FakeDocument {
 }
 
 // frameOf / stageOf / figureOf：与 renderHtmlEmbed 的标记同构
+// （figure > .html-embed-body > .html-embed-stage[data-embed-stage] > iframe，body 里
+//   另有一枚角色为 status 的加载层；缓冲的加载态标记就挂在 body 上）
 function figureFor(key, srcdoc) {
   const figure = new FakeElement("figure");
   figure.setAttribute("class", "html-embed");
   figure.setAttribute("data-embed-key", key);
+  const body = new FakeElement("div");
+  body.setAttribute("class", "html-embed-body");
+  body.setAttribute("data-embed-body", "1");
   const stage = new FakeElement("div");
   stage.setAttribute("class", "html-embed-stage");
   stage.setAttribute("data-embed-stage", "1");
@@ -135,7 +142,15 @@ function figureFor(key, srcdoc) {
   frame.setAttribute("loading", "lazy");
   frame.setAttribute("srcdoc", srcdoc);
   stage.appendChild(frame);
-  figure.appendChild(stage);
+  const status = new FakeElement("p");
+  status.setAttribute("class", "html-embed-status");
+  status.setAttribute("role", "status");
+  const text = new FakeElement("span");
+  text.setAttribute("data-embed-loading-text", "");
+  status.appendChild(text);
+  body.appendChild(stage);
+  body.appendChild(status);
+  figure.appendChild(body);
   return figure;
 }
 
@@ -161,6 +176,16 @@ function frameIn(row, key) {
 function figureIn(row, key) {
   const stage = stageIn(row, key);
   return stage ? stage.parentNode : null;
+}
+
+// bodyIn：加载态标记的落点（`.html-embed-body`，也就是 stage 的父节点）。
+function bodyIn(row, key) {
+  return figureIn(row, key);
+}
+
+function loadingTextIn(row, key) {
+  const body = bodyIn(row, key);
+  return body ? body.querySelector("[data-embed-loading-text]") : null;
 }
 
 function makeClock() {
@@ -312,7 +337,7 @@ test("embed buffer：内容不变的帧被原样领养（没有新 iframe 元素
 });
 
 // ── 4. DOM 适配：内容变化的帧，load 之前旧元素仍在树上 ──
-test("embed buffer：内容变了 → 旧帧留在原位，新帧 load 完成后才交换", () => {
+test("embed buffer：内容变了 → 旧帧留在原位，新帧 load 完成后交叉淡入淡出", () => {
   const { buffer, mountRoot, clock } = makeBuffer();
   const before = rowFor("message:m1", [{ key: "message:m1#0", srcdoc: "A" }]);
   const oldFrame = frameIn(before, "message:m1#0");
@@ -328,11 +353,18 @@ test("embed buffer：内容变了 → 旧帧留在原位，新帧 load 完成后
   // 沙箱口径随帧一起搬：克隆不带 srcdoc 以外的改写
   assert.equal(pending.getAttribute("sandbox"), "allow-scripts");
   assert.equal(pending.hasAttribute("allow-same-origin"), false);
-  // load 回来 → 交换；旧帧离场
+  // load 回来 → 两层同时在树上：新帧淡入（settled），旧帧淡出（out）
   pending.fire("load");
-  assert.equal(frameIn(next, "message:m1#0"), pending);
+  const stage = stageIn(next, "message:m1#0");
+  assert.equal(stage.children.length, 2);
+  assert.equal(pending.getAttribute("data-embed-fade"), "settled");
+  assert.equal(oldFrame.getAttribute("data-embed-fade"), "out");
+  // 淡出结束（--duration-fast）才撤旧帧：这段时间里落位台高度不变，零 CLS
+  clock.advance(EMBED_FADE_OUT_MS);
+  assert.equal(stage.children.length, 1);
   assert.equal(oldFrame.parentNode, null);
-  assert.equal(figureIn(next, "message:m1#0").hasAttribute("data-embed-pending"), false);
+  assert.equal(stage.querySelector("iframe"), pending);
+  assert.equal(bodyIn(next, "message:m1#0").hasAttribute("data-embed-loading"), false);
   assert.equal(buffer.stats().mounted, 1);
 });
 
@@ -358,16 +390,22 @@ test("embed buffer：流式期间一帧都不挂，只放同高占位；定稿�
   assert.equal(mountRoot.children.length, 0);
   // 旧帧一直占着可视位（流式期间不重建任何帧）
   assert.equal(frameIn(current, "message:m1#0"), oldFrame);
-  assert.equal(figureIn(current, "message:m1#0").getAttribute("data-embed-pending"), "1");
+  // 流式里不是"在装帧"，而是"内容还没稳定"：状态文字是静态的，且不放活动条
+  assert.equal(bodyIn(current, "message:m1#0").getAttribute("data-embed-loading"), "defer");
+  assert.equal(loadingTextIn(current, "message:m1#0").textContent, "等待内容稳定");
   // 消息定稿：流式关掉 → 一次挂载（内容早已稳定，不再等 settle）
   buffer.setStreaming(false);
   assert.equal(mountRoot.children.length, 1, "定稿后立刻挂一枚，而且只挂一枚");
   assert.equal(mountRoot.children[0].getAttribute("srcdoc"), "A3", "挂的是最后一版内容");
   const fresh = mountRoot.children[0];
   fresh.fire("load");
-  assert.equal(frameIn(current, "message:m1#0"), fresh);
   assert.equal(buffer.stats().mounted, 1);
-  assert.equal(figureIn(current, "message:m1#0").hasAttribute("data-embed-pending"), false);
+  // 落帧后交叉淡入淡出：新帧进、旧帧退，淡出结束才撤
+  clock.advance(EMBED_FADE_OUT_MS);
+  assert.equal(frameIn(current, "message:m1#0"), fresh);
+  assert.equal(oldFrame.parentNode, null);
+  assert.equal(bodyIn(current, "message:m1#0").hasAttribute("data-embed-loading"), false);
+  assert.equal(bodyIn(current, "message:m1#0").hasAttribute("aria-busy"), false);
 });
 
 test("embed buffer：刚变过就结束流式 → 仍等 settle 窗口再一次挂上", () => {
@@ -409,6 +447,7 @@ test("embed buffer：token 过期（期间又变了一次）的帧被丢弃，�
   const fresh = mountRoot.children.find(child => child.getAttribute("srcdoc") === "C");
   assert.ok(fresh, "新内容的帧应该已经发出去");
   fresh.fire("load");
+  clock.advance(EMBED_FADE_OUT_MS);
   assert.equal(frameIn(current, "message:m1#0"), fresh);
   assert.equal(buffer.stats().mounted >= 1, true);
 });
@@ -496,28 +535,70 @@ test("接线顺序：conversation-view 先领养再换行、行进文档后再�
   // 流式标记来自渲染选项，不是缓冲层自己猜的
   assert.match(source, /embedBuffer\.setStreaming\(Boolean\(options\.streaming\)\)/);
 });
-// ── 9. 双缓冲开关 ────────────────────────────────────────
-test("embed buffer：doubleBuffer 时新帧叠在旧帧上，过渡结束才撤旧帧（默认关）", () => {
-  const single = makeBuffer();
-  assert.equal(single.buffer.doubleBuffer(), false);
-  const { buffer, mountRoot, clock } = makeBuffer({ doubleBuffer: true });
-  assert.equal(buffer.doubleBuffer(), true);
-  const before = rowFor("message:m1", [{ key: "message:m1#0", srcdoc: "A" }]);
-  const oldFrame = frameIn(before, "message:m1#0");
-  const next = rowFor("message:m1", [{ key: "message:m1#0", srcdoc: "B" }]);
-  buffer.adopt(before, next, { streaming: false });
+// ── 9. 换帧动画只有一条路径：交叉淡入淡出 ────────────────────────────────
+// 2026-10-29：`doubleBuffer` 开关已删。双缓冲把**加载过程本身**缓冲没了——离屏期间
+// 用户看到的是一块不动的旧画面，帧换上去的瞬间才"啪"地出现。现在恒定走"加载态可见 +
+// 交叉淡入淡出"，不保留"开/关两种行为"的第二套兼容路径（宪法 §9）。
+test("embed buffer：换帧恒定交叉淡入淡出，没有 doubleBuffer 开关", async () => {
+  const { buffer } = makeBuffer();
+  assert.equal(typeof buffer.doubleBuffer, "undefined", "开关已删，不留第二套路径");
+  // JS 的"到点撤帧"与 CSS 的淡出是同一档时长（都来自宪法 token）
+  assert.equal(EMBED_FADE_OUT_MS, 150);
+  assert.equal(EMBED_LOADING_FIRST_DELAY_MS, 100);
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  assert.match(css, /--duration-fast:\s*150ms/);
+  assert.match(
+    css,
+    /\.html-embed-stage > \.html-embed-frame\[data-embed-fade="out"\]\s*\{[^}]*transition:\s*opacity var\(--duration-fast\) var\(--ease-in\)/s,
+    "旧帧淡出必须用 --duration-fast / ease-in",
+  );
+  assert.match(
+    css,
+    /\.html-embed-stage > \.html-embed-frame\[data-embed-fade="settled"\]\s*\{[^}]*transition:\s*opacity var\(--duration-normal\) var\(--ease-out\)/s,
+    "新帧淡入必须用 --duration-normal / ease-out",
+  );
+  // 宪法 §4.5：换帧只动 opacity（不得把布局属性放进过渡）
+  assert.doesNotMatch(
+    css,
+    /\.html-embed-stage > \.html-embed-frame\[data-embed-fade[^{]*\{[^}]*(width|height|top|left|margin)\s*:/s,
+    "换帧过渡不得带布局属性",
+  );
+});
+
+// ── 10. 加载态：100ms 首延迟 → active → 落帧退场 ────────────────────────
+test("embed buffer：短于 100ms 的加载不显示指示器（宪法 §2.2 首延迟）", () => {
+  const { buffer, mountRoot, clock } = makeBuffer();
+  const row = rowFor("message:m1", [{ key: "message:m1#0", srcdoc: "A" }]);
+  const body = bodyIn(row, "message:m1#0");
+  buffer.adopt(null, row, { streaming: false });
   clock.advance(EMBED_SETTLE_MS);
-  buffer.attach(next, { streaming: false });
-  const pending = mountRoot.children[0];
-  pending.fire("load");
-  const stage = stageIn(next, "message:m1#0");
-  // 两层同时在树上：新帧带 data-embed-layer="new" 等着淡入
-  assert.equal(stage.children.length, 2);
-  assert.equal(pending.getAttribute("data-embed-layer"), "new");
-  assert.equal(pending.getAttribute("data-embed-live"), "1");
-  assert.equal(oldFrame.parentNode, stage);
-  clock.advance(200);
-  assert.equal(stage.children.length, 1);
-  assert.equal(oldFrame.parentNode, null);
-  assert.equal(stage.querySelector("iframe"), pending);
+  buffer.attach(row, { streaming: false });
+  // 挂上了，但计时还没到：pending（视觉为空，只是"在等"）
+  assert.equal(body.getAttribute("data-embed-loading"), "pending");
+  clock.advance(40);
+  mountRoot.children[0].fire("load");
+  // 40ms 就交付：100ms 的定时器到点也不该再露加载层
+  clock.advance(1000);
+  assert.equal(body.hasAttribute("data-embed-loading"), false);
+  assert.equal(loadingTextIn(row, "message:m1#0").textContent, "");
+  assert.equal(frameIn(row, "message:m1#0").getAttribute("data-embed-fade"), "settled");
+});
+
+test("embed buffer：超过 100ms 仍未落帧 → 露出状态文字与活动条，落帧后整套退场", () => {
+  const { buffer, mountRoot, clock } = makeBuffer();
+  const row = rowFor("message:m1", [{ key: "message:m1#0", srcdoc: "A" }]);
+  const body = bodyIn(row, "message:m1#0");
+  buffer.adopt(null, row, { streaming: false });
+  clock.advance(EMBED_SETTLE_MS);
+  buffer.attach(row, { streaming: false });
+  assert.equal(body.getAttribute("aria-busy"), "true", "加载容器必须暴露 aria-busy");
+  clock.advance(EMBED_LOADING_FIRST_DELAY_MS);
+  assert.equal(body.getAttribute("data-embed-loading"), "active");
+  assert.equal(loadingTextIn(row, "message:m1#0").textContent, "正在渲染图形", "状态文字要说得清在做什么");
+  // 落帧：加载层退场（CSS 淡出），aria-busy 与状态文字一起清掉
+  mountRoot.children[0].fire("load");
+  assert.equal(body.hasAttribute("data-embed-loading"), false);
+  assert.equal(body.hasAttribute("aria-busy"), false);
+  assert.equal(loadingTextIn(row, "message:m1#0").textContent, "");
 });

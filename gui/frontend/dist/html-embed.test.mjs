@@ -150,3 +150,65 @@ test("html embed: without a row key the identity falls back to the content hash"
   // 身份只用于比较，不进 srcdoc：文档内容与没有身份时逐字相同。
   assert.equal(buildEmbedDocument("<svg/>"), buildEmbedDocument("<svg/>"));
 });
+
+// ── 主题 token（皮肤 × 明暗）────────────────────────────────────────────
+// 2026-10-29：块内颜色不再写死。颜色只有一处供源（styles.css / themes/*.css），
+// 沙箱里是一组 `--sx-*` 缺省 + 宿主推进来的真值（见 embed-theme.js）。这里钉住三件事：
+// 明暗两套缺省都在、语义色不由品牌色派生、旧的硬编码色值已清除。
+test("html embed: sandbox colors come from --sx-* tokens, not hardcoded values", () => {
+  const document = buildEmbedDocument("<svg></svg>");
+  // 明暗两套：缺省深色 + prefers-color-scheme 浅色兜底（文件预览只有一个读者）
+  assert.match(document, /:root\{color-scheme:dark;--sx-bg:/);
+  assert.match(document, /@media \(prefers-color-scheme: light\)\{:root\{color-scheme:light;--sx-bg:/);
+  // 正文颜色走 token：以前的 #e9e4d8 / #3c4a56 不能留在这里
+  assert.doesNotMatch(document, /#e9e4d8/);
+  assert.doesNotMatch(document, /#3c4a56/);
+  assert.match(document, /color:var\(--sx-text\)/);
+});
+
+test("html embed: warning/info colors never follow the skin accent", () => {
+  const document = buildEmbedDocument("");
+  // 语义色是字面色值（按明暗各一套），不是 var(--sx-accent) 派生
+  for (const token of ["--sx-warn", "--sx-danger", "--sx-ok", "--sx-info"]) {
+    const match = document.match(new RegExp(`${token}:([^;}]+)`));
+    assert.ok(match, `${token} 必须在沙箱缺省里`);
+    assert.doesNotMatch(match[1], /var\(--sx-accent|var\(--sx-surface/, `${token} 不得由主题色派生`);
+  }
+  assert.match(document, /--sx-accent:#e9e9ec/, "深色缺省的品牌色仍在（可被宿主覆写）");
+});
+
+// ── 内置组件层 ─────────────────────────────────────────────────────────
+// 块里不必从头画一套皮：语义元素按应用口径出形，且全部装在 :where() 里（特异性 0），
+// 作者自己的样式永远赢。这里钉住"既有组件在"与"不夺权"两条。
+test("html embed: built-in components are available to the block", () => {
+  const document = buildEmbedDocument("<article><button>a</button></article>");
+  for (const selector of [":where(article", ":where(button", ":where(table", ":where(progress", ":where(details", ":where(code", ":where(mark"]) {
+    assert.ok(document.includes(selector), `内置组件 ${selector} 缺失`);
+  }
+  // 命名别名 + 语义芯片
+  for (const name of [".sx-card", ".sx-btn", ".sx-chip", ".sx-row", ".sx-stack", ".sx-meter"]) {
+    assert.ok(document.includes(name), `内置组件别名 ${name} 缺失`);
+  }
+  assert.match(document, /:where\(article,\.sx-card\)\{/);
+  assert.match(document, /\.sx-chip\.is-warn\)/);
+  // 预置组件只兜底：裸元素选择器（不带 :where）不得出现在组件层里
+  assert.doesNotMatch(document, /(^|[};\s])(article|button|table|progress|details)\{/);
+});
+
+// ── 加载层与淡入淡出的抓手 ──────────────────────────────────────────────
+// 帧的加载态与换帧动画由 embed-buffering.js 驱动（见 embed-buffering.test.mjs），
+// 这里只钉住标记齐备：加载层挂在 body 上（最小变化区域）、有 role=status、帧落位台不变。
+test("html embed: the block carries a status region for the loader", () => {
+  const html = renderHtmlEmbed("<svg></svg>", 'title="趋势图"');
+  assert.match(html, /<div class="html-embed-body" data-embed-body="1">/);
+  assert.match(html, /<p class="html-embed-status" role="status" aria-live="polite">/);
+  assert.match(html, /data-embed-loading-text/);
+  assert.match(html, /class="html-embed-activity"/);
+  // 加载层与帧都在 body 里；帧仍只住 stage（换帧动画只发生在 stage 内）
+  assert.match(html, /<div class="html-embed-stage" data-embed-stage="1"/);
+  // 初始不带加载态：静止的块不该挂 aria-busy
+  assert.doesNotMatch(html, /aria-busy="true"/);
+  // 安全口径不变
+  assert.match(html, /sandbox="allow-scripts"/);
+  assert.doesNotMatch(html, /allow-same-origin/);
+});

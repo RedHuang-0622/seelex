@@ -325,8 +325,7 @@ export function mountAgentConversationPanel(root, options = {}) {
     openImage: options.openImage,
     fetchResult: options.fetchResult,
     openFile: options.openFile,
-    embedMountRoot: options.embedMountRoot,
-    doubleBuffer: options.doubleBuffer
+    embedMountRoot: options.embedMountRoot
   });
   const model = agentConversationModel(options.page || null, {
     ref,

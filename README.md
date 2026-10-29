@@ -78,7 +78,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 持久化 | JSON v8 后端；会话顺序日志、项目与 Session 隔离、模块 head 发布、消息分片、媒体分区，以及 plan/task/goal 三栈通道 |
 | 恢复与存活 | 通用恢复七步模板、子代理冷恢复同键续跑、中断轮残缺工具链截断、驻留 LRU 驱逐与 replan 并发/窗口限流 |
 | 前端 | Bubble Tea TUI（默认）、Wails/WebView GUI（Alpha）、headless 回环 RPC、backend 诊断控制台 |
-| 可视答案 | 会话内 <code>seelex-html</code> 围栏 → 沙箱 iframe（<code>sandbox="allow-scripts"</code>、无 <code>allow-same-origin</code>、内嵌 CSP 断网、仅 <code>data:</code> 图片），高度钳制 120–640px，支持 <code>title=</code>/<code>height=</code>/<code>src=</code>（工作区文件）参数；块内交互默认留在沙箱内，跨帧只走白名单动作（<code>ask-agent</code> / <code>fill-composer</code> / <code>copy-text</code> / <code>open-source</code>），驱动会话要求围栏 <code>interactive=1</code> 且块内刚发生过真实手势 |
+| 可视答案 | 会话内 <code>seelex-html</code> 围栏 → 沙箱 iframe（<code>sandbox="allow-scripts"</code>、无 <code>allow-same-origin</code>、内嵌 CSP 断网、仅 <code>data:</code> 图片），高度钳制 120–640px，支持 <code>title=</code>/<code>height=</code>/<code>src=</code>（工作区文件）参数；块内自带内置组件层（<code>article</code>/<code>button</code>/<code>table</code>/<code>.sx-chip</code> 等，<code>:where()</code> 兜底不夺权），配色走 <code>--sx-*</code> token 跟随皮肤与明暗（警告/信息类语义色只随明暗）；帧加载按 100ms 首延迟显示状态文字与活动条，换帧走交叉淡入淡出；块内交互默认留在沙箱内，跨帧只走白名单动作（<code>ask-agent</code> / <code>fill-composer</code> / <code>copy-text</code> / <code>open-source</code>），驱动会话要求围栏 <code>interactive=1</code> 且块内刚发生过真实手势 |
 | 可观测性 | Snapshot/Event 协议、Plan 节点事件、工作台/traceboard、MCP 调用轨迹和运行时状态 |
 | 测试 | Go 单元/集成/E2E（无真实 LLM 的确定性场景）、GUI 协议测试、三平台 CI、race/coverage 和发布安全检查 |
 

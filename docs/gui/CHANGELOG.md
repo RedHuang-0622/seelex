@@ -6,6 +6,25 @@
 
 ### Changed
 
+- **沙箱渲染块接入内置组件与主题 token**：`seelex-html` 块内的颜色不再写死（旧的
+  `#e9e4d8` / `#3c4a56` 已清除），改用一组 `--sx-*` 变量：base 那套（surface / border /
+  text / accent / code / 字体 / 圆角 / 时长）跟随**皮肤 × 明暗**两条轴，而警告 / 危险 /
+  成功 / 信息四族语义色只随明暗、不随皮肤——它们在宿主里本来就是 skin-independent 的
+  `--status-*`，换个皮肤不能把"警告"染成品牌色。真值由新增的 `embed-theme.js` 在帧
+  load 后与每次换肤时用 `postMessage` 推入（帧是 opaque origin，读不到宿主 CSS 变量），
+  因此换肤**不重建 srcdoc、不重载帧、块内交互状态不丢**；载荷只允许写 `--sx-*`，块内
+  接收端二次校验名字与值，这条通道不承载任何能力。
+- **块内新增内置组件层**：`<article>`（卡片）/ `<button>` / `<table>` / `<progress>` /
+  `<details>` / `<code>` / `<mark>` 按应用口径出形，另有 `.sx-card` / `.sx-btn` /
+  `.sx-chip`（含 `.is-warn` 等语义变体）/ `.sx-row` / `.sx-stack` / `.sx-meter` 别名。
+  组件规则一律装在 `:where()` 里（特异性 0），作者自己的样式永远优先；提示词资产
+  （`kernel/prompt/assets`）同步写入用法，并用 harness 用例锁住。
+- **沙箱换帧改为"加载态可见 + 交叉淡入淡出"**：删掉 `doubleBuffer` 开关（不留第二套
+  兼容路径）。新帧离屏加载期间，加载层按宪法 §2.2 走 `idle → pending → active`：前
+  100ms 不显示任何指示器，之后露出状态文字（"正在渲染图形" / 流式期间"等待内容稳定"）
+  与一条只动 `transform` 的不确定活动条，容器同时暴露 `aria-busy`；落帧时旧帧以
+  `--duration-fast` / `ease-in` 淡出、新帧以 `--duration-normal` / `ease-out` 淡入，
+  全程在固定高度落位台内，零 CLS。reduced-motion 下直接到终态并保留状态文字与活动条。
 - **右侧用户输入索引改为波浪刻度轨**：一条刻度仍对应一条用户输入，但视觉从独立短条
   改为贴内容基线的细刻线。指针进入后，刻度按与指针的距离通过 `transform: scaleX()`
   形成连续波浪，离开时回缩；刻线与基线取当前主题的 `--text`，因此深色背景用亮线、

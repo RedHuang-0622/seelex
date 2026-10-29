@@ -18,6 +18,14 @@
 // 发送端谁定协议）；**宿主怎么判**在 embed-bridge.js。按围栏参数 `interactive=1` 标出的
 // 块才被允许做"有后果"的动作 `ask-agent`，其余块即使发出消息也会被拒。
 //
+// 颜色同理**不写死**：块内只有一组 `--sx-*` token，缺省是一份深色基座，宿主在帧 load
+// 后与每次换肤时用 postMessage 把真实 token 推进来（发送端 embed-theme.js，接收端在本
+// 文件的桥脚本里）——所以换肤不重建 srcdoc、不重载帧、块内交互状态不丢。**警告 / 危险 /
+// 成功 / 信息**四族语义色只随明暗取值、不随皮肤（"警告"换皮肤也还是那个警告色）。
+// 元素层面有一层**内置组件**兜底：`<article>` 就是卡片、`<button>` 就是按钮、
+// `<table>` / `<progress>` / `<details>` / `<code>` 都按应用口径出形，另有 `.sx-*` 别名，
+// 全部装在 `:where()` 里（特异性 0），作者自己的样式永远优先。
+//
 // 触发方式：markdown 围栏代码块，语言标记为 `seelex-html`（别名
 // `html-preview`）；普通 ```html 仍然是源码块，不受影响。
 //
@@ -40,6 +48,12 @@ const MAX_HEIGHT = 640;
 // 指针拖拽都不需要任何协议。要让"画布里的动作"变成宿主动作，只有 postMessage 一条路。
 
 export const EMBED_BRIDGE_TAG = "seelex-embed";
+
+// 宿主 → 块内**唯一一条**通道：换肤。块是无 same-origin 的 opaque origin，宿主读不到
+// 它的 DOM，它也读不到宿主的 token，所以主题只能由宿主**推**进去（embed-theme.js 发、
+// buildEmbedBridgeScript 收）。载荷只允许写 `--sx-*` 自定义属性，不承载任何能力。
+export const EMBED_HOST_TAG = "seelex-host";
+export const EMBED_THEME_MESSAGE = "theme";
 
 // 声明式动作的两个属性：`data-seelex-action` + `data-seelex-payload`。提示词层
 // （internal/promptassets）与 GUI README 都按这两个名字写配方，改名要一起改。
@@ -79,6 +93,8 @@ export function buildEmbedBridgeScript() {
     `var TAG = ${JSON.stringify(EMBED_BRIDGE_TAG)};`,
     `var ACTION_ATTR = ${JSON.stringify(EMBED_ACTION_ATTR)};`,
     `var PAYLOAD_ATTR = ${JSON.stringify(EMBED_PAYLOAD_ATTR)};`,
+    `var HOST_TAG = ${JSON.stringify(EMBED_HOST_TAG)};`,
+    `var THEME_MESSAGE = ${JSON.stringify(EMBED_THEME_MESSAGE)};`,
     `var DRIVING = ${JSON.stringify(driving)};`,
     `var ACTIONS = ${JSON.stringify(EMBED_ACTION_NAMES)};`,
     `var GESTURE_WINDOW_MS = ${EMBED_GESTURE_WINDOW_MS};`,
@@ -111,11 +127,143 @@ export function buildEmbedBridgeScript() {
     "}",
     "document.addEventListener(\"click\", activate);",
     "document.addEventListener(\"keydown\", activate);",
+    // ── 换肤接收端（宿主 → 块内唯一一条通道）────────────────────────────
+    // 只认父窗口发来的换肤消息；载荷只能写 `--sx-*` 自定义属性，写不进别的声明，
+    // 因此这条通道**不授予任何能力**（它改不了 DOM、拿不到数据、发不出网络请求）。
+    "var TOKEN_NAME = /^--sx-[a-z0-9-]{1,32}$/;",
+    "var TOKEN_VALUE_BAD = /[;{}<>\\\\]|url\\s*\\(|expression\\s*\\(|@import/i;",
+    "function applyTheme(data) {",
+    "  var root = document.documentElement;",
+    "  var tokens = data.tokens;",
+    "  if (tokens && typeof tokens === \"object\") {",
+    "    for (var name in tokens) {",
+    "      if (!Object.prototype.hasOwnProperty.call(tokens, name)) continue;",
+    "      if (!TOKEN_NAME.test(name)) continue;",
+    "      var value = tokens[name];",
+    "      if (typeof value !== \"string\" || !value || value.length > 256) continue;",
+    "      if (TOKEN_VALUE_BAD.test(value)) continue;",
+    "      root.style.setProperty(name, value);",
+    "    }",
+    "  }",
+    "  if (data.mode === \"dark\" || data.mode === \"light\") {",
+    "    root.setAttribute(\"data-theme\", data.mode);",
+    "    root.style.colorScheme = data.mode;",
+    "  }",
+    "}",
+    "window.addEventListener(\"message\", function (event) {",
+    "  if (event.source !== parent) return;",
+    "  var data = event.data;",
+    "  if (!data || typeof data !== \"object\") return;",
+    "  if (data.source !== HOST_TAG || data.type !== THEME_MESSAGE) return;",
+    "  applyTheme(data);",
+    "});",
     "window.seelex = { emit: emit, actions: ACTIONS };",
     "})();",
     "</script>"
   ].join("\n");
 }
+
+// ── 沙箱主题 token（`--sx-*`）────────────────────────────────────────────
+//
+// 宿主有两条正交的外观轴（皮肤 × 深浅，见 theme.js），沙箱里把它们收敛成一组
+// `--sx-*`：块内写 `var(--sx-accent)` 就跟着当前皮肤与明暗走，不需要知道宿主把这些
+// 变量叫什么。**语义色例外**：警告 / 危险 / 成功 / 信息只按明暗取值——它们在宿主里
+// 本来就是 skin-independent 的 `--status-*` 一族，不能被品牌色染掉（"警告"得一直是
+// 那个警告色，换个皮肤不能变成品牌色）。
+//
+// 这些值是**缺省**：宿主真实 token 由 embed-theme.js 在帧 load 后、以及每次换肤时用
+// postMessage 推进来覆写。所以换肤不会重建 srcdoc、不会重载帧、块内交互状态不丢。
+export const EMBED_THEME_TOKENS_DARK = Object.freeze({
+  "--sx-bg": "#181818",
+  "--sx-panel": "#1f1f1f",
+  "--sx-surface": "#262626",
+  "--sx-surface-2": "#2e2e2e",
+  "--sx-border": "#333333",
+  "--sx-border-strong": "#474747",
+  "--sx-text": "#e4e4e4",
+  "--sx-text-strong": "#ffffff",
+  "--sx-text-soft": "#c8c8c8",
+  "--sx-muted": "#a3a3a3",
+  "--sx-faint": "#7e7e7e",
+  "--sx-accent": "#e9e9ec",
+  "--sx-on-accent": "#16161a",
+  "--sx-code-bg": "#131313",
+  "--sx-font-ui": "'Segoe UI Variable','Microsoft YaHei',system-ui,sans-serif",
+  "--sx-font-mono": "ui-monospace,'Cascadia Mono',Consolas,monospace",
+  "--sx-radius-sm": "6px",
+  "--sx-radius": "8px",
+  "--sx-radius-lg": "10px",
+  "--sx-duration-fast": "150ms",
+  "--sx-duration-normal": "250ms",
+  "--sx-ease-out": "cubic-bezier(.16,1,.3,1)",
+  "--sx-ease-in": "cubic-bezier(.55,.06,.68,.19)",
+  // 语义色：只随明暗，不随皮肤（宿主 --status-* 同一条口径）。
+  "--sx-warn": "#e0a45c",
+  "--sx-ok": "#4cc38a",
+  "--sx-danger": "#f0716a",
+  "--sx-info": "#6ba6ff",
+  "--sx-tint-warn": "rgba(224,164,92,.12)",
+  "--sx-tint-ok": "rgba(76,195,138,.12)",
+  "--sx-tint-danger": "rgba(240,113,106,.12)",
+  "--sx-tint-info": "rgba(107,166,255,.12)",
+  "--sx-border-warn": "rgba(224,164,92,.42)",
+  "--sx-border-ok": "rgba(76,195,138,.42)",
+  "--sx-border-danger": "rgba(240,113,106,.42)",
+  "--sx-border-info": "rgba(107,166,255,.42)"
+});
+
+export const EMBED_THEME_TOKENS_LIGHT = Object.freeze({
+  "--sx-bg": "#f7f6f2",
+  "--sx-panel": "#fbfaf6",
+  "--sx-surface": "#ffffff",
+  "--sx-surface-2": "#f1f0ea",
+  "--sx-border": "#e7e7e4",
+  "--sx-border-strong": "#d6d2c6",
+  "--sx-text": "#1f2328",
+  "--sx-text-strong": "#0f1215",
+  "--sx-text-soft": "#3c4148",
+  "--sx-muted": "#6b6f76",
+  "--sx-faint": "#9096a0",
+  "--sx-accent": "#1f2328",
+  "--sx-on-accent": "#ffffff",
+  "--sx-code-bg": "#f5f4f0",
+  "--sx-font-ui": "'Segoe UI Variable','Microsoft YaHei',system-ui,sans-serif",
+  "--sx-font-mono": "ui-monospace,'Cascadia Mono',Consolas,monospace",
+  "--sx-radius-sm": "6px",
+  "--sx-radius": "8px",
+  "--sx-radius-lg": "10px",
+  "--sx-duration-fast": "150ms",
+  "--sx-duration-normal": "250ms",
+  "--sx-ease-out": "cubic-bezier(.16,1,.3,1)",
+  "--sx-ease-in": "cubic-bezier(.55,.06,.68,.19)",
+  "--sx-warn": "#b26a00",
+  "--sx-ok": "#1f9c63",
+  "--sx-danger": "#d64545",
+  "--sx-info": "#2e6be6",
+  "--sx-tint-warn": "rgba(178,106,0,.10)",
+  "--sx-tint-ok": "rgba(31,156,99,.10)",
+  "--sx-tint-danger": "rgba(214,69,69,.10)",
+  "--sx-tint-info": "rgba(46,107,230,.10)",
+  "--sx-border-warn": "rgba(178,106,0,.38)",
+  "--sx-border-ok": "rgba(31,156,99,.38)",
+  "--sx-border-danger": "rgba(214,69,69,.38)",
+  "--sx-border-info": "rgba(46,107,230,.38)"
+});
+
+// EMBED_DEFAULT_TOKENS 是"还没有收到宿主消息"时的缺省（深色）。宿主侧 embed-theme.js
+// 读不到 token 时也回退到这一份——两边同一处供源，别各写一套兜底色。
+export const EMBED_DEFAULT_TOKENS = EMBED_THEME_TOKENS_DARK;
+
+function tokenDeclarations(tokens) {
+  return Object.keys(tokens).map(name => `${name}:${tokens[name]}`).join(";");
+}
+
+// 主题层排在最前：组件层的每条规则都只引用 `--sx-*`，自己不写颜色。
+const EMBED_THEME_CSS = [
+  `:root{color-scheme:dark;${tokenDeclarations(EMBED_THEME_TOKENS_DARK)}}`,
+  // 浅色兜底的读者只有文件预览（它没有换肤通道）：跟随系统偏好，别在浅色页面上画深色块。
+  `@media (prefers-color-scheme: light){:root{color-scheme:light;${tokenDeclarations(EMBED_THEME_TOKENS_LIGHT)}}}`
+].join("");
 
 // EMBED_BASE_CSS 只做最基本的可读性兜底：用户自己的样式优先，避免"预置主题"
 // 把图表的配色盖掉。两条 SVG 兜底来自实测（Playwright 探针，见 devlog
@@ -129,15 +277,78 @@ export function buildEmbedBridgeScript() {
 //     时，默认参考框是 viewBox，`transform:rotate()` 会绕画布中心转；`fill-box` 才是
 //     作者通常要的"就地转"。同样用 `:where()` 兜底，作者写了自己的规则就听作者的。
 const EMBED_BASE_CSS = [
-  ":root{color-scheme:dark}",
-  "html,body{margin:0;padding:10px;background:transparent;color:#e9e4d8;",
-  "font:13px/1.5 'Segoe UI Variable','Microsoft YaHei',system-ui,sans-serif}",
+  "html,body{margin:0;padding:10px;background:transparent;color:var(--sx-text);",
+  "font:13px/1.5 var(--sx-font-ui)}",
   "body>*:first-child{margin-top:0}body>*:last-child{margin-bottom:0}",
   "svg{max-width:100%;height:auto}",
   ":where(svg text){pointer-events:none}",
-  ":where(svg rect,svg circle,svg ellipse,svg path,svg polygon,svg polyline,svg line,svg image,svg g,svg use){transform-box:fill-box}",
-  "table{border-collapse:collapse}th,td{padding:4px 8px;border:1px solid #3c4a56}"
+  ":where(svg rect,svg circle,svg ellipse,svg path,svg polygon,svg polyline,svg line,svg image,svg g,svg use){transform-box:fill-box}"
 ].join("");
+
+// EMBED_COMPONENT_CSS 是**内置组件层**：块里不必从头画一套皮，语义元素按应用的口径
+// 出形（`<article>` = 卡片、`<button>` = 按钮、`<table>` = 表格、`<progress>` = 进度），
+// 另有一组 `.sx-*` 别名给不想用语义标签的场合。全部走 `--sx-*`，因此天然跟随皮肤与
+// 明暗，换肤不用改块内 HTML。
+//
+// 特异性是刻意的：一律 `:where()` 包一层（特异性 0），作者写任何一条自己的规则都赢，
+// 不会出现"预置组件压住我的图"——预置只兜底，不夺权。
+const EMBED_COMPONENT_CSS = [
+  ":where(h1,h2,h3,h4){margin:0 0 6px;font-size:14px;font-weight:700;color:var(--sx-text-strong)}",
+  ":where(p,ul,ol){margin:0 0 8px}",
+  ":where(ul,ol){padding-left:18px}",
+  ":where(small,.sx-muted){color:var(--sx-muted)}",
+  ":where(a){color:var(--sx-accent);text-decoration:none;border-bottom:1px solid var(--sx-border-strong)}",
+  // 卡片：<article> 与其 .sx-card 别名
+  ":where(article,.sx-card){margin:0 0 10px;padding:10px 12px;border:1px solid var(--sx-border);",
+  "border-radius:var(--sx-radius-lg);background:var(--sx-surface)}",
+  ":where(article>header,.sx-card>header){margin:0 0 8px;padding:0 0 6px;",
+  "border-bottom:1px solid var(--sx-border);font-weight:600;color:var(--sx-text-strong)}",
+  ":where(article>footer,.sx-card>footer){margin:8px 0 0;padding:6px 0 0;",
+  "border-top:1px solid var(--sx-border);color:var(--sx-muted)}",
+  // 按钮：语义 <button>/role=button，外加 .sx-btn 的三个变体
+  ":where(button,[role='button'],.sx-btn){display:inline-flex;align-items:center;gap:6px;",
+  "padding:5px 10px;border:1px solid var(--sx-border-strong);border-radius:var(--sx-radius);",
+  "background:var(--sx-surface-2);color:var(--sx-text);font:inherit;cursor:pointer;",
+  "transition:background-color var(--sx-duration-fast) var(--sx-ease-out),color var(--sx-duration-fast) var(--sx-ease-out)}",
+  ":where(button,[role='button'],.sx-btn):hover{background:var(--sx-surface);color:var(--sx-text-strong)}",
+  ":where(.sx-btn-primary){background:var(--sx-accent);border-color:var(--sx-accent);color:var(--sx-on-accent)}",
+  ":where(.sx-btn-ghost){background:transparent;border-color:transparent;color:var(--sx-muted)}",
+  // 表格：数字列等宽，表头弱色、行分隔发丝线
+  ":where(table){width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}",
+  ":where(th,td){padding:4px 8px;border-bottom:1px solid var(--sx-border);text-align:left}",
+  ":where(thead th){color:var(--sx-muted);font-weight:600;border-bottom-color:var(--sx-border-strong)}",
+  // 进度：<progress> 与 .sx-meter>.sx-meter-fill
+  ":where(progress){width:100%;height:6px;appearance:none;border:0;border-radius:999px;background:var(--sx-surface-2)}",
+  ":where(progress)::-webkit-progress-bar{background:var(--sx-surface-2);border-radius:999px}",
+  ":where(progress)::-webkit-progress-value{background:var(--sx-accent);border-radius:999px}",
+  ":where(.sx-meter){height:6px;border-radius:999px;background:var(--sx-surface-2);overflow:hidden}",
+  ":where(.sx-meter-fill){display:block;height:100%;border-radius:inherit;background:var(--sx-accent)}",
+  // 代码 / 折叠面板 / 强调
+  ":where(code,kbd){padding:1px 4px;border-radius:var(--sx-radius-sm);background:var(--sx-code-bg);",
+  "color:var(--sx-text-soft);font:11px var(--sx-font-mono)}",
+  ":where(pre){margin:0 0 8px;padding:8px;border-radius:var(--sx-radius);background:var(--sx-code-bg);",
+  "overflow:auto;font:11px/1.5 var(--sx-font-mono)}",
+  ":where(pre code){padding:0;background:transparent}",
+  ":where(mark){background:var(--sx-tint-warn);color:var(--sx-text)}",
+  ":where(details){margin:0 0 8px;padding:6px 8px;border:1px solid var(--sx-border);border-radius:var(--sx-radius)}",
+  ":where(summary){cursor:pointer;color:var(--sx-text-soft)}",
+  // 状态芯片：语义色只在这里出场（警告/危险/成功/信息），且不跟品牌色走
+  ":where(.sx-chip){display:inline-flex;align-items:center;gap:4px;padding:1px 7px;",
+  "border:1px solid var(--sx-border-strong);border-radius:999px;background:var(--sx-surface-2);",
+  "color:var(--sx-text-soft);font:11px var(--sx-font-mono)}",
+  ":where(.sx-chip.is-warn){background:var(--sx-tint-warn);border-color:var(--sx-border-warn);color:var(--sx-warn)}",
+  ":where(.sx-chip.is-ok){background:var(--sx-tint-ok);border-color:var(--sx-border-ok);color:var(--sx-ok)}",
+  ":where(.sx-chip.is-danger){background:var(--sx-tint-danger);border-color:var(--sx-border-danger);color:var(--sx-danger)}",
+  ":where(.sx-chip.is-info){background:var(--sx-tint-info);border-color:var(--sx-border-info);color:var(--sx-info)}",
+  // 版式小工具：只给间距，不改作者的字号与颜色
+  ":where(.sx-row){display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
+  ":where(.sx-stack){display:flex;flex-direction:column;gap:6px}",
+  // 动效降级：预置组件的过渡在 reduced-motion 下直接到终态（作者自己的动画由提示词要求）
+  "@media (prefers-reduced-motion: reduce){:where(button,[role='button'],.sx-btn){transition:none}}"
+].join("");
+
+const EMBED_SANDBOX_CSS = EMBED_THEME_CSS + EMBED_BASE_CSS + EMBED_COMPONENT_CSS;
+
 
 const EMBED_CSP = [
   "default-src 'none'",
@@ -172,7 +383,7 @@ export function buildEmbedDocument(body) {
   return [
     "<!DOCTYPE html><html><head><meta charset=\"utf-8\">",
     `<meta http-equiv="Content-Security-Policy" content="${EMBED_CSP}">`,
-    `<style>${EMBED_BASE_CSS}</style></head><body>`,
+    `<style>${EMBED_SANDBOX_CSS}</style></head><body>`,
     buildEmbedBridgeScript(),
     String(body ?? ""),
     "</body></html>"
@@ -188,7 +399,7 @@ export function buildHtmlPreviewDocument(body) {
   return [
     "<!DOCTYPE html><html><head><meta charset=\"utf-8\">",
     `<meta http-equiv="Content-Security-Policy" content="${EMBED_CSP}">`,
-    `<style>${EMBED_BASE_CSS}</style></head><body>`,
+    `<style>${EMBED_SANDBOX_CSS}</style></head><body>`,
     String(body ?? ""),
     "</body></html>"
   ].join("");
@@ -213,9 +424,14 @@ export function renderSandboxFrame(body, { title = "", className = "" } = {}) {
 // 时退回**内容哈希**：同内容同身份、内容变了身份就变——身份只在"这是不是同一帧"这个
 // 意义上使用，与安全判断无关（沙箱口径仍逐条不变：只进 srcdoc、只给 allow-scripts）。
 //
-// 帧外面套一层 `.html-embed-stage`：它是帧的**固定高度的落位台**（高度取
-// `--embed-height`），单缓冲交换与双缓冲两层重叠都发生在这一层里，因此换帧期间旧帧
-// 撤走也不会让卡片塌陷。
+// 三层各自的职责（换帧动画就发生在这三层之间，见 styles.css 的会话内 HTML 渲染块）：
+//   · `.html-embed-body`  帧 + 加载层的**最小变化区域**：加载态与 aria-busy 挂在这里，
+//     换帧只影响这一块，不外溢到卡片铭牌、源码折叠与相邻行；
+//   · `.html-embed-stage` 帧的**固定高度落位台**（高度取 `--embed-height`）：交叉淡入
+//     淡出时新旧两帧都在这一层里绝对定位叠放，因此换帧期间不塌陷、不抖；
+//   · `.html-embed-status` 加载态（改由 embed-buffering.js 驱动）：状态文字 + 一条
+//     不确定活动条；`role="status"` 让读屏能听到"正在渲染图形"，先 100ms 不显示
+//     （宪法 §2.2 的首延迟），避免短任务闪一下又消失。
 export function renderHtmlEmbed(body, info = "", options = {}) {
   const { title, height, interactive } = parseEmbedInfo(info);
   const document = buildEmbedDocument(body);
@@ -225,8 +441,11 @@ export function renderHtmlEmbed(body, info = "", options = {}) {
   const note = interactive ? "沙箱渲染 · 不联网 · 可驱动会话" : "沙箱渲染 · 不联网";
   return `<figure class="html-embed" data-embed-key="${keyAttr}" data-embed-interactive="${interactive ? "1" : "0"}" style="--embed-height:${height}px">
   <figcaption class="html-embed-head"><span class="html-embed-mark" aria-hidden="true"></span><span class="html-embed-title">${escapeHtml(title)}</span><span class="html-embed-note">${note}</span></figcaption>
+  <div class="html-embed-body" data-embed-body="1">
   <div class="html-embed-stage" data-embed-stage="1" data-embed-key="${keyAttr}">
   <iframe class="html-embed-frame" data-embed-key="${keyAttr}" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" title="${escapeAttribute(title)}" srcdoc="${escapeAttribute(document)}"></iframe>
+  </div>
+  <p class="html-embed-status" role="status" aria-live="polite"><span class="html-embed-status-text" data-embed-loading-text></span><span class="html-embed-activity" aria-hidden="true"></span></p>
   </div>
   <details class="html-embed-source"><summary>查看源码</summary><pre><code>${escapeHtml(body)}</code></pre></details>
 </figure>`;

@@ -78,14 +78,15 @@ flowchart TB
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。会话切换是渲染边界：清空上一会话的 keyed 行缓存、立即显示 4 行消息骨架与整行 Shimmer（不显示说明文字、不播放会从 `opacity: 0` 起步的通用入场动画），整批装载后在新布局上重新贴尾。切换结束清位后按最终快照再完整重绘正文。批量恢复或历史装载一次出现很多新行时禁用逐行入场；只有小批增量（≤2 行）才播入场。`markEntering` 的兜底超时同时 cancel WAAPI，避免 WebView 丢帧后残留 `fill:both` 的透明首帧——这正是“高度被占住但正文看不见”的复现根因。`conversationRenderProbe` 记录目标会话、快照消息数、DOM 行数、实际绘制行数、透明行数、最大行高与最大行间空档，判定 `ok / loading / target-not-loaded / snapshot-empty / frontend-dropped / layout-hidden / rows-transparent / layout-gap / tall-row`；结果写到 `window.__SEELEX_CONVERSATION_PROBE__`、`#conversation[data-conversation-probe]` 与开发版顶栏徽标。用户消息编辑器在此挂载：稳定 `operation_id`、`ConversationRevision` CAS、loading 防双击、失败保留文本；DOM reconcile 后重新挂载未提交编辑器。**沙箱帧不走"整行重建"**：换行前把旧行里的 `seelex-html` 帧交给 `embed-buffering.js` 领养（内容没变的帧原样搬过去，不重载），换行后才发起离屏挂载——见下节「渲染时序」。 |
 | `dist/agent-conversation-view.js` | **主会话、subagent、teammate 共用的对话与输入组件**。`ConversationRecord[]` 只在这里映射回主会话的 message/tool-run 形状；正文直接挂 `createConversationView`，因此增量入场、滚动锚点、完成态 settle、embed 帧缓冲、流式 cadence 与 reduced-motion 都是同一份逻辑。加载态直接复用主会话的四行结构骨架；输入框由 `composer-shell.js` 克隆唯一模板，并把 `ConversationChat` 固定到当前 `ConversationSessionRef`（subagent 用自身 session，teammate 必须带 WorkItem）。Work Item、团队详情与子代理详情都消费这一件，不再维护“完整执行记录”的第二套列表 UI。 |
 | `dist/composer-shell.js` | 输入框 DOM 的唯一模板装配器：主会话把 `#composer-template` 挂到 `#composer`，子代理会话按稳定前缀克隆同一份模板并重写 id/ARIA 引用。前缀只隔离 DOM 身份，不复制输入规则或业务状态。 |
-| `dist/embed-buffering.js` | 会话内 HTML 渲染块的**帧缓冲**（治闪屏）：纯决策 `shouldDeferMount`（流式 / settle 窗口内不挂）与 `planEmbedMounts(prev, next, opts)`（按 `(key, srcdoc)` 分成 adopt / mount / defer / unmount 四类）+ DOM 适配 `createEmbedFrameBuffer`（领养、离屏挂载等 `load`、流式同高占位、双缓冲开关、token 防串、并发 4 上限排队、行移除清理）。零 import、可离线单测（`embed-buffering.test.mjs`）。**不改沙箱口径**：帧属性原样克隆，唯一改动是离屏副本的 `loading`（lazy 在离屏容器里可能永不加载）。 |
+| `dist/embed-buffering.js` | 会话内 HTML 渲染块的**帧缓冲**（治闪屏）：纯决策 `shouldDeferMount`（流式 / settle 窗口内不挂）与 `planEmbedMounts(prev, next, opts)`（按 `(key, srcdoc)` 分成 adopt / mount / defer / unmount 四类）+ DOM 适配 `createEmbedFrameBuffer`（领养、离屏挂载等 `load`、流式静态占位、**加载态状态机**、**交叉淡入淡出**、token 防串、并发 4 上限排队、行移除清理）。加载态按宪法 §2.2 走 `idle → pending（前 100ms 不显示）→ active（状态文字 + 只动 transform 的活动条 + aria-busy）→ settled`，换帧恒定"旧帧 `--duration-fast` 淡出 + 新帧 `--duration-normal` 淡入"，**没有 doubleBuffer 开关**（2026-10-29 删除：它把加载过程本身缓冲没了）。零 import、可离线单测（`embed-buffering.test.mjs`）。**不改沙箱口径**：帧属性原样克隆，唯一改动是离屏副本的 `loading`（lazy 在离屏容器里可能永不加载）。 |
+| `dist/embed-theme.js` | 会话内 HTML 渲染块的**换肤通道**（宿主 → 块内，单向）：帧是 opaque origin，读不到宿主 CSS 变量，所以由宿主推。两张映射表——`EMBED_THEME_VARS`（`--sx-*` ← 皮肤/明暗驱动的 `--surface*` / `--text*` / `--accent*` / `--code-bg` / 字体 / 圆角 / 时长）与 `EMBED_SEMANTIC_VARS`（`--sx-warn/danger/ok/info` + tint/border ← 宿主的 `--status-*` / `--tint-*` / `--border-*`，**只随明暗、不随皮肤**），两表必须不相交（测试钉住）。`createEmbedThemeRelay` 在帧 `load` 时补发一次、换肤时 `broadcast()`；`readEmbedTheme` 读不到就回落到沙箱同一份缺省，`sanitizeTokenValue` 丢弃能改变声明的值。载荷只写 `--sx-*`，**不授予任何能力**。接线在 `app.js`（`themeController.onApplied`）。 |
 | `dist/conversation-wheel.js` | 右侧「会话内用户输入索引」：一条刻度 = 一条用户输入，且**覆盖整会话**（刻度表来自后端全量索引 `Bridge.SessionInputIndex`，含尚未加载到窗口的早期轮次；`app.js` 推入 + 宿主回读通道 `locateInput`）。位置：已加载轮次用问题节点在内容里的真实高度比例，未加载轮次按确定性比例布点；只索引用户输入（不再退回助手步骤/多类别刻度）。**波浪刻度轨（2026-10-29）**：刻度贴内容基线向左伸出，刻线取当前主题的 `--text` 形成背景反色，指针进入后按距离用 `transform` 伸长/回缩成连续波浪，`requestAnimationFrame` 合并指针更新，reduced-motion 下静止；当前刻度保持 `--tick-hot`。摘要卡第一层以主文本色显示用户问题，第二层以弱文本色显示该轮最后一条非空 assistant 回复开头（`reply_summary`），无回复时写「这一轮还没有 LLM 回复」。当前输入高亮、点击跳到对应输入——未加载的目标先按页回读（`planInputLocate`/`locateInput`）再定位；键盘 ↑↓/PgUp/PgDn/Home/End 只作用于用户输入刻度。纯函数（`normalizeInputIndex`/`planInputLocate`/`inputAtOffset`/`activeInputIndex`/`scrollTopForFraction`/`wheelWaveStrength`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
 | `dist/trajectory.js` | 轨迹（DevTools Network 风格请求/响应检查器）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、左表渲染、右侧 `renderTrajectoryInspector` 抽屉式入参/出参/THINK 详情与紧凑分轨上下文轴。`AXIS_LANES` 是轨定义与顺序的单一事实源；六条轨各占 9px、可见条 4px。记录轨按本页槽数建立 CSS Grid，每块用 `--slot` 占据自己的完整列，因此所有块天然是横向短条；不再依赖百分比 `width` 或 `max()` 计算，避免 WebView 把横条压成刻度点。`axisRangeForDrag` / `trajectoryRecordsInRange` 支持在轴上拖拽闭区间并只查看该范围。轴还内联前缀注入、压缩刻度与分界虚线，并由 `renderAxisDetail` 展示分页读回的压缩帧正文。 |
 | `dist/compaction-format.js` | 压缩记录的展示口径（纯函数、零依赖）：原因/来源标签、被压区间（`compactionRangeText`）、分界标注（`compactionCutLabel`）——右栏「上下文压缩」条目与轨迹压缩轨/详情共用同一份，避免同一条记录两种读法。区间只取记录里已有的边界字段，绝不用 `messages_before`（装配前的引擎历史条数）冒充消息条数。还有门禁进度的累计与耗时文案：`mergeCompactionProgress`（把一帧 `compaction.progress` 并进本轮，判轮次边界、累加逐关耗时、终局沿用最后一条 running 的序号，见 `dist/compaction-format.test.mjs`）与 `compactionGateDurationText`（不足 1ms 写 `<1ms`，不写 `0ms` 也不凑成 1ms）。 |
 | `dist/context-summary.js` | 右栏「状态」子页的「上下文压缩」条目：**一行元数据摘要**——**seq 徽标**（= 压缩版本号，复用 `components.js renderSeqBadge`：goal 看板 active seq 与压缩条目共用同一件）+ 「栈顶」标记 + 原因；时间/来源/被压区间/估算进 hover `title`（右栏实测量级 ~280px，摊进行里必然堆叠换行）。右侧**一枚**动作按钮「查看帧正文」→ 打开可调大小的帧正文弹框（`#compaction-frame-modal`，正文按 `frame_ref` 分页读回，与轨迹详情同一容器与分页组件 `data-compact-frame-load`）——**不做行内展开**（行内 `compaction-stack-detail` 路径已下线）。「栈顶」是唯一标明"谁在前沿"的标记（非栈顶行压暗）。**压缩失败**在同一张表里排一条痕（`failed=true`：失败色 + 「失败」标记 + 原因跨整行 + 动作列写「上下文原样」，无区间/无帧），因为它不是一次压缩——但它必须查得到（此前只活在 6 秒的瞬态进度条里）。条目上方还有一轮压缩的门禁过程：**逐关耗时清单是唯一展现**（不再借 Plan 面板的轨道）——整轮只有几十毫秒，条只会瞬时满格，能看见串行工作的只有这份清单（每关一行 + 该关实测毫秒；起手帧那一关还没有数字，写「进行中」而不编耗时）。静态原型见 `dist/compaction-preview.html`（真渲染件 + 真样式，六格夹具）。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴、轴详情、过滤条、摘要，以及 DevTools Network 式主从区。顶部轴底部和记录表/详情之间各有可拖拽分隔条（键盘方向键也可调），高度/宽度落本地偏好；轴上横向拖拽框选范围会过滤下方记录，抬起后可用“清除选区”恢复。右侧 inspector 的工具入参/出参默认展开以填满详情区，各面板头部可点叉号收起、再次点标题重新展开；内容层使用弹簧抽屉，已手动关闭的 key 会在同一记录的增量刷新中保持关闭。THINK 仍默认收起。轴仍支持滚轮翻页、Shift+滚轮调页大小，以及 `loadMore` 回读。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。连续工具调用组成三级工具域：收束态只显示最新一条的**工具类型**，命令、状态、耗时和体积都不占行；展开工具域后列出该段全部工具条目；再展开单条工具才显示一个圆角容器里的上下两个 IN/OUT 滚动区。`renderToolIODetail` 是对话与轨迹 inspector 共用的唯一入参/出参渲染件，`mode="drawer"` 时切为点击展开。正文 article 不画外框；对话区不显示 Think，只在轨迹 inspector 保留 THINK。消息头（EXEC/轮次/时间）和路由行（agent/model）不再渲染。running 只让工具名字段播放文字 Shimmer；对话尾部按状态显示带 Shimmer 的 `Thinking… / Loading… / Loading tool…`，不再显示转圈或活动线。 |
-| `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码压缩；`title=`/`height=` 参数，高度钳制 120–640px；`interactive=1` 表示这一块自愿驱动会话（说明牌同步显示）。**跨帧动作协议**住在这里（标签、`data-seelex-action`/`data-seelex-payload`、动作表、注入脚本）——零 import，测试按 data: URL 内联它。普通 ```html 仍是源码块。**另一条读者**（F-7）：文件预览的 HTML 只读态复用同一套沙箱口径（`buildHtmlPreviewDocument` / `renderSandboxFrame`，**不带跨帧桥**——预览一份磁盘上的 HTML 不该能驱动会话）。 |
+| `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码压缩；`title=`/`height=` 参数，高度钳制 120–640px；`interactive=1` 表示这一块自愿驱动会话（说明牌同步显示）。**跨帧动作协议**住在这里（标签、`data-seelex-action`/`data-seelex-payload`、动作表、注入脚本）；**换肤接收端**也在这里（`applyTheme`：只认父窗口、只写 `--sx-*`、二次校验名字与值）。**颜色不写死**（2026-10-29）：块内只有一组 `--sx-*` token，缺省深色 + `prefers-color-scheme: light` 兜底，真值由 `embed-theme.js` 推进来；另有一层**内置组件**（`article`/`button`/`table`/`progress`/`details`/`code`/`mark` + `.sx-card`/`.sx-btn`/`.sx-chip`/`.sx-row`/`.sx-stack`/`.sx-meter`），全部装在 `:where()` 里（特异性 0，作者样式永远优先）。零 import，测试按 data: URL 内联它。普通 ```html 仍是源码块。**另一条读者**（F-7）：文件预览的 HTML 只读态复用同一套沙箱口径（`buildHtmlPreviewDocument` / `renderSandboxFrame`，**不带跨帧桥**——预览一份磁盘上的 HTML 不该能驱动会话；也因此没有换肤通道，只有 `prefers-color-scheme` 兜底）。 |
 | `dist/embed-bridge.js` | 会话内 HTML 渲染块的**动作通道宿主侧判据**（iframe → 宿主 · postMessage）：解析 → 动作白名单（`ask-agent` / `fill-composer` / `copy-text` / `open-source`）→ 载荷上限 → 块级自愿（driving 动作要求围栏 `interactive=1`）→ 滑动窗口限流与同正文去重。身份按 **`event.source`** 比对（沙箱 iframe 是 opaque origin，`event.origin` 恒为 `"null"`，按 origin 判等于不判）；有后果的动作还要求块内 1.5s 内的**真实手势**（帧内脚本按 `event.isTrusted` 记时，`onload`/timer 自动重放被丢）。落点在 `app.js`：复制 / 写输入框（不发送）/ 走 `SubmitToSession` 发一条请求 / 展开该块源码。纯函数，含 `embed-bridge.test.mjs`。 |
 | `dist/theme.js` | 换肤加载层（**两轴**：深浅 × 皮肤）：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>`（深浅）与皮肤 `<link>`（品牌）；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；皮肤记 `localStorage["seelex.skin"]`、深浅记 `localStorage["seelex.mode"]`。 |
 | `dist/themes/` | 内置皮肤包 + `manifest.json`（schema 2：`skins[]` + `modes[]`）：皮肤只覆盖**品牌 token**（主信号 + 环境渐变，8 个 `--skin-*`），中性基座由深浅在 `styles.css` 提供（契约与 token 清单见 `themes/README.md`），皮肤不写选择器、不用 `!important`、不引远程资源。 |
@@ -131,9 +132,10 @@ flowchart TB
 1. **稳定帧身份**：`markdown.js` 按每条消息内的 `seelex-html` 围栏序号给帧一个 key（`<行 key>#<序号>`，没有行 key 时退回内容哈希），写进 `data-embed-key`（`html-embed.js`）。内容一直在变的流式期间，只有这个 key 是稳的。
 2. **帧领养**：`conversation-view.js` 的 reconcile 在**换行之前**把旧行里的帧按 `(key, srcdoc)` 交给 `embed-buffering.js`；srcdoc 完全一致的帧原样搬进新行，**不重新加载**（滚动位置与帧内交互因此自然保留）。
 3. **缓冲挂载**：内容真的变了时，新帧先在离屏容器 `.html-embed-mount` 里建好、赋 srcdoc、等 `load` + 一帧 rAF，再换进可视位；交换之前旧帧仍在原位，落位台 `.html-embed-stage` 用 `--embed-height` 兜住高度，所以既不塌陷也不露白。
-4. **流式延迟挂载**：会话还在跑（`chat-view.js` 传 `chat.running` → `render` 的 `streaming`）时**一帧都不新建**，只留同高占位（`data-embed-pending="1"`）；内容稳定（定稿或 `settleMs≈150ms` 无变化）后一次性挂上，连续变更只挂最后一版。
+4. **流式延迟挂载**：会话还在跑（`chat-view.js` 传 `chat.running` → `render` 的 `streaming`）时**一帧都不新建**，只留同高占位（`data-embed-loading="defer"`，静态文字「等待内容稳定」——流式有它自己的 cadence，不放活动条）；内容稳定（定稿或 `settleMs≈150ms` 无变化）后一次性挂上，连续变更只挂最后一版。
 5. **防串**：每次挂载带自增 token，`load` 回来时 token 已过期就丢弃并卸载；行被移出（换会话 / 历史窗口回退）时撤在途帧、摘监听；在途帧并发上限 4（超出排队）。
-6. **双缓冲是开关**：`createEmbedFrameBuffer({ doubleBuffer: true })` 才启用两层绝对定位重叠 + opacity 过渡（默认单缓冲）。单缓冲先替换再撤旧，双缓冲先淡入新的再撤旧的——两者都不在空白期上屏。
+6. **加载态可见（2026-10-29）**：`data-embed-loading` 挂在 `.html-embed-body`（块里实际变化的最小区域）上，按宪法 §2.2 走 `idle → pending → active → settled`：前 100ms 视觉为空（短加载因此只有最终内容、不闪一下 loader），之后才露出状态文字「正在渲染图形」+ 一条只动 `transform` 的不确定活动条，容器同时暴露 `aria-busy="true"`；落帧即摘掉标记、文字清空，加载层淡出。reduced-motion 下过渡全 `none`、活动条变静态填充条，状态文字照常可读。
+7. **换帧恒定交叉淡入淡出（唯一一条路径）**：新帧以 `opacity:0`（`data-embed-fade="in"`）叠进落位台，下一帧切 `settled` → `opacity:1`（`--duration-normal` / `ease-out`）；旧帧同时切 `out`（`--duration-fast` / `ease-in`），过渡结束由脚本撤离。两层都在固定高度的 `.html-embed-stage` 里绝对定位，**落位台几何不动** → 零 CLS。2026-10-29 删除了 `doubleBuffer` 开关：双缓冲把**加载过程本身**缓冲没了（离屏期间只有一块不动的旧画面，帧换上去才"啪"地出现），宪法 §9 也不许留第二套兼容路径。
 
 判据（`shouldDeferMount` / `planEmbedMounts`）是纯函数，`embed-buffering.test.mjs` 用最小 DOM 假体覆盖领养 / 挂载 / 延迟 / 卸载 / token 过期 / 流式期间零挂载。**安全口径不受缓冲影响**：帧的 `sandbox`、`referrerpolicy`、srcdoc 与 CSP 一律原样搬运（克隆只复制属性，不拼文档），离屏副本唯一改动的属性是 `loading`（`lazy` 在离屏容器里可能永不触发加载，那样帧永远挂不上）。
 
@@ -700,6 +702,31 @@ DOM、SMIL/CSS 动画、`<foreignObject>` 里的真控件、指针拖拽都实�
 的动作，要三道闸门同时过：围栏写 `interactive=1`、块内刚发生过真实点击/按键（1.5s 内）、
 宿主限流未触发。约束没变：不联网、够不到宿主 DOM / storage / bridge、`window.open` 无效——
 白名单之外没有第二条路。
+
+### 块内配色与内置组件（2026-10-29）
+
+块里**不要写死颜色**。宿主的颜色只有一处供源（`styles.css` + `themes/*.css`），沙箱里是
+一组 `--sx-*` 缺省，真值由 `embed-theme.js` 在帧 `load` 后与每次换肤时 `postMessage` 推进来
+（帧是 opaque origin，读不到宿主变量）。因此**换肤不重建 srcdoc、不重载帧**，块里的滚动
+位置、选中态与正在播的动画都留着。
+
+- **跟随皮肤 × 明暗**：`--sx-bg` / `--sx-panel` / `--sx-surface` / `--sx-surface-2` /
+  `--sx-border` / `--sx-border-strong` / `--sx-text` / `--sx-text-strong` / `--sx-text-soft` /
+  `--sx-muted` / `--sx-faint` / `--sx-accent` / `--sx-on-accent` / `--sx-code-bg` /
+  `--sx-radius*` / `--sx-font-ui` / `--sx-font-mono` / `--sx-duration-*` / `--sx-ease-*`。
+- **只随明暗、不随皮肤**：`--sx-warn` / `--sx-danger` / `--sx-ok` / `--sx-info` 及
+  `--sx-tint-*` / `--sx-border-*`。它们在宿主里就是 skin-independent 的 `--status-*` 一族——
+  "警告"换皮肤也还是那个警告色，不会被品牌主信号染掉。两张映射表必须不相交（测试钉住）。
+
+**内置组件**：`<article>`（卡片，带 `<header>/<footer>`）、`<button>`/`role="button"`、
+`<table>`、`<progress>`、`<details>`、`<code>/<pre>/<kbd>/<mark>` 直接按应用口径出形；别名
+`.sx-card` / `.sx-btn`(+`-primary`/`-ghost`) / `.sx-chip`(+`.is-warn`/`.is-ok`/`.is-danger`/
+`.is-info`) / `.sx-row` / `.sx-stack` / `.sx-meter`(+`.sx-meter-fill`)。每条规则都在
+`:where()` 里（特异性 0），作者写自己的样式永远赢——预置只兜底、不夺权。
+
+用例：`html-embed.test.mjs`（token 两套、语义色不由品牌色派生、组件层存在且都是 `:where()`）、
+`embed-theme.test.mjs`（映射表、读取回落、值清洗、继电器）、`embed-buffering.test.mjs`
+（加载态时序与淡入淡出）。
 
 样式分三层，改外观前先确认改哪一层（顺序不能换）：
 

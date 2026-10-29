@@ -4978,7 +4978,10 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   background: transparent;
 }
 /* 帧落位台：高度由 stage 兜住（--embed-height），帧在它里面绝对定位叠放。
-   换帧时旧帧先撤、新帧后到，中间的占位高度仍然是原高度 —— 卡片不塌陷、不抖。 */
+   换帧时旧帧淡出、新帧淡入，两层同时在位的这段时间里占位高度仍然是原高度 —— 卡片
+   不塌陷、不抖（CLS = 0）。`.html-embed-body` 只是把「帧 + 加载层」圈成本块里**实际
+   变化的最小区域**：加载态与 aria-busy 都挂在它上面，换帧动画不外溢到铭牌与源码折叠。 */
+.html-embed-body { position: relative; }
 .html-embed-stage {
   position: relative;
   height: var(--embed-height, 260px);
@@ -4990,24 +4993,93 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
   inset: 0;
   width: 100%;
   height: 100%;
+  opacity: 1;
 }
-/* 双缓冲（默认关，见 embed-buffering.js 的 createEmbedFrameBuffer({doubleBuffer:true})）：
-   新帧先以 opacity:0 叠在旧帧之上，load 完标 data-embed-live 再淡入，过渡结束旧帧才撤。 */
-.html-embed-stage > .html-embed-frame[data-embed-layer="new"] {
+/* seelex-motion:
+   purpose=continuity
+   trigger=state-change
+   cast=html-embed-frame; static=stage geometry, figcaption, source details, neighbouring rows
+   choreography=simultaneous
+   reduced-motion=static-final-frame
+*/
+/* 交叉淡入淡出（唯一一条换帧路径，见 embed-buffering.js 的 commit）：
+   新帧先以 opacity:0 叠上去（in），下一帧切 settled 淡入（--duration-normal / ease-out）；
+   旧帧同时切 out 淡出（--duration-fast / ease-in），过渡结束由脚本撤离。退出短于进入，
+   符合宪法 §4.2 的口径；两层都只动 opacity，不碰布局。 */
+.html-embed-stage > .html-embed-frame[data-embed-fade="in"] {
   opacity: 0;
-  transition: opacity var(--duration-fast) var(--ease-out);
   z-index: 2;
 }
-.html-embed-stage > .html-embed-frame[data-embed-layer="new"][data-embed-live="1"] { opacity: 1; }
-/* 流式/待挂载：帧还没准备好，先留同高占位（data-embed-pending="1"），不露白、不塌陷。 */
-.html-embed[data-embed-pending="1"] .html-embed-stage::after {
+.html-embed-stage > .html-embed-frame[data-embed-fade="settled"] {
+  opacity: 1;
+  transition: opacity var(--duration-normal) var(--ease-out);
+  z-index: 2;
+}
+.html-embed-stage > .html-embed-frame[data-embed-fade="out"] {
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-in);
+  z-index: 1;
+  pointer-events: none;
+}
+/* seelex-motion:
+   purpose=feedback
+   trigger=state-change
+   cast=html-embed-status; static=stage geometry, figcaption, source details
+   choreography=simultaneous
+   reduced-motion=static-status-text
+*/
+/* 加载层：宪法 §2.1/§2.2 —— 首 100ms 不显示（data-embed-loading="pending"，视觉为空），
+   100ms 后仍未落帧才露出来（"active"）：一行说得清"在做什么"的状态文字 + 一条不确定
+   活动条。它**盖在旧帧上**而不是让旧帧消失，所以换帧期间既看得到进度、也看得到上一次
+   的画面。`defer` 是流式期间"内容还没稳定"，只给静态文字、不放活动条。 */
+.html-embed-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  color: var(--muted);
+  font: 11px var(--font-mono);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+  pointer-events: none;
+}
+.html-embed-body[data-embed-loading="active"] > .html-embed-status { opacity: 1; }
+.html-embed-body[data-embed-loading="defer"] > .html-embed-status { opacity: .72; }
+.html-embed-activity {
+  position: relative;
+  width: 56px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.html-embed-body[data-embed-loading="active"] .html-embed-activity { opacity: 1; }
+.html-embed-activity::after {
   content: "";
   position: absolute;
-  inset: 8px;
-  border: 1px dashed var(--border);
-  border-radius: var(--r-md);
-  opacity: .55;
-  pointer-events: none;
+  inset: 0;
+  background: var(--accent);
+  transform: translateX(-100%);
+  animation: html-embed-activity var(--duration-shimmer) var(--ease-linear) infinite;
+}
+/* 活动条只动 transform（宪法 §4.5 白名单），周期沿用 1.8s 那一档；它只在
+   data-embed-loading="active" 时可见，加载结束即随加载层一起淡出，不存在静止循环。 */
+@keyframes html-embed-activity {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+/* 降级：直接到终态，状态文字与活动条仍在（宪法 §5.4 / §2.5：不隐藏内容、不跳过状态）。 */
+@media (prefers-reduced-motion: reduce) {
+  .html-embed-stage > .html-embed-frame[data-embed-fade] { transition: none; }
+  .html-embed-status { transition: none; }
+  .html-embed-activity::after { animation: none; transform: none; }
 }
 /* 离屏挂载容器：新帧在这里 srcdoc + load，等它自己 load 完（+ 一帧 rAF）才交换进可视位。
    移出屏幕而不是 display:none —— 不参与布局的帧拿不到可靠的 load 时机与尺寸。 */

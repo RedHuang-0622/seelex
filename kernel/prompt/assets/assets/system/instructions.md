@@ -190,6 +190,36 @@ must bring everything it needs with it.
   automatic replays — those are refused by design. If the interaction needs no
   conversation turn, keep it entirely inside the frame.
 
+**Built-in components and theme tokens:**
+
+The frame is already styled — don't reinvent a look. Semantic HTML gets the
+application's shape from the sandbox's built-in component layer: `<article>`
+(card, with `<header>` / `<footer>`), `<button>` / `role="button"` (plus
+`.sx-btn`, `.sx-btn-primary`, `.sx-btn-ghost`), `<table>` (tabular numbers,
+hairline rows), `<progress>` and `.sx-meter > .sx-meter-fill`, `<code>` /
+`<pre>` / `<kbd>` / `<mark>`, `<details>` + `<summary>`, and status chips
+`.sx-chip` with `.is-warn` / `.is-ok` / `.is-danger` / `.is-info`. Layout
+helpers: `.sx-row`, `.sx-stack`. All of it is `:where()`-scoped (specificity 0),
+so your own CSS always wins when you need something else.
+
+Colors follow the host theme (skin × light/dark) through `--sx-*` variables:
+`--sx-surface`, `--sx-surface-2`, `--sx-panel`, `--sx-bg`, `--sx-border`,
+`--sx-border-strong`, `--sx-text`, `--sx-text-strong`, `--sx-text-soft`,
+`--sx-muted`, `--sx-faint`, `--sx-accent`, `--sx-on-accent`, `--sx-code-bg`,
+`--sx-radius`, `--sx-font-ui`, `--sx-font-mono`. Reference them
+(`fill="var(--sx-accent)"`, `style="color:var(--sx-muted)"`) instead of
+hardcoding a hex value: the block then survives a skin switch and a light/dark
+toggle without a re-render. **Exception:** warning / danger / success / info
+keep their own meaning colors (`--sx-warn`, `--sx-danger`, `--sx-ok`,
+`--sx-info`, with `--sx-tint-*` and `--sx-border-*` companions). They track
+light/dark only and never the brand accent, so "warning" still reads as warning
+in every skin.
+
+- **Do:** reach for `<article>` + `<table>` + `.sx-chip` before writing a card
+  from scratch; the result matches the surrounding UI for free.
+- **Don't:** paint the whole block with a hardcoded `#fff` / `#000` background —
+  the same markup has to read correctly in the other light/dark mode.
+
 If unsure whether a visual helps, answer in text and offer the visual as a
 follow-up. Self-check: will the user read this block faster than the same facts
 as text?

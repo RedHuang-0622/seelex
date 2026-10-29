@@ -27,6 +27,7 @@ import { clearSubmittedText, composerSubmitPlan, composerViewSwitch, isComposing
 import { createConversationView } from "./conversation-view.js";
 import { branchOriginModel } from "./branch-origin.js";
 import { createEmbedActionGate, resolveEmbedAction } from "./embed-bridge.js";
+import { createEmbedThemeRelay } from "./embed-theme.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createComposerKnobs, REASONING_EFFORT_LEVELS, REASONING_EFFORT_LABELS } from "./composer-knobs.js";
@@ -4856,6 +4857,14 @@ function renderThemePicker() {
   }
 }
 
+// 沙箱渲染块的换肤通道（embed-theme.js）。两处接线：
+//   · start()：在 document 上挂捕获阶段的 load 监听 —— 每枚 `.html-embed-frame`
+//     加载完就补发一次当前主题（新块第一眼就是对的，不会先按缺省深色画一帧）；
+//   · onApplied 里的 broadcast()：换皮肤/切深浅后把新 token 推给所有在屏的块。
+// 帧不会因此重载，块内的交互状态（滚动、选中、播放中的动画）都留着。
+const embedThemeRelay = createEmbedThemeRelay({ document, window });
+embedThemeRelay.start();
+
 async function initialiseTheme() {
   const manifest = await loadThemeManifest(window.fetch.bind(window));
   themeController = createThemeController({
@@ -4867,6 +4876,9 @@ async function initialiseTheme() {
     // 终端仍是深色底）。
     onApplied: () => {
       terminalPanel.refreshTheme();
+      // 沙箱渲染块（seelex-html）的帧是 opaque origin：它们读不到宿主的 CSS 变量，
+      // 换肤后必须由宿主把新 token 主动推进去（见 embed-theme.js）。
+      embedThemeRelay.broadcast();
       // 同时把"这套皮肤要哪种窗口"交出去（毛玻璃要做到真透，见 window-treatment.js）。
       void syncWindowAppearance();
     }
