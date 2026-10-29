@@ -84,3 +84,43 @@ integration 侧三个变体用例：工作打点表、env 表、非空 compact �
 | `docs/arch/teamwork-leader-worker-architecture.md` | 编排口径（里程碑屏障 + Work Item DAG） |
 | `backend/engine/context/seelectx/README.md` | 装配器侧口径：尾块位置与「Blocks 先于 WorkingHistory」的事实 |
 | `application/assembly/README.md` | 装配层结构与预算约束 |
+
+## 6. 交接状态（本轮结束，2026-10-29）
+
+### 6.1 git 现场
+
+| 引用 | 内容 |
+|---|---|
+| `main` @ `b9d2fe29` | 未被本轮改动（codex 正在此工作区改前缀相关文件） |
+| `integ/pause-continue` @ `dfa14283` | **main + 暂停/继续控制面（19 文件 / 1055 行）已合并**，`go test ./gui/` → `ok 12.548s` |
+| `keep/*`（9 条） | `keep/spur-wi-spur-surface`、`keep/spur-wi-spur-persist`、`keep/l1-wi-m2-l1`、`keep/l1-wi-m2-l1-wip`、`keep/l1-wi-m2-l1b`、`keep/freeze-wi-m7-stack`、`keep/freeze-wi-m7-stack2`、`keep/wi-spur-persist`、`keep/wi-spur-surface` |
+
+留保护分支的原因：`team_accept` 会**回收 worktree 并连分支一起删**，未合并的交付会退化成悬空提交
+（本轮 `keep/spur-wi-spur-surface` 就是这么救回来的，细节见 `teamwork-throughput-findings.md` §7）。
+
+### 6.2 main 为什么没被直接合
+
+`git merge` 被挡：工作区里 `gui/frontend/dist/app.js`、`gui/frontend/dist/styles.css` 有未提交改动，
+且这两个文件正是 surface 交付改到的文件。那是 codex 的现场，**没有被 stash 或覆盖**。
+codex 那批落定后一行即可：
+
+```bash
+git merge integ/pause-continue
+```
+
+### 6.3 各半成品的准确位置
+
+| 主题 | 分支 @ 提交 | 已知破损 / 注意 |
+|---|---|---|
+| L1 快照 + `prefix_key` | `keep/l1-wi-m2-l1-wip` @ `9353dc99` | `kernel/context/prefixprobe/probe.go:417` 语法错、未 gofmt |
+| 子代理栈块帧位 | `keep/freeze-wi-m7-stack` @ `4a77e3e4` | `c.deps.InheritedTailBlocks undefined`（`backend/tool/node/coordinator.go:415`） |
+| 续跑落盘 + 审计 | `keep/spur-wi-spur-persist` @ `37619451` | 12 文件；**改了 `go.mod`**，涉及 `application/session/cold/task.go`，与 codex 的前缀冷加载改动可能重叠 |
+
+### 6.4 未完成项
+
+见同目录 `teamwork-throughput-findings.md`，以及本文件 §3。要点：M2/M3/M4/M5 全未完成；
+续跑的落盘与端到端验证未完成；`ContinuationStatus.Interrupted` 未进横条视图。
+
+### 6.5 一条操作纪律
+
+**合并失败时不要 `team_accept`**——先把交付落到 main，或先打 `keep/<item>` 保护分支，再验收收口。
