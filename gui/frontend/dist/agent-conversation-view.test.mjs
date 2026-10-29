@@ -112,3 +112,18 @@ test("Work Item and subagent details mount the shared conversation view and moti
   assert.match(conversation, /renderConversationLoading\("restoring"\)/);
   assert.doesNotMatch(team, /team-execution-records/);
 });
+
+test("空 page 不得抛 null 读取：teammate 首次打开「当前会话」时 page 就是 null", () => {
+  // 回归（2026-10-29 用户实测）：默认参数只兜 undefined、不兜显式 null，而
+  // mountAgentConversationPanel 与 controller.render 都显式传 null，于是首次打开
+  // teammate 的会话弹窗抛 "Cannot read properties of null (reading 'records')"。
+  assert.deepEqual(agentConversationMessages(null), []);
+  assert.deepEqual(agentConversationMessages(), []);
+  assert.deepEqual(agentConversationMessages({}), []);
+  // 有记录时仍照常映射（role 才是消息判据，kind 只决定工具/系统行）。
+  const mapped = agentConversationMessages({
+    records: [{ id: "r1", role: "user", content: "hi" }]
+  });
+  assert.equal(mapped.length, 1);
+  assert.equal(mapped[0].role, "user");
+});

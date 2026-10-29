@@ -76,7 +76,9 @@ function toolStatus(record) {
 // system 是装配上下文，不属于对话正文；recovery_note 与 stage 则作为系统行
 // 保留，用户才能看懂“为什么这个子会话从这里恢复/停在哪个阶段”。
 export function agentConversationMessages(page = {}) {
-  const records = Array.isArray(page.records) ? page.records : [];
+  // page 可能被调用方显式传 null（首次打开会话时 state.page 还是 null）：默认参数
+  // 只兜 undefined，不兜 null，所以这里必须用可选链读 records。
+  const records = Array.isArray(page?.records) ? page.records : [];
   const messages = [];
   for (const [index, record] of records.entries()) {
     if (!record || typeof record !== "object") continue;
