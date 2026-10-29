@@ -1,6 +1,8 @@
 # goal 未收口 + 被中断时的自动续跑
 
-- 状态：**目标设计（未实现）**。第 1 节全部是当前实现（已核对到符号）；第 2 节是要施工的设计。
+- 状态：§1 是现状核对；§2.1–§2.7 已施工（续跑 gate + 上限/退避 + 幂等 + 打点），
+  §2.8 是**暂停 / 继续**（对标产品：goal 顶部一条 stalled 横条，右侧 ⏸ 与 ⟳）的设计，
+  也已施工并带用例。仍未接线的是 GUI 按钮与装配注入（见 §2.8.6）。
 - 结论一句话：**不新建调度器，把"终态 → 会话空闲 → 起一个回合 → 每个键只触发一次"这条既有链路
   （`application/execution/completion.go` 的 `CompletionApplication`）扩一个入口，判据换成
   "goal 栈还有 active 帧"，输入形态沿用"合成一条用户输入"**。
@@ -293,6 +295,110 @@ goal 未收口，上一轮被中断（request=…，原因=<interrupted|provider
 
 ---
 
+### 2.8 暂停 / 继续（goal 横条右侧的 ⏸ 与 ⟳）
+
+> 本节补的是 §2 没覆盖的一条产品语义：**自动续跑要能被用户按停、也要能被用户按醒**。
+> 对标形态：goal 还没收口、上一轮被硬中断时，goal 区顶部出现一条 stalled 横条，
+> 右侧两个按钮 —— ⏸（暂停自动续跑）、⟳（清暂停并立即续一次）。
+
+#### 2.8.1 读面与落盘位
+
+- 读面 `execution.ContinuationStatus`（`application/execution/continuation.go`）：
+  `{GoalID, GoalTitle, RequestID, Stalled, Paused, Truncated, Attempts, MaxAttempts, NextAttemptAt}`。
+  `Stalled = 未收口 && 被硬中断 && 没被停止 && 没被暂停`；`Truncated = 已达上限或该中断点已有止步痕`。
+  横条文案只读这一份，不自己算。
+- 落盘位（跨重启）：`contract/protocol/state.go` `SessionExecutionRecord` 新增
+  `Paused` / `PausedAt`（与 §2.3 防呆 1 的 `StoppedByUser` / `StoppedAt` 并列、互不复用）。
+  **向后兼容**：旧档缺这四个字段 = 零值 = "没停过、没暂停过"，语义正确，不需要升
+  `SessionRecord.Version`；`internal/host/session_workspace_ports.go` 的 `migrateSessionArchive`
+  因此无需改形状（旧 v1 档映射过来就是零值）。
+
+#### 2.8.2 暂停语义（⏸）——必须写死的三条
+
+1. **只停"轮结束之后的自动续跑"，当前这一轮照常跑完。** 暂停路径（`ContinuationApplication.Pause`）
+   只写一个 bool + 一条 `goal.pause` 打点，**它手里没有任何取消句柄**，也没有通向
+   `CancelFunc` 的代码路径。用例 `TestPauseKeepsRunningTurnAndStopsNextContinuation`
+   同时证两半：暂停期间回合 ctx 未被取消、回合以 `completed` 收尾（第一半）；回合结束后
+   被中断、扫描一次都不发（第二半）。只证明第二半等于把"中断"当"暂停"。
+2. **暂停 ≠ 用户停止。** 暂停不写 `StoppedByUser`：前者是"别替我继续"，后者是"这一轮别跑了"
+   （`CancelChat`，终态 `TurnInterrupted` + C3 一票否决，§1.5/§2.3）。两者落点不同、恢复方式
+   不同（⟳ vs 用户自己发下一条），合并会把"用户的两种意图"压成一种。
+3. **暂停期间不挂欠账。** `TriggerGoalContinuations` 在暂停时返回 `pending=0`：不占上限、
+   不写续跑记录、不排定时器。理由：暂停是持续状态，重复扫描没有意义（不是"这次没发出去"）。
+
+**为什么不做成"暂停 = 中断当前轮"**：那会造出第二套中断实现，并且绕开 `CancelChat` 已经
+写死的"清空队列并整批提升"语义（§1.5）。暂停只删掉一个自动行为，不动用户已经发出去的东西。
+
+#### 2.8.3 继续语义（⟳）——清位、留痕、只发一次
+
+`ContinuationApplication.Resume(sessionID)` 依次做三件事，缺一不可：
+
+1. **清暂停位**（`SetPaused(false)`）。
+2. **计数清零必须留痕**：写一条 `ContinuationAttempt{Manual:true, Attempt:0}` 记录 + 一条
+   `goal.resume`（`manual=true`）打点。清零不另设字段——读面按"最后一条 Manual 且 Attempt=0
+   的记录之后重新数"，所以"重置"这条动作有且只有一种表示，且必然可追溯。
+3. **立即续一次**：不等退避、不受剩余额度限制（刚清零），但**同一中断点只发一次**：
+   发出去就落一条 `Attempt ≥ 1` 的记录，紧接着的定时扫描（以及重启后的新实例）读到
+   `Continued[key]` 直接短路。用例 `TestResumeFiresExactlyOnceAndDoesNotStack` 用
+   "重新观测同一中断点 + 定时扫描 + 新实例扫描"三路验证**不双发**。
+
+人工恢复**不绕过事实**：goal 已收口 / 上一轮不是硬中断 / 被用户停止 / 会话忙 → ⟳ 只清位 + 打点，
+不发续跑（`ContinuationApplication.evaluate(..., manual=true)` 只跳过"上限 + 退避"两问）。
+
+触顶（§2.3 防呆 2）之后 ⟳ 仍然有用：**截断记录不参与幂等判据**（它没发出任何续跑），
+所以人工恢复能把同一个中断点再试一次；而止步痕对同一中断点只记一条，不刷屏
+（`TestResumeResetsAttemptCounterAfterTruncation`）。
+
+#### 2.8.4 审计词表（扩三个非终态 kind）
+
+`kernel/goal/controller.go` 新增 `EventContinue = "goal.continue"`、`EventPause = "goal.pause"`、
+`EventResume = "goal.resume"`。三者都是**非终态**：`isTerminalAuditKind` 只认
+`finish`/`abort`（`kernel/goal/board_archive.go`），所以它们不会污染收口账本与看板 history，
+只作为 append-only 的可核对痕迹（用例 `TestContinuationAuditKindsAreNotTerminal`）。
+打点内容用结构化 `execution.ContinuationAudit{Kind,GoalID,RequestID,Reason,Attempt,Truncated,Paused,Manual,Detail}`，
+"被截断"与"人工恢复"分别由 `Truncated` / `Manual` 位标注——不靠文案猜。
+
+#### 2.8.5 施工清单（本节，已落地）
+
+| 文件 | 改动 |
+|---|---|
+| `contract/protocol/state.go` | `SessionExecutionRecord` 加 `Paused`/`PausedAt`/`Continuations`；新类型 `ContinuationAttempt`（含三种记录的派生口径注释） |
+| `kernel/limit/continuation.go`（新） | `ContinuationLimits{Enabled,MaxAttemptsPerGoal,BackoffSec,MaxBackoffSec}` + `Attempts()/Backoff()/MaxBackoff()/Validate()`；`kernel/limit/limits.go` 挂到 `Limits.Continuation`（**零值 = 关**） |
+| `kernel/goal/controller.go` | 三个非终态 kind |
+| `application/execution/continuation.go`（新） | 续跑 gate（`TriggerGoalContinuations` / `Pause` / `Resume` / `Status`）；判据 C1–C4 与防呆四条集中在一处 |
+| `application/execution/table/consumer.go` | `AsyncConsumerDeps` 加第三个信号源 `ContinuationEvents <-chan string` + `TriggerContinuation`；欠账复用既有 `RetryDelay` 定时器（**不新增定时器**） |
+
+#### 2.8.6 本节验收（用例与运行输出见 `application/execution/continuation_test.go`）
+
+| 判据 | 用例 |
+|---|---|
+| ① 未收口 + 中断 → 续一次 | `TestContinuationFiresOnceForInterruptedOpenGoal` |
+| ① 已 goal_done → 不续 | `TestContinuationSkipsClosedGoal` |
+| ① 用户显式停止 → 不续（重启后仍不续） | `TestContinuationSkipsUserStoppedTurn` |
+| ① 防呆：`TurnBlocked`/`TurnNeedsUserDecision` 不续 | `TestContinuationSkipsWaitingForUserOrExternal` |
+| ② 暂停：本轮跑完 + 下一轮不续 | `TestPauseKeepsRunningTurnAndStopsNextContinuation` |
+| ③ 继续：清位 + 立即一次 + 不叠加 | `TestResumeFiresExactlyOnceAndDoesNotStack` |
+| ④ 上限截断 + 打点 | `TestContinuationTruncatesAtAttemptLimit` |
+| ④ 退避 | `TestContinuationBackoffDelaysNextAttempt` |
+| ④ resume 重置计数 + 人工恢复打点 | `TestResumeResetsAttemptCounterAfterTruncation` |
+| ⑤ 幂等（含重启） | `TestContinuationFiresOnceForInterruptedOpenGoal`（后半）+ 三路不双发用例 |
+| 开关零值 = 关 | `TestContinuationOffMeansOff`（`kernel/limit` 侧另有零值用例） |
+| 忙会话挂欠账不插队 | `TestContinuationStaysPendingWhileSessionBusy` |
+| "提交成功 ≠ 起了回合"不计数 | `TestContinuationDoesNotCountTurnThatNeverStarted` |
+
+#### 2.8.7 仍未接线（下一手的活，不是本节的判据）
+
+- **装配注入**：`ContinuationDeps` 的九个窄函数（`Facts` 从 `SessionRecord.Execution` + goal 栈读、
+  `RecordAttempt`/`SetPaused` 写回存档、`Audit` 映射到 `goal.AuditAccount`、`SessionIdle` 复用
+  `sessionIdleForAsyncTrigger`）尚未在 `application/assembly` 里装配；接上之前 `Limits()` 为
+  `ContinuationLimits{}`（零值 = 关），**行为与今天完全一致**。
+- **回合收尾发信号**：`application/conversation/turn_runner.go` 在 `Commit` 之后非阻塞 emit
+  一次 `ContinuationEvents <- sessionID`（§2.5 同一处）未做。
+- **GUI/桥**：goal 横条 + ⏸/⟳ 两个按钮（`gui/` 与 `application/lifecycle` 的暂停/继续入口）未做；
+  `Paused` 的清除点（`turn_process.go` `BeginLocked`）也未接线。
+- **出厂档**：`config/seelex.yaml` 的 `limits.continuation` 尚未显式打开（与 §2.3 防呆 2 的
+  "零值 = 关、出厂档显式打开"纪律一致：接线完成后再开，避免"配置说开了、其实没有消费者"）。
+
 ## 3. 排除掉的已有机制（以及为什么不能直接用）
 
 | 机制 | 位置 | 为什么不能直接用 |
@@ -313,8 +419,11 @@ goal 未收口，上一轮被中断（request=…，原因=<interrupted|provider
 
 ## 4. 已知未解决（施工时须拍板）
 
-1. **退避与"用户刚刚就在等"的冲突**：`BackoffSec` 的首次值（建议 30s）会不会让用户觉得"卡住了"？
-   备选：首次 0（立即续一次），失败后才退避。这是产品口径，不是技术缺口。
+1. **退避的首次值——已拍板**：首次 0（立即续一次），**第 2 次起**才按
+   `BackoffSec × 2^(n-2)` 拉开间隔、封顶 `MaxBackoffSec`。落点是
+   `kernel/limit/continuation.go` 的 `ContinuationLimits.Backoff(attemptsDone)`（attemptsDone<=0 → 0），
+   用例 `TestContinuationAttemptsAndBackoffClamp`。理由：用户刚被中断，先给一次"接着干"，
+   失败后才谈退避；一上来就等 30s 反而像卡住。
 2. **后台会话的续跑**：`sessionIdleForAsyncTrigger` 对后台（非视图）会话同样返回 true，
    而 `SubmitConversation` 走 `SubmitFor` 明确支持后台会话。本设计**允许**后台续跑（`async` 触发就是这么做的），
    但这会让"我没看着的会话在花钱"。开关粒度是否要收到"仅视图会话"，须与产品确认。

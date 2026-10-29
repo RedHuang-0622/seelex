@@ -63,6 +63,18 @@ const (
 	EventFinish  EventKind = "goal.finish"
 	EventAbort   EventKind = "goal.abort"
 	EventRestore EventKind = "goal.restore" // 嵌套弹栈后下层恢复 active
+	// EventContinue 是**自动续跑**的一条打点（非终态）：goal 还没收口、上一轮
+	// 被硬中断，宿主替用户发了"继续"。它不是状态迁移，所以不进收口账本
+	// （isTerminalAuditKind 只认 finish/abort，见 board_archive.go），
+	// 也不影响看板 history——只作为 append-only 的可核对痕迹。
+	// 规格：docs/arch/goal-auto-continue.md §2.4 / §2.8。
+	EventContinue EventKind = "goal.continue"
+	// EventPause 是用户按下 ⏸ 的打点（非终态）：**只停止"轮结束后的自动续跑"**，
+	// 不中断正在跑的这一轮（暂停 ≠ 中断，判据见 application/execution/continuation.go）。
+	EventPause EventKind = "goal.pause"
+	// EventResume 是用户按下 ⟳ 的打点（非终态、人工意图）：清暂停位 + 续跑计数
+	// 清零 + 立刻续一次。它同时是"计数被重置"的唯一合法解释——重置必须有痕。
+	EventResume EventKind = "goal.resume"
 )
 
 // Event 是投递给订阅者/前端的事件；Projection 为全量快照（后发覆盖安全）。

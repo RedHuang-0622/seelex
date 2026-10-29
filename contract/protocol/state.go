@@ -393,6 +393,56 @@ type SessionExecutionRecord struct {
 	Task         *TaskState    `json:"task,omitempty"`
 	ReadFiles    []ReadFileRef `json:"read_files,omitempty"`
 	Continuation string        `json:"continuation,omitempty"`
+
+	// —— 自动续跑（docs/arch/goal-auto-continue.md）——
+	//
+	// 四个字段都是**向后兼容的追加**：旧档缺字段读成零值 = "没停过、没暂停过、
+	// 没续过"，语义正确（旧会话不会凭空续跑），因此不需要升 SessionRecord.Version。
+	// 读侧（internal/host/session_workspace_ports.go 的 migrateSessionArchive）因此
+	// 无需改形状：旧档映射过来就是零值，这正是要的语义。
+
+	// StoppedByUser 是"用户显式按过停止"的落盘位：它是跨重启有效的**人工意图
+	// 优先**判据（C3）。清除点唯一：开新回合（用户自己发了下一条）。
+	//
+	// 存在的理由：用户停止与 provider 失败落到的回合终态都是 TurnInterrupted
+	// （application/conversation/turn_error.go），只能靠 TaskState.Summary 文案
+	// 区分——字符串比对不可靠、也不跨重启。
+	StoppedByUser bool      `json:"stopped_by_user,omitempty"`
+	StoppedAt     time.Time `json:"stopped_at,omitempty"`
+	// Paused 是"暂停自动续跑"位（GUI goal 横条右侧 ⏸ / ⟳）。**暂停 ≠ 中断**：
+	// 置位不打断正在跑的这一轮，只让轮结束后的自动续跑不再发生
+	// （判据在 application/execution/continuation.go；暂停路径没有取消句柄）。
+	Paused   bool      `json:"paused,omitempty"`
+	PausedAt time.Time `json:"paused_at,omitempty"`
+	// Continuations 是续跑的 append-only 记录（跨重启的幂等账 + 计数权威）。
+	// 判据用它回答两件事：同一中断 requestID 是否已经续过（幂等）、
+	// 同一 goal 连续续了几次（上限 + 退避）。
+	Continuations []ContinuationAttempt `json:"continuations,omitempty"`
+}
+
+// ContinuationAttempt 是一次自动续跑（或一次"被上限截断"）的持久记录。
+//
+// 幂等键 = (GoalID, RequestID)：**同一个中断 requestID 永远只续一次**（含重启
+// 之后；重启只可能读到更多记录，读不到更少）。Reason 只作诊断（interrupted /
+// provider / restarted），不参与判据；Truncated=true 表示这次不是"发了一次
+// 续跑"，而是"到这里被上限截断"——它是可核对的止步痕，不是重试。
+//
+// 一条记录有三种含义，读面按 (Attempt, Truncated, Manual) 三元区分——派生口径
+// 只有这一处，不要在别处再造一份计数：
+//   - **真续跑**：Attempt ≥ 1 且 Truncated=false。它是幂等判据的权威事实：
+//     同一 (GoalID, RequestID) 不再续第二次（Manual=true 表示这次是 ⟳ 触发的）。
+//   - **止步痕**：Truncated=true。没发出任何续跑，只挡住"同一中断点反复打
+//     截断点"这种刷屏；它**不**阻止人工恢复后再试一次——否则 ⟳ 在触顶之后就废了。
+//   - **清零标记**：Manual=true 且 Attempt=0。Resume 写的，"连续次数从这里
+//     重新数"（清零不另设字段，痕迹就是这条记录——重置必须有痕）。
+type ContinuationAttempt struct {
+	At        time.Time `json:"at,omitempty"`
+	GoalID    string    `json:"goal_id,omitempty"`
+	RequestID string    `json:"request_id,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	Attempt   int       `json:"attempt,omitempty"`
+	Truncated bool      `json:"truncated,omitempty"`
+	Manual    bool      `json:"manual,omitempty"`
 }
 
 // SessionRecord is the durable backend record addressed by

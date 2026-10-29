@@ -199,6 +199,10 @@ type Limits struct {
 	// Plugins 是**按会话插件装配**的约束块（能力轴：一个 teammate 身上挂几个插件），
 	// 见 PluginLimits。
 	Plugins PluginLimits `yaml:"plugins"`
+	// Continuation 是**goal 未收口 + 被硬中断时的自动续跑**开关块（见
+	// ContinuationLimits）：零值（含整块缺失）= 关，关就是关（一次都不扫、
+	// 一个回合都不起）。设计见 docs/arch/goal-auto-continue.md。
+	Continuation ContinuationLimits `yaml:"continuation"`
 	// Runtime 是进程级启动行为块（见 RuntimeLimits）：当前只有一个开关——
 	// 是否同意多进程共用同一数据根。零值 = 关（单实例），与既有
 	// 「单数据根 = 单进程写者」（store/data_root_lock.go）一致；
