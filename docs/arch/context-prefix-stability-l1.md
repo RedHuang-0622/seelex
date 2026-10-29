@@ -272,7 +272,7 @@ ToolsUpdate {
 | user 消息 wire ≠ 记录 | 探针 harness 复刻生产形状：`AppendTranscriptEventLocked(Content: 原始输入)` + `{Content: currentInput}` 进 wire（`context_probe_harness_test.go:119-131`） | **违反 I1（最普遍）；已实测复现，见 §6.3** | `composeRequestTail` 产物落 `ProviderContent` |
 | `ProviderContent` 覆盖面 | `contract/protocol/context.go:94-107`：注释明写"当前只有工具结果会分叉" | 覆盖不足 | 扩到**所有**消息（user / plan / task 帧） |
 | plan 上下文消息 | `coordinator.go:1331` 现算现插在 events 之后、当前输入之前；`planContextMessageLocked:1420` 注释自陈"本来就在缓存未命中区" | **违反 I2**（跨轮该判断不成立） | 改为 draft 追加条目 |
-| plan/task 尾帧 | `assembler.go:120` tailStacks 追加在 WorkingHistory 之后 | 违反 I2 | 同上 |
+| plan/task 尾帧 | plan 半边已改「落 transcript、按记录位置重放」（`kernel/task/plan_frame.go`）；task 半边仍在 `backend/engine/context/seelectx/assembler.go:120-122` 追加在 WorkingHistory 之后，装配不写回历史 | plan 半边**已修**（§6.3.2）；task 半边经核对**不漂**（§6.3.3：损坏面上界 = 帧自身字节，前缀本体一字不丢） | plan 已落地；task 不改，开回归用例钉住机制（`assembler` 包的 `TestTailFrameStaysAtRequestSuffix`） |
 | memory 位置与键 | `assembler.go:88` `Memories(ctx, LastUserQuery(...))`，渲染在 prefix 主体之前；生产已接线（`backend/engine/assemble/runtime_context.go` 的 `Memories`） | **违反 I4** | 改为 epoch 快照 + §5 纪元表 |
 | 工具定义顺序 | `vendor/.../Seele/tools/tools.go:171` `providers map[string]ToolProvider`；`:286` 直接 `range` | **违反 I4** | 发布前按 name 排序；`tools_digest` 进键 |
 | 工具集可变性 | 切插件 / MCP 懒加载 / goal 门 / 权限档都会改变暴露的工具集合 ⇒ schema 变 | **违反 I4** | catalog 冻结 + `tools_epoch` + 哨兵块（§5.6） |
@@ -300,7 +300,7 @@ draft 未提交就被中断（用户按停、进程死），重放时必须区�
 
 ### 6.3 已实测复现 → 已修复（M0 复现，M1 转绿，2026-10-29）
 
-本节两条实测：用户消息字节分叉（M0 复现 → M1 已修复，6.3.1）、plan 帧位置漂移（M0 复现 → M1 已修复，6.3.2）。
+本节两条实测：用户消息字节分叉（M0 复现 → M1 已修复，6.3.1）、plan 帧位置漂移（M0 复现 → M1 已修复，6.3.2）。6.3.3 是 task 尾帧的**核对结论（不漂）**——它不满足致漂条件，改法因此不是"照抄 plan 帧"，而是开一条机制用例把它钉住。
 
 #### 6.3.1 user 消息字节分叉（M0 复现 → M1 修复，已转绿）
 
@@ -397,6 +397,49 @@ plan 帧去重: 计划未变化的第 4 轮帧数保持 2
 `turn=3` 的 msgs 由 4 变 5、`turn=4` 多出的一格，正是"plan 变化才追加"的那一帧落在记录位置上的结果：第 3 轮请求是 `[user(t1) plan(v1) user(t2) plan(v2) user(t3)]`，第 4 轮是它的严格扩展（`hit=18091/18192=99.4%`，新增 101 字符全部来自本轮输入）。
 
 单元级判据：`kernel/task/plan_frame_test.go`（① 首现即 internal+wire_material、provider role=system、不算用户提问；② 同内容幂等；③ 变化追加且 seq 递增；墓碑；冷加载基线对齐；独立协议单元）。
+
+#### 6.3.3 task 尾帧：同类"现算现插"，但**不漂**（M1 收口核对，2026-10-29）
+
+§6.1 把 `assembler.go:120` 的 tailStacks 与 plan 帧并列成同一类疑点。核对结论：**它不是同一类缺陷**——plan 帧致漂的两个条件它一个都不满足，所以改法不是"照抄 plan 帧"，而是**开一条机制用例把它钉住**（免得以后有人把帧搬进历史中间，退化成 plan 帧的旧缺陷）。
+
+**注入位置（文件:行号）**：`backend/engine/context/seelectx/assembler.go:120-122`
+
+```go
+for _, block := range a.tailStacks() {            // :120
+	history = append(history, block.Messages...)  // :121
+}                                                 // :122
+```
+
+帧源是 `Runtime.tailStacks()`（`backend/engine/assemble/runtime_context.go:305-310` → `RenderTailBlocks(st.PromptStackSnapshot())`，只渲染 plan/task 栈顶一帧，`assembler.go:223-240`）。追加发生在 `SanitizeProviderToolProtocol`（`assembler.go:114`）之后、委托 `DefaultRequestAssembler` 之前；后者把 `Blocks` 全排在 `WorkingHistory` 之前（Seele `seelectx/assembly.go:87-90`，模块缓存 `…/Seele@v0.3.6`，`go.mod` 无 `replace`）。因此尾部帧的位置**恒等于本请求最末格**，与历史长度无关；框架 `ReActLoop.callLLM` 只把 `rl.history` 的**快照**传给装配器（`session/loop.go:796-806`），装配结果只进 `llm.Complete*`、**不写回历史**。
+
+**为什么不会漂（两条机制，缺一条就会漂成 plan 帧）**：
+
+| # | plan 帧（旧） | task 尾帧（现状） |
+|---|---|---|
+| ① 位置 | 由装配器现算现插在"保留历史之后、当前输入之前"——**历史中间**，历史变长则位置后移 | 由装配器**追加在 WorkingHistory 之后**——请求最末格，历史变长不影响"它是最后一格" |
+| ② 是否进历史 | 每轮重算，下一轮同一格被新历史占住（§6.3.2 实测） | 只来自 `tailStacks()` 的即时投影，**从不写回历史**，下一轮不可能从中间重放 |
+
+由 ①② 推出的判据：相邻两次请求的字节 LCP 必定 ≥「上一条请求减去尾部帧」，断点不可能早于尾部帧起点；**损坏面上界 = 尾部帧自身的字节数**。plan 帧旧缺陷相反——它顶掉的是**已经进过 wire 的历史**，于是从该格起到请求尾整段重算。
+
+**实测（单元用例，生产形态：一轮三次迭代 + 跨轮，含轮内 task 终态变化）**：
+`backend/engine/context/seelectx/tail_frame_position_test.go`
+
+```
+t1.iter1   msgs=4 prefix=2 tail=2 tailChars=228
+t1.iter2   msgs=5 prefix=3 tail=2 tailChars=228
+t1.iter3   msgs=6 prefix=4 tail=2 tailChars=231   ← 轮内 task 进终态，帧变、位置不变
+t2.iter1   msgs=8 prefix=6 tail=2 tailChars=234   ← 跨轮 + plan 进终态
+t1.iter1 -> t1.iter2: LCP=68  prev=295(prefix=67  tail=228) loss=227  unexpected=0
+t1.iter2 -> t1.iter3: LCP=100 prev=327(prefix=99  tail=228) loss=227  unexpected=0
+t1.iter3 -> t2.iter1: LCP=126 prev=356(prefix=125 tail=231) loss=230  unexpected=0
+```
+
+`prefix` = 同 system / 同前缀栈块 / 同历史但**不带尾部帧**的对照装配（字节定义"前缀本体"）。三行 `LCP ≥ prefix` 即"前缀本体一字不丢"，`loss ≤ tailChars` 即"损坏面不越出帧自身"。用例同时钉住：装配不改写调用方 `WorkingHistory`（写回即会退化成 plan 帧形态）、尾部帧恒在最末格、出口协议规整（`SanitizeProviderToolProtocol`）挪不动也删不掉它。
+
+**代价与口径提醒**：现状下尾部帧**每个请求全价重算**（实测 228~234 字符/请求，占 20k 级请求约 1.2%）——因为它在请求最末格，任何按"追加"组织的下一轮请求都无法复用它。这是"注意力焦点贴近当前输入"（`assembler.go:42-45,116-119` 的设计意图）付出的确定性小代价，不是漂移。**口径缺口**：M0 探针的 `serializeRequest(system, history, "", nil)` 只测 system + 引擎历史，不含 project/memory/前缀栈/尾部帧（`context_probe_harness_test.go:capture`），所以这 228~234 字符在探针报表里是不可见的——本节的数字来自装配器级用例。
+
+**发现的相邻残余口（不在 M1 改动范围内）**：节点子代理会话把 `RenderStackBlocks`（= 前缀栈 + **尾部帧**）走 `InheritedBlocks` 并入 `Blocks`（`backend/engine/assemble/runtime.go:605-613`），再经 `ScopeAssembler` 排到 `WorkingHistory` **之前**（`backend/tool/node/coordinator.go:428-447`）。也就是说：主会话的尾部帧在最末格（不漂），节点会话的**同名帧却在历史之前**——若 plan/task 快照在节点运行期间变化，断点会落在该块、其后整段节点历史重算。这是 plan 帧旧缺陷的同形状接缝，建议单开一条工作项（节点侧也应"追加在最末"，或干脆不继承尾部帧、只保留 plan 记录化后的 transcript 重放）。
+
 
 ---
 
@@ -519,7 +562,7 @@ ratioChars   = sharedChars / totalChars
 
 ## 8. 实施计划（M0–M5，每步带验收判据）
 
-> **进度（2026-10-29）**：M0 ✅（字符级探针 + worktable / plan 两个变体钉死；env / compact 变体与 `cached_tokens` 待补——后者是 Seele 上游依赖）· M1 ◐（用户消息字节冻结已完成并实测 **80.5% → 98.3%**；**plan 帧已落 transcript 并实测转绿（task 帧仍是开放口）**，见 §6.3.2 与 D1 修正）· M2–M5 未开工。
+> **进度（2026-10-29 / M1 收口）**：M0 ✅（字符级探针 + worktable / plan 两个变体钉死；env / compact 变体与 `cached_tokens` 待补——后者是 Seele 上游依赖）· **M1 ✅**（用户消息字节冻结实测 **80.5% → 98.3%**；plan 帧落 transcript 实测转绿 `UnexpectedMiss=0`；**task 尾帧核对为「不漂」并用机制用例钉住**——损坏面上界 = 帧自身 228~234 字符，见 §6.3.3）· M2–M5 未开工。
 
 > 纪律：**先红后绿**。M0 不改任何行为，只把不变量变成可执行判据；之后每一步都要让 M0 的某条红灯转绿。
 
@@ -533,7 +576,7 @@ ratioChars   = sharedChars / totalChars
 
 **验收**：① 新用例在现网形状下**红**，失败信息能指出首个差异消息（role + 内容摘要）；② 每条红都能被探针归因到**具体段**（memory 段 / plan 帧 / env 段），而不是只说"命中率低"；③ 同一 `prefix_key` 下 `UnexpectedMiss > 0` 且可复现；④ 字符比与 provider token 比偏差 ≤ 5%（否则先校正代理再谈验收）。
 
-### M1 · 字节冻结（I1）◐
+### M1 · 字节冻结（I1）✅（2026-10-29 收口）
 
 - `composeRequestTail` 产物写入 transcript 事件的 `ProviderContent`；`providerContentForEvent` 已是唯一投影出口，无需改渲染。
 - plan 上下文消息、tailStacks 改为 draft 追加条目（不占历史中间位置），提交时逐字节提升。
@@ -543,7 +586,11 @@ ratioChars   = sharedChars / totalChars
 
 **已落地（plan 帧半边，2026-10-29）**：依据 `context_prefix_plan_frame_test.go` 的实测（§6.3.2），帧必须落进 transcript 才不漂；这是 D1 的完整形态，与工具集哨兵共用"后写覆盖前写"读法约定。
 
-**落地（2026-10-29）**：`kernel/task/plan_frame.go` 在计划状态写入的那一刻把帧记为 internal 事件（`wire_material`），装配侧删掉每轮现插（`kernel/context/coordinator.go:tryFitExecutionHistory`）；`context_prefix_plan_frame_test.go` 已由"钉死缺陷"翻转为"断言前缀完整"，实测 turn3 `hit=17419/18091 (96.3%)`、turn4 `hit=18091/18192 (99.4%)`、累计 `UnexpectedMiss=0`（翻转前 turn3 断在 char 16767、`95.7%`、`UnexpectedMiss=1`，详见 §6.3.2）。task 帧（检查点/任务状态材料）仍走原路径，未并入本次改动。
+**落地（2026-10-29）**：`kernel/task/plan_frame.go` 在计划状态写入的那一刻把帧记为 internal 事件（`wire_material`），装配侧删掉每轮现插（`kernel/context/coordinator.go:tryFitExecutionHistory`）；`context_prefix_plan_frame_test.go` 已由"钉死缺陷"翻转为"断言前缀完整"，实测 turn3 `hit=17419/18091 (96.3%)`、turn4 `hit=18091/18192 (99.4%)`、累计 `UnexpectedMiss=0`（翻转前 turn3 断在 char 16767、`95.7%`、`UnexpectedMiss=1`，详见 §6.3.2）。
+
+**收口（task 尾帧半边，2026-10-29）**：核对的结论是**不改**——`assembler.go:120-122` 的 tailStacks 追加在 `WorkingHistory` 之后（请求最末格）、装配不写回历史，两条机制使它不可能像 plan 帧那样漂（§6.3.3）。按"不漂就钉住"的纪律开了机制用例 `backend/engine/context/seelectx/tail_frame_position_test.go`（`TestTailFrameStaysAtRequestSuffix` 断言尾部帧恒在最末格 / 前缀本体一字不丢 / 损坏面 ≤ 帧自身字节 / 装配不改写 WorkingHistory；`TestTailFrameSurvivesToolProtocolSanitize` 断言出口规整动摇不了帧位置），实测 loss=227~230 字符、`unexpected=0`。**M1 由此收口**：用户消息（6.3.1）+ plan 帧（6.3.2）已修，task 尾帧（6.3.3）核对为不漂并钉住。
+
+**M1 完成判据逐条**：① 用户消息 wire≠记录 → 已修（`RecordUserWireContentLocked`，跨轮 80.5% → 98.3%）；② plan 帧位置漂移 → 已修（落 transcript、同内容一条不发、变化尾部追加，`UnexpectedMiss=0`）；③ task 尾帧同类路径 → 核对不漂 + 机制用例钉住（§6.3.3），并记下节点子代理侧的残余口；④ 全量回归 `go test ./application/assembly/... ./kernel/context/... ./kernel/task/ ./application/conversation/... -count=1` 全绿；⑤ 未改 vendor（仓库无 `vendor/` 目录，依赖走模块缓存，`go.mod` 无 `replace`）。
 
 **验收**：M0 的跨轮用例转绿（env + plan + memory 三种拉开分别各有一条用例）；`cached_tokens` 在真 API 冒烟里出现在第二轮之后。
 
@@ -586,7 +633,7 @@ ratioChars   = sharedChars / totalChars
 
 | # | 决策 | 后果与实现纪律 |
 |---|---|---|
-| **D1** | **plan/task 帧只在 `plan_hash` 变化时追加**；没变则一条不发 | **（2026-10-29 修正）**"只在变化时追加"不够——帧若不进 transcript，位置每轮都会漂（§6.3.2 实测）。完整形态：① 首现即作为 internal 事件（wire_material）落入 transcript，此后按记录位置重放；② `plan_hash` 不变 ⇒ 一条不发；③ 变化 ⇒ 尾部追加新帧、旧帧留史，靠「后写覆盖前写」读法约定（与工具集哨兵同一约定） |
+| **D1** | **plan/task 帧只在 `plan_hash` 变化时追加**；没变则一条不发 | **（2026-10-29 修正）**"只在变化时追加"不够——帧若不进 transcript，位置每轮都会漂（§6.3.2 实测）。完整形态：① 首现即作为 internal 事件（wire_material）落入 transcript，此后按记录位置重放；② `plan_hash` 不变 ⇒ 一条不发；③ 变化 ⇒ 尾部追加新帧、旧帧留史，靠「后写覆盖前写」读法约定（与工具集哨兵同一约定）。**（2026-10-29 收口回写：实际实现形态）** ① **plan 帧**：`kernel/task/plan_frame.go` 的 `recordPlanFrameLocked`（渲染 + `planFrameHash` 去重 + `appendTranscriptEventLocked`）在计划状态写入那一刻落 `Kind=internal`/`WireMaterial=true` 事件；哈希不变早退、变化追加、清除发墓碑；冷加载 `seedPlanFrameHashLocked` 对齐基线；`kernel/context/coordinator.go:tryFitExecutionHistory` 删除每轮现插；`kernel/task/plan_transcript.go` 让它自成协议单元（wire 上 role=system）。② **task 尾帧**：核对后**不采用**同一改法——它不满足致漂条件（追加在 `WorkingHistory` 之后 = 请求最末格、装配不写回历史，`backend/engine/context/seelectx/assembler.go:120-122`），实测损坏面上界就是帧自身 228~234 字符、前缀本体一字不丢（§6.3.3）；纪律改为**机制用例钉住**（`backend/engine/context/seelectx/tail_frame_position_test.go`），若将来它被搬进历史中间或不进 transcript，用例即红。③ 两者的分界判据：**帧在请求里的位置是否会因历史变长而后移**——会（plan 旧形态）就必须落 transcript，不会（尾部追加）就只需钉住 |
 | **D2** | **draft 轮尾提交；收到 ack 确认提交成功之后才清空** | 引入轮间 ack 屏障 + 幂等重试 + `uncommitted` 不丢（§3.5）；轮内 draft 只追加不重渲染（§6.2a′）。actor 队列上限与超时因此是正确性参数 |
 | **D3** | **工具集变化走 memory 式纪元 + 哨兵块**（`tools_update` + `⟦toolset⟧`） | catalog 冻结 ⇒ `tools_digest` 会话内恒定；可用性变化零失效；仅 catalog 变更 bump `tools_epoch` 并接受一次全额失效（§5.6） |
 
@@ -621,7 +668,9 @@ ratioChars   = sharedChars / totalChars
 | `ProviderContent` 只覆盖工具 | `contract/protocol/context.go:94-107` |
 | 工具结果外的投影出口 | `kernel/task/plan_transcript.go:280-298`（`providerContentForEvent`） |
 | plan 消息现算现插 | `kernel/context/coordinator.go:1331,1420` |
-| tailStacks | `backend/engine/context/seelectx/assembler.go:120` |
+| tailStacks | `backend/engine/context/seelectx/assembler.go:120-122`（追加在 `WorkingHistory` 之后 = 请求最末格；实现在 `backend/engine/assemble/runtime_context.go:305-310`）；不漂的判据与实测见 §6.3.3，用例 `backend/engine/context/seelectx/tail_frame_position_test.go` |
+| 框架装配器把 WorkingHistory 排在块之后 | Seele `seelectx/assembly.go` `DefaultRequestAssembler`（模块缓存 `…/Seele@v0.3.6`）；`session/loop.go` `callLLM` 只传历史快照、装配结果不写回 |
+| 节点会话把尾部帧并入 Blocks（残余口） | `backend/engine/assemble/runtime.go:605-613`（`InheritedBlocks` = project + `RenderStackBlocks`）→ `backend/tool/node/coordinator.go:428-447`（排在 WorkingHistory 之前） |
 | memory 位置与 query 依赖 | `backend/engine/context/seelectx/assembler.go:88`；`backend/engine/assemble/runtime_context.go`（`Memories: r.relatedMemoryBlocks`） |
 | 工具顺序 map range | `vendor/github.com/RedHuang-0622/Seele/tools/tools.go:171,286` |
 | usage 解析缺口 | `vendor/.../Seele/agent/core/api/strategy_openai.go:34-38`；`client.go:251-256` |

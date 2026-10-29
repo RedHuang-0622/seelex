@@ -130,6 +130,7 @@ merge_frame → PushCompact（装配层推帧走 `seelebridge.PushCompactionFram
 - 结构化优先：Goal、Decision、Finding、Constraint、PendingWork 分字段传递。
 - 向后兼容：门面 API 保持稳定，复杂能力下沉子包。
 - token 估算：事前用 `tokens` 脚本感知估算，事后由 application 侧以 provider usage 校准（`calibratedTokenCounter`）。
+- 前缀稳定（注入点决定代价）：动态尾部帧（plan/task 栈顶）**只追加在 `WorkingHistory` 之后**——它的位置恒等于请求最末格，且装配不写回历史，所以历史变长不会把它挤到中间；代价只是它自己每请求全价重算（228~234 字符，实测见 `docs/arch/context-prefix-stability-l1.md` §6.3.3）。反过来，任何**会进历史**的帧（如 plan 上下文帧）必须落 transcript 按记录位置重放，否则下一轮它占的那一格会被新历史顶掉、从该格起到请求尾整段重算。用例：`tail_frame_position_test.go`。
 
 **孪生实现必须同步改**：provider 的 tool 配对协议在两处各有一份实现——应用侧
 `application/assembly/context_runtime/history.go:RepairInterruptedToolChains`（请求前，缺结果一律补占位）
@@ -611,6 +612,14 @@ go test -race ./backend/engine/context/seelectx/lifecycle -count=1
 
 - `func TestRouterStorageWithContextActor(t *testing.T)` — TestRouterStorageWithContextActor 集成：`store.RouterStorage` 直接作为
 - `func strPtr(value string) *string`
+
+### tail_frame_position_test.go
+
+- `func TestTailFrameStaysAtRequestSuffix(t *testing.T)` — TestTailFrameStaysAtRequestSuffix 钉住 task 尾帧（plan/task 尾栈）**不漂**的机制：
+- `func TestTailFrameSurvivesToolProtocolSanitize(t *testing.T)` — 钉住第二条机制：尾部帧在协议规整
+- `func cloneTailProbe(messages []types.Message) []types.Message`
+- `func serializeTailProbe(messages []types.Message) string` — serializeTailProbe 把消息序列化成确定性字节流（探针比较用：只取 role +
+- `func tailProbeLCP(left, right string) int` — tailProbeLCP 返回两段字节流的最长公共前缀长度。
 
 ### window.go
 
