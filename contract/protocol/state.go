@@ -409,11 +409,14 @@ type SessionExecutionRecord struct {
 	// 区分——字符串比对不可靠、也不跨重启。
 	StoppedByUser bool      `json:"stopped_by_user,omitempty"`
 	StoppedAt     time.Time `json:"stopped_at,omitempty"`
-	// Paused 是"暂停自动续跑"位（GUI goal 横条右侧 ⏸ / ⟳）。**暂停 ≠ 中断**：
-	// 置位不打断正在跑的这一轮，只让轮结束后的自动续跑不再发生
-	// （判据在 application/execution/continuation.go；暂停路径没有取消句柄）。
+	// Paused 是层二子状态在存档里的**低半位**（⏸）。暂停 ≠ 中断：置位不打断正在跑的
+	// 这一轮，只让轮边界不再自动续（pull 通道）。单独一个 bool 回答不了"这是哪张 goal
+	// 的暂停"，所以**必须与 PausedGoalID 一起读**（dto.DeriveGoalRunState，I2）。
 	Paused   bool      `json:"paused,omitempty"`
 	PausedAt time.Time `json:"paused_at,omitempty"`
+	// PausedGoalID 是暂停绑定在哪张 goal 上：只有它等于当前 Active goal 时层二才算
+	// paused（换 goal → 回到 continue，不残留；旧档缺字段 = 不继承）。
+	PausedGoalID string `json:"paused_goal_id,omitempty"`
 	// Continuations 是续跑的 append-only 记录（跨重启的幂等账 + 计数权威）。
 	// 判据用它回答两件事：同一中断 requestID 是否已经续过（幂等）、
 	// 同一 goal 连续续了几次（上限 + 退避）。

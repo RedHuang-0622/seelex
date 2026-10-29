@@ -3,7 +3,21 @@ package execution
 // continuation.go — goal 未收口 + 被硬中断时的**自动续跑**，以及它的两个人工
 // 控制位：⏸ 暂停 / ⟳ 继续。
 //
-// 设计：docs/arch/goal-auto-continue.md（§2 触发/输入/防呆/可观测，§2.8 暂停与继续）。
+// 设计：docs/arch/goal-auto-continue.md（§2 触发/输入/防呆/可观测，§2.8 两层状态机
+// 与两条通道）。
+//
+// **两条通道，不是一个 bool**（§2.8.0 / §2.8.2 / §2.8.3）：
+//
+//   - pull（`TriggerGoalContinuations`，主路径）：`paused` 的身份是责任链上的一问，
+//     **每轮轮询现读**两层状态（`dto.DeriveGoalRunState`），**只在轮边界生效**。
+//     它不能也不应该打断正在跑的这一轮：本文件没有任何取消句柄，
+//     `Pause` 的副作用只有"写位 + 打点"。
+//   - push（`PauseAndInterrupt`，即时中断）：给附属 teammate / subagent 发 paused 是
+//     **瞬时中断**，语义等同输入框里那个红色停止键——立刻停掉在飞的子会话，不走轮询。
+//     它唯一的副作用点是 `ContinuationDeps.InterruptInFlight`（装配方接到真实取消通道）。
+//
+// 两条通道**共享同一个状态源**（层二子状态，按 sessionID 维护），生效方式不同：
+// pull = 下一轮不再自动继续；push = 立刻停掉在跑的子会话。
 //
 // 本文件只做**判据与决策**，不做三件事（都留给装配方）：
 //   - 不读会话存档（现场由 ContinuationDeps.Facts 一次读面给全）；
@@ -11,10 +25,9 @@ package execution
 //     CompletionApplication 同一条通道）；
 //   - 不自己造 idle 判据（SessionIdle 由装配方注入 sessionIdleForAsyncTrigger）。
 //
-// 一条写死的语义边界（暂停 ≠ 中断）：Pause 只落"别再自动续"这一位，本应用
-// 里**没有任何取消句柄**，所以它不可能打断正在跑的那一轮；当前这一轮照常
-// 跑完，只是轮结束后的下一次扫描不再发"继续"。要打断当前轮的是用户停止
-// （CancelChat，写 StoppedByUser），那是另一条判据（C3）。
+// 另一条写死的语义边界（暂停 ≠ 中断）：`Pause` 只落"别再自动续"这一位，当前这一轮
+// 照常跑完。要打断**主会话这一轮**的是用户停止（CancelChat，写 StoppedByUser），
+// 那是另一条判据（C3）。
 
 import (
 	"context"
@@ -49,8 +62,11 @@ const continuationTriggeredPrefix = "goal-continue|"
 //   - Truncated[key]  ← 存在一条同键的截断记录（只记一次止步痕）；
 //   - Attempts        ← 最后一条 Manual 记录之后的非 Truncated 记录条数。
 type ContinuationFacts struct {
-	GoalID    string // 空 = goal 已收口（C1 不成立）
-	GoalTitle string
+	// GoalStatus 是层一（none / doing / done）。空串按 GoalID 推断（非空 = doing），
+	// 只给"手上只有 goal id"的旧调用点用；装配侧应当给真值（goal.StatusFor）。
+	GoalStatus dto.GoalRunStatus
+	GoalID     string // 空 = goal 已收口（C1 不成立）
+	GoalTitle  string
 	// TurnStatus / RequestID 是**上一回合**的终态与请求号。
 	TurnStatus dto.TurnStatus
 	RequestID  string
@@ -58,8 +74,11 @@ type ContinuationFacts struct {
 	Reason string
 	// StoppedByUser 是"用户这次真的按过停止"（C3，跨重启有效）。
 	StoppedByUser bool
-	// Paused 是"暂停自动续跑"位（⏸）。
+	// Paused 是层二子状态在存档里的低半位（⏸）。
 	Paused bool
+	// PausedGoalID 是暂停**绑定在哪张 goal 上**：只有它等于 GoalID 时层二才算 paused，
+	// 否则读成 continue（换 goal 不残留，旧档没绑定同样不继承）。见 dto.DeriveGoalRunState。
+	PausedGoalID string
 	// Attempts 是同一 goal 的连续续跑次数（人工恢复后归零）。
 	Attempts int
 	// LastAttemptAt 是最近一次续跑的发起时刻（退避判据）。
@@ -74,6 +93,14 @@ type ContinuationFacts struct {
 	// Checkpoint 是可选的现场摘要（TaskCheckpoint.CompletedWork/PendingWork 的一行
 	// 投影）。空则续跑输入退回"读回现场再继续"的通用措辞。
 	Checkpoint string
+}
+
+// State 把这一份现场合成为**两层状态**（唯一判定点是 dto.DeriveGoalRunState）。
+//
+// 这是 pull 通道读的全部：`AutoContinue()` 为假 ⇒ 轮边界不自动续。push 通道不看它
+// （push 停的是在跑的子会话，不回答"下一轮要不要自动发"）。
+func (facts ContinuationFacts) State() dto.GoalRunState {
+	return dto.DeriveGoalRunState(facts.GoalID, facts.GoalStatus, facts.Paused, facts.PausedGoalID)
 }
 
 // ContinuationAudit 是一条续跑面的打点（结构化：截断/人工恢复都靠它区分）。
@@ -91,15 +118,22 @@ type ContinuationAudit struct {
 
 // ContinuationStatus 是 goal 顶部那条 stalled 横条的读面（GUI 只读这一份）。
 type ContinuationStatus struct {
-	GoalID        string
-	GoalTitle     string
+	GoalID    string
+	GoalTitle string
+	// GoalStatus / Substate 是两层状态（§2.8.0）：横条据此区分"没目标 / 在跑但被暂停 /
+	// 在跑且会自动续"，而不是靠 Paused 一个 bool 猜。
+	GoalStatus    dto.GoalRunStatus
+	Substate      dto.GoalRunSubstate
 	RequestID     string
-	Stalled       bool // 未收口 + 被硬中断 + 没停/没暂停（横条该出现）
-	Paused        bool // ⏸ 已按下（横条显示"已暂停"）
+	Stalled       bool // 未收口 + 被硬中断 + 没停 + AutoContinue()（横条该出现）
+	Paused        bool // ⏸ 已按下（层二 = paused；横条显示"已暂停"）
 	Truncated     bool // 已达上限，自动续跑停了（等人工 ⟳）
 	Attempts      int
 	MaxAttempts   int
 	NextAttemptAt time.Time // 退避期的下次尝试时刻（零值 = 无退避在等）
+	// Interrupted 是最近一次 push（`PauseAndInterrupt`）停掉的子会话 ID：横条据此显示
+	// "已停掉 N 个子会话"。它是一次动作的回执，不落盘、不参与任何判据。
+	Interrupted []string
 }
 
 // ContinuationDeps 是续跑的窄端口集合。全部函数式，装配方可整体缺省——
@@ -110,10 +144,19 @@ type ContinuationDeps struct {
 	CurrentRequestID   func(sessionID string) string // 可选：证明"真的起了一个回合"
 	SubmitConversation func(ctx context.Context, sessionID, prompt string) error
 	RecordAttempt      func(sessionID string, attempt model.ContinuationAttempt)
-	SetPaused          func(sessionID string, paused bool, at time.Time)
-	Audit              func(sessionID string, entry ContinuationAudit)
-	Limits             func() limit.ContinuationLimits
-	Now                func() time.Time
+	// SetPaused 是层二的**唯一写点**（会话粒度）：goalID 是这次暂停/恢复绑定到哪张
+	// goal 上（清位时同样带上，便于把存档里的过期绑定一起清掉）。
+	SetPaused func(sessionID, goalID string, paused bool, at time.Time)
+	// InterruptInFlight 是 **push 通道的唯一副作用点**：立刻中断该会话名下在飞的
+	// 子会话（teammate 角色回合 / subagent），语义等同红色停止键——不等轮边界。
+	// 返回被打断的子会话 ID（进 ContinuationStatus.Interrupted）。
+	//
+	// 缺省 = 没有可用的中断通道：push 仍会写位（"下一轮不再自动续"），但不会声称
+	// 停掉了任何子会话（返回空切片），不静默假装成功。
+	InterruptInFlight func(sessionID string) []string
+	Audit             func(sessionID string, entry ContinuationAudit)
+	Limits            func() limit.ContinuationLimits
+	Now               func() time.Time
 }
 
 // ContinuationApplication owns the auto-continuation gate and its pause/resume
@@ -137,10 +180,12 @@ func (application *ContinuationApplication) TriggerGoalContinuations(sessionID s
 	return application.evaluate(sessionID, triggered, false)
 }
 
-// Pause 是 goal 横条右侧的 ⏸：置"暂停自动续跑"位 + 记一条 goal.pause 打点。
+// Pause 是 **pull 通道**的 ⏸：置层二子状态 paused（绑定 facts.State().GoalID）+ 记一条
+// goal.pause 打点。**每轮轮询读它，只在轮边界生效。**
 //
 // 它**不**打断当前这一轮：本应用没有任何取消句柄，暂停只影响"轮结束之后"。
-// 它也不写 StoppedByUser —— 暂停是"别替我继续"，停止是"这一轮别跑了"，两件事。
+// 要立刻停掉在飞的子会话请用 PauseAndInterrupt（push 通道）；要停主会话这一轮是用户
+// 停止（CancelChat）。暂停也不写 StoppedByUser —— "别替我继续"与"这一轮别跑了"是两件事。
 func (application *ContinuationApplication) Pause(sessionID string) ContinuationStatus {
 	sessionID = strings.TrimSpace(sessionID)
 	limits := application.continuationLimits()
@@ -148,16 +193,79 @@ func (application *ContinuationApplication) Pause(sessionID string) Continuation
 		return application.Status(sessionID)
 	}
 	now := application.now()
-	application.deps.SetPaused(sessionID, true, now)
 	facts := application.facts(sessionID)
+	state := facts.State()
+	// 绑定当前 goal（空 = 无目标：位照写，但读侧 I1 会把它读成 continue，不会拦住下一张 goal）。
+	application.deps.SetPaused(sessionID, state.GoalID, true, now)
 	application.audit(sessionID, ContinuationAudit{
 		Kind:      string(goal.EventPause),
-		GoalID:    facts.GoalID,
+		GoalID:    state.GoalID,
 		RequestID: facts.RequestID,
-		Reason:    facts.Reason,
+		Reason:    facts.reason(),
 		Attempt:   facts.Attempts,
 		Paused:    true,
-		Detail:    "用户暂停自动续跑（当前这一轮不被打断，轮结束后不再自动发继续）",
+		Detail:    "pull 通道：只写暂停位（当前这一轮不被打断，轮结束后不再自动发继续）",
+	})
+	return application.Status(sessionID)
+}
+
+// PauseAndInterrupt 是 **push 通道**：写同一个状态源（层二 paused，绑定当前 goal），
+// 然后**立刻**中断该会话名下在飞的子会话（teammate / subagent），不等轮边界、不走轮询。
+//
+// 顺序写死：先写位、后中断。中断会让那些子回合立刻到终态，而"这个终态要不要触发自动
+// 续跑"那一问必须在位已置好之后才被问——反过来的话，中断与写位之间有一个窗口，窗口里
+// 自动续跑会把用户刚按停的东西又发起来。
+//
+// 它不停**主会话自己**正在跑的这一轮（那是 CancelChat 的事）。
+func (application *ContinuationApplication) PauseAndInterrupt(sessionID string) ContinuationStatus {
+	sessionID = strings.TrimSpace(sessionID)
+	limits := application.continuationLimits()
+	if sessionID == "" || !limits.On() {
+		return application.Status(sessionID)
+	}
+	now := application.now()
+	facts := application.facts(sessionID)
+	state := facts.State()
+	if state.Doing() && application.deps.SetPaused != nil {
+		application.deps.SetPaused(sessionID, state.GoalID, true, now)
+	}
+	interrupted := application.interruptInFlight(sessionID)
+	application.audit(sessionID, ContinuationAudit{
+		Kind:      string(goal.EventPause),
+		GoalID:    state.GoalID,
+		RequestID: facts.RequestID,
+		Reason:    facts.reason(),
+		Attempt:   facts.Attempts,
+		Paused:    true,
+		Detail: fmt.Sprintf(
+			"push 通道：立刻中断在飞子会话 %d 个 [%s]，主会话 goal 切到 %s/%s",
+			len(interrupted), strings.Join(interrupted, ","), state.Status, state.Substate,
+		),
+	})
+	status := application.Status(sessionID)
+	status.Interrupted = interrupted
+	return status
+}
+
+// Continue 是 **pull 通道的清位**（§2.8.4）：只把层二清回 continue，**不发行**——
+// 恢复 continue 之后要等**下一次轮边界**（下一次 TriggerGoalContinuations）才续。
+//
+// 与 Resume 的区别是刻意的：⟳ 是"现在就续一次"（人工意图），Continue 是"接着自动跑吧"。
+func (application *ContinuationApplication) Continue(sessionID string) ContinuationStatus {
+	sessionID = strings.TrimSpace(sessionID)
+	limits := application.continuationLimits()
+	if sessionID == "" || !limits.On() {
+		return application.Status(sessionID)
+	}
+	facts := application.facts(sessionID)
+	state := facts.State()
+	application.clearPaused(sessionID, state.GoalID, application.now())
+	application.audit(sessionID, ContinuationAudit{
+		Kind:      string(goal.EventResume),
+		GoalID:    state.GoalID,
+		RequestID: facts.RequestID,
+		Reason:    facts.reason(),
+		Detail:    "恢复 continue（pull）：只清位，等下一次轮边界才续",
 	})
 	return application.Status(sessionID)
 }
@@ -174,27 +282,26 @@ func (application *ContinuationApplication) Resume(sessionID string) Continuatio
 		return application.Status(sessionID)
 	}
 	now := application.now()
-	if application.deps.SetPaused != nil {
-		application.deps.SetPaused(sessionID, false, now)
-	}
 	facts := application.facts(sessionID)
+	state := facts.State()
+	application.clearPaused(sessionID, state.GoalID, now)
 	// 人工恢复打点 + 计数清零标记：一条 append-only 记录记两件事
 	// （Attempt=0 & Manual=true ⇒ 读面从这里重新数次数）。
 	application.recordAttempt(sessionID, model.ContinuationAttempt{
 		At:        now,
-		GoalID:    facts.GoalID,
+		GoalID:    state.GoalID,
 		RequestID: facts.RequestID,
-		Reason:    facts.Reason,
+		Reason:    facts.reason(),
 		Attempt:   0,
 		Manual:    true,
 	})
 	application.audit(sessionID, ContinuationAudit{
 		Kind:      string(goal.EventResume),
-		GoalID:    facts.GoalID,
+		GoalID:    state.GoalID,
 		RequestID: facts.RequestID,
-		Reason:    facts.Reason,
+		Reason:    facts.reason(),
 		Manual:    true,
-		Detail:    "人工恢复：清暂停位、续跑计数清零，并立即续一次",
+		Detail:    "人工恢复（⟳）：清暂停位、续跑计数清零，并立即续一次",
 	})
 	application.evaluate(sessionID, map[string]struct{}{}, true)
 	return application.Status(sessionID)
@@ -208,14 +315,17 @@ func (application *ContinuationApplication) Status(sessionID string) Continuatio
 		return status
 	}
 	facts := application.facts(sessionID)
-	status.GoalID = facts.GoalID
+	state := facts.State()
+	status.GoalID = state.GoalID
 	status.GoalTitle = facts.GoalTitle
+	status.GoalStatus = state.Status
+	status.Substate = state.Substate
 	status.RequestID = facts.RequestID
-	status.Paused = facts.Paused
+	status.Paused = state.Paused()
 	status.Attempts = facts.Attempts
 	status.Truncated = facts.Attempts >= limits.Attempts() ||
-		facts.Truncated[continuationKey(facts.GoalID, facts.RequestID)]
-	status.Stalled = continuable(facts) && !facts.Paused
+		facts.Truncated[continuationKey(state.GoalID, facts.RequestID)]
+	status.Stalled = continuable(facts)
 	if delay := limits.Backoff(facts.Attempts); delay > 0 {
 		status.NextAttemptAt = facts.LastAttemptAt.Add(delay)
 	}
@@ -366,20 +476,23 @@ func (application *ContinuationApplication) recordTruncation(
 
 // continuable 是 C1/C2/C3 的合判：
 //
-//	C1 goal 未收口      GoalID != ""（Active != nil 且非终态）
+//	C1 goal 未收口     层一 = doing（GoalID 非空且未收口）
 //	C2 真的被硬中断    上一回合终态 == TurnInterrupted 且有 requestID
-//	C3 人工意图优先    没被用户显式停止、没被暂停
+//	C3 人工意图优先    没被用户显式停止；层二 = continue（没被暂停，且暂停不是别的 goal 的）
+//
+// 前两条的层一/层二部分一次交给 `dto.DeriveGoalRunState`（唯一判定点，含 I1/I2），
+// 本函数只补 C2 与"C3 的停止那一半"。
 //
 // TurnBlocked / TurnNeedsUserDecision 一律不在 C2 里——那两种是"等人"，
 // 自动续跑会变成自问自答（设计 §2.1）。
 func continuable(facts ContinuationFacts) bool {
-	if strings.TrimSpace(facts.GoalID) == "" {
+	if !facts.State().AutoContinue() {
 		return false
 	}
 	if facts.TurnStatus != dto.TurnInterrupted || strings.TrimSpace(facts.RequestID) == "" {
 		return false
 	}
-	if facts.StoppedByUser || facts.Paused {
+	if facts.StoppedByUser {
 		return false
 	}
 	return true
@@ -436,6 +549,23 @@ func (application *ContinuationApplication) sessionIdle(sessionID string) bool {
 		return false // 无读面 = 无从判定空闲：不放行
 	}
 	return application.deps.SessionIdle(sessionID)
+}
+
+// clearPaused 是层二的唯一清位实现（Continue / Resume 共用）。
+// 即使 goalID 为空也照写一次：目的是把存档里可能残留的过期绑定一起清掉。
+func (application *ContinuationApplication) clearPaused(sessionID, goalID string, at time.Time) {
+	if application == nil || application.deps.SetPaused == nil {
+		return
+	}
+	application.deps.SetPaused(sessionID, goalID, false, at)
+}
+
+// interruptInFlight 是 push 通道的唯一副作用点（装配方缺省 = 没有可用中断通道）。
+func (application *ContinuationApplication) interruptInFlight(sessionID string) []string {
+	if application == nil || application.deps.InterruptInFlight == nil {
+		return nil
+	}
+	return application.deps.InterruptInFlight(sessionID)
 }
 
 func (application *ContinuationApplication) currentRequestID(sessionID string) string {

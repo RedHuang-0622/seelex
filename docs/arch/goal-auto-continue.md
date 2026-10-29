@@ -301,103 +301,179 @@ goal 未收口，上一轮被中断（request=…，原因=<interrupted|provider
 > 对标形态：goal 还没收口、上一轮被硬中断时，goal 区顶部出现一条 stalled 横条，
 > 右侧两个按钮 —— ⏸（暂停自动续跑）、⟳（清暂停并立即续一次）。
 
+#### 2.8.0 状态机：两层 + 会话粒度（唯一词表、唯一判定点）
+
+`paused` **不是一个布尔字段**：它是"层二子状态"的一个取值。两层模型：
+
+| 层 | 词表 | 谁写 | 语义 | 判据来源 |
+|---|---|---|---|---|
+| **层一 goal 状态** | `none` / `doing` / `done` | goal 域（`Controller.Begin/Finish/Abort`，`kernel/goal/controller.go`） | 这段会话有没有在做一件已登记的目标 | `dto.GoalStatusView`：`Active != nil && !IsTerminal(Active.Status)` → `doing`；否则 `Active == nil && History > 0` → `done`；其余 → `none` |
+| **层二子状态** | `continue` / `paused` | 用户意图（⏸ / ⟳）或"换 goal 自动回落" | **只在层一 = `doing` 时才有意义**：轮边界要不要自动续 | `SessionExecutionRecord.Paused` **加** `PausedGoalID`（暂停绑定在哪张 goal 上） |
+
+**词表与判定各只有一处**：`contract/dto/goal_run_state.go`
+
+- `dto.GoalRunState{GoalID, Status, Substate}`；
+- `dto.DeriveGoalRunState(activeGoalID, status, paused, pausedGoalID) dto.GoalRunState` —— 纯函数，**唯一判定点**；
+- `dto.GoalRunStateOf(view dto.GoalStatusView, paused, pausedGoalID)` —— 层一从 goal 栈现读，再交给上一条；
+- `dto.GoalRunState.AutoContinue()` —— `Status == doing && Substate == continue`，即"轮边界该自动续"。
+
+四条不变量（每条都有用例，见 §2.8.7）：
+
+- **I1 层二只在 `doing` 下有意义。** 层一为 `none` / `done` 时 `Substate` 一律读成 `continue`，
+  且 `AutoContinue() == false`：没有目标可续，"暂停"在那种会话上是个无意义状态。
+- **I2 不得残留到下一张 goal。** `paused` 与**发起暂停时的 goalID** 一起落盘（`PausedGoalID`）；
+  判定时只有 `PausedGoalID == ActiveGoalID` 才算 `paused`，否则（换 goal、goal 已收口）读成
+  `continue`。**新 goal 起来必须回到 `continue`**，而且不需要"谁记得去清位"：判定点在读侧现算，
+  写侧不必配合——重启、崩溃、并发都一致。旧档没有 `PausedGoalID`（升级前的存档）同样读成
+  `continue`：宁可让用户重按一次 ⏸，也不把上一张 goal 的暂停套到下一张上。
+- **I3 会话粒度。** 状态按 `sessionID` 维护（`SetPaused(sessionID, goalID, …)` 的第一个参数就是会话），
+  同进程并发多会话各自独立：A 的暂停既不会让 B 不续，也不会让 B 续。
+- **I4 暂停 ≠ 停止。** `paused` 从不写 `StoppedByUser`（C3 是另一条判据），也从不持有取消句柄：
+  层二只回答"要不要自动发下一轮"，不回答"这一轮要不要停"。后者是 `CancelChat`。
+
 #### 2.8.1 读面与落盘位
 
 - 读面 `execution.ContinuationStatus`（`application/execution/continuation.go`）：
-  `{GoalID, GoalTitle, RequestID, Stalled, Paused, Truncated, Attempts, MaxAttempts, NextAttemptAt}`。
-  `Stalled = 未收口 && 被硬中断 && 没被停止 && 没被暂停`；`Truncated = 已达上限或该中断点已有止步痕`。
-  横条文案只读这一份，不自己算。
-- 落盘位（跨重启）：`contract/protocol/state.go` `SessionExecutionRecord` 新增
-  `Paused` / `PausedAt`（与 §2.3 防呆 1 的 `StoppedByUser` / `StoppedAt` 并列、互不复用）。
-  **向后兼容**：旧档缺这四个字段 = 零值 = "没停过、没暂停过"，语义正确，不需要升
+  `{GoalID, GoalTitle, GoalStatus, Substate, RequestID, Stalled, Paused, Truncated, Attempts, MaxAttempts, NextAttemptAt, Interrupted}`。
+  `Stalled = 未收口 && 被硬中断 && 没被停止 && AutoContinue()`；`Truncated = 已达上限或该中断点已有止步痕`；
+  `Interrupted` 是最近一次 push 停掉的子会话 ID（横条显示"已停掉 N 个子会话"）。横条只读这一份。
+- 落盘位（跨重启）：`contract/protocol/state.go` `SessionExecutionRecord` 里的
+  `Paused` / `PausedAt` / `PausedGoalID`（层二，与 `StoppedByUser` / `StoppedAt` 并列、互不复用）。
+  **向后兼容**：旧档缺这几个字段 = 零值 = "没停过、没暂停过"，语义正确，不需要升
   `SessionRecord.Version`；`internal/host/session_workspace_ports.go` 的 `migrateSessionArchive`
-  因此无需改形状（旧 v1 档映射过来就是零值）。
+  只映射 v1 老字段，新字段留零值正是要的语义（旧会话不凭空续跑）。
 
-#### 2.8.2 暂停语义（⏸）——必须写死的三条
+#### 2.8.2 通道一（pull）：责任链状态判定 —— 每轮轮询，只在轮边界生效
 
-1. **只停"轮结束之后的自动续跑"，当前这一轮照常跑完。** 暂停路径（`ContinuationApplication.Pause`）
-   只写一个 bool + 一条 `goal.pause` 打点，**它手里没有任何取消句柄**，也没有通向
-   `CancelFunc` 的代码路径。用例 `TestPauseKeepsRunningTurnAndStopsNextContinuation`
-   同时证两半：暂停期间回合 ctx 未被取消、回合以 `completed` 收尾（第一半）；回合结束后
-   被中断、扫描一次都不发（第二半）。只证明第二半等于把"中断"当"暂停"。
-2. **暂停 ≠ 用户停止。** 暂停不写 `StoppedByUser`：前者是"别替我继续"，后者是"这一轮别跑了"
-   （`CancelChat`，终态 `TurnInterrupted` + C3 一票否决，§1.5/§2.3）。两者落点不同、恢复方式
-   不同（⟳ vs 用户自己发下一条），合并会把"用户的两种意图"压成一种。
-3. **暂停期间不挂欠账。** `TriggerGoalContinuations` 在暂停时返回 `pending=0`：不占上限、
-   不写续跑记录、不排定时器。理由：暂停是持续状态，重复扫描没有意义（不是"这次没发出去"）。
+**这是主路径。** `paused` 在这里的身份是"责任链上的一问"：回合收尾（`TurnRunner.Run`）发信号 →
+`AsyncConsumer` 欠账 → `ContinuationApplication.TriggerGoalContinuations` **每轮现读**两层状态 →
+`AutoContinue() == false` 直接短路。
 
-**为什么不做成"暂停 = 中断当前轮"**：那会造出第二套中断实现，并且绕开 `CancelChat` 已经
-写死的"清空队列并整批提升"语义（§1.5）。暂停只删掉一个自动行为，不动用户已经发出去的东西。
+- **它不可能、也不应该打断正在跑的这一轮。** `Pause` 的全部副作用是
+  `SetPaused(sessionID, goalID, true, at)` + 一条 `goal.pause` 打点；`application/execution/continuation.go`
+  里**没有任何取消句柄，也没有通往 `CancelFunc` 的代码路径**。
+- **为什么 pull 而不是 push 到轮内**：轮内没有额外中断点可用（回合收尾漏斗只有
+  `application/conversation/turn_runner.go` 一处），硬塞就是"半路杀进程"——第二套中断实现，
+  还会绕开 `CancelChat` 已写死的"清空队列并整批提升"语义（§1.5）。
+- 生效点（文件:符号）：
 
-#### 2.8.3 继续语义（⟳）——清位、留痕、只发一次
+  | 环节 | 符号 |
+  |---|---|
+  | 状态读面（两层现算） | `application/execution/continuation.go` `ContinuationFacts.State()` → `dto.DeriveGoalRunState` |
+  | 判定（轮边界） | 同文件 `ContinuationApplication.evaluate` / `continuable`（内含 `State().AutoContinue()`） |
+  | 写位（⏸） | 同文件 `ContinuationApplication.Pause` |
+  | 清位（pull 形态的恢复） | 同文件 `ContinuationApplication.Continue` |
+  | 扫描节拍 | `application/execution/table/consumer.go` `AsyncConsumer.Run`（复用既有 `RetryDelay` 定时器，不新增定时器） |
 
-`ContinuationApplication.Resume(sessionID)` 依次做三件事，缺一不可：
+用例 §2.8.7 ①：暂停期间本轮照常跑完（结构上保证：暂停没有中断手段），恢复 `continue` 之后的
+**下一次轮边界**才续（`Continue` 不调用 `fire`）。
 
-1. **清暂停位**（`SetPaused(false)`）。
+#### 2.8.3 通道二（push）：即时中断 —— 对 teammate / subagent 立刻生效
+
+**与 pull 分开的第二条路**，语义等同输入框里那个红色停止键：立刻停掉在飞的**子会话**
+（teammate 角色回合 / subagent），不等轮边界、不走轮询。
+
+- **同一个状态源，不同的生效方式**：push 先把层二置 `paused`（绑定当前 `goalID`），再走中断。
+  两步都在 `ContinuationApplication.PauseAndInterrupt` 里，**顺序写死：先写位、后中断**——先写位
+  才能保证中断产生的那个回合终态跑不掉"要不要自动续"这一问。
+- 中断本身不由本应用实现：`ContinuationDeps.InterruptInFlight func(sessionID string) []string`
+  是唯一副作用点，装配方把它接到真实的取消通道上（会话级 `unit.CancelFunc()`；角色/subagent 侧
+  需要 §2.8.8 说的取消注册表）。返回被打断的子会话 ID，进 `ContinuationStatus.Interrupted`。
+- 生效点（文件:符号）：
+
+  | 环节 | 符号 |
+  |---|---|
+  | push 入口（写位 + 立刻中断） | `application/execution/continuation.go` `ContinuationApplication.PauseAndInterrupt` |
+  | 中断副作用点 | 同文件 `ContinuationDeps.InterruptInFlight` |
+  | 真实取消通道（装配侧，**尚未接线**） | 会话级：`application/assembly/service_assembler_scheduler_lifecycle.go` `CancelChat` 用的同一条 `unit.CancelFunc()`；角色/subagent 级：见 §2.8.8 |
+
+- **一句话区分**：pull = 下一轮不再自动继续；push = 立刻停掉在跑的子会话。两者共享状态源、
+  不共享生效方式——所以是两个方法，不是一个方法加一个 bool。
+
+#### 2.8.4 继续 / 恢复（两个动作，不要混成一个）
+
+| 动作 | 符号 | 做什么 | 什么时候用 |
+|---|---|---|---|
+| 恢复 `continue`（pull） | `ContinuationApplication.Continue` | 层二清回 `continue`，**不发行**；打一条 `goal.resume(manual=false)` | 用户说"接着自动跑吧"，但不想此刻被插一句话：等下一次轮边界再续 |
+| 人工续一次（⟳） | `ContinuationApplication.Resume` | `Continue` + 计数清零留痕 + `goal.resume(manual=true)` + **立刻 fire 一次** | stalled 横条上的 ⟳（触顶之后它就靠这个重新生效） |
+
+`Resume` 的三件事缺一不可：
+
+1. **清暂停位**（`SetPaused(false)`）——与 `Continue` 同一个写点，不另造一条；
 2. **计数清零必须留痕**：写一条 `ContinuationAttempt{Manual:true, Attempt:0}` 记录 + 一条
-   `goal.resume`（`manual=true`）打点。清零不另设字段——读面按"最后一条 Manual 且 Attempt=0
-   的记录之后重新数"，所以"重置"这条动作有且只有一种表示，且必然可追溯。
-3. **立即续一次**：不等退避、不受剩余额度限制（刚清零），但**同一中断点只发一次**：
-   发出去就落一条 `Attempt ≥ 1` 的记录，紧接着的定时扫描（以及重启后的新实例）读到
-   `Continued[key]` 直接短路。用例 `TestResumeFiresExactlyOnceAndDoesNotStack` 用
-   "重新观测同一中断点 + 定时扫描 + 新实例扫描"三路验证**不双发**。
+   `goal.resume`（`manual=true`）打点。清零不另设字段——读面按"最后一条 Manual 且 `Attempt=0`
+   的记录之后重新数"，所以"重置"有且只有一种表示，且必然可追溯；
+3. **立即续一次**：不等退避、不受剩余额度限制（刚清零），但**同一中断点只发一次**：发出去就落一条
+   `Attempt ≥ 1` 的记录，紧接着的定时扫描（以及重启后的新实例）读到 `Continued[key]` 直接短路。
+   用例 `TestResumeFiresExactlyOnceAndDoesNotStack` 用"重新观测同一中断点 + 定时扫描 + 新实例扫描"
+   三路验证不双发。
 
-人工恢复**不绕过事实**：goal 已收口 / 上一轮不是硬中断 / 被用户停止 / 会话忙 → ⟳ 只清位 + 打点，
-不发续跑（`ContinuationApplication.evaluate(..., manual=true)` 只跳过"上限 + 退避"两问）。
-
-触顶（§2.3 防呆 2）之后 ⟳ 仍然有用：**截断记录不参与幂等判据**（它没发出任何续跑），
-所以人工恢复能把同一个中断点再试一次；而止步痕对同一中断点只记一条，不刷屏
+人工恢复**不绕过任何事实**：goal 已收口 / 上一轮不是硬中断 / 被用户停止 / 会话忙 → ⟳ 只清位 + 打点，
+不发续跑（`evaluate(..., manual=true)` 只跳过"上限 + 退避"两问）。触顶之后再按 ⟳ 仍然有用：
+**截断记录不参与幂等判据**（它没发出任何续跑），且止步痕对同一中断点只记一条
 （`TestResumeResetsAttemptCounterAfterTruncation`）。
 
-#### 2.8.4 审计词表（扩三个非终态 kind）
+#### 2.8.5 审计词表（三个非终态 kind）
 
-`kernel/goal/controller.go` 新增 `EventContinue = "goal.continue"`、`EventPause = "goal.pause"`、
-`EventResume = "goal.resume"`。三者都是**非终态**：`isTerminalAuditKind` 只认
-`finish`/`abort`（`kernel/goal/board_archive.go`），所以它们不会污染收口账本与看板 history，
-只作为 append-only 的可核对痕迹（用例 `TestContinuationAuditKindsAreNotTerminal`）。
-打点内容用结构化 `execution.ContinuationAudit{Kind,GoalID,RequestID,Reason,Attempt,Truncated,Paused,Manual,Detail}`，
-"被截断"与"人工恢复"分别由 `Truncated` / `Manual` 位标注——不靠文案猜。
+`kernel/goal/controller.go` 有 `EventContinue = "goal.continue"`、`EventPause = "goal.pause"`、
+`EventResume = "goal.resume"`。三者都是**非终态**：`isTerminalAuditKind` 只认 `finish`/`abort`
+（`kernel/goal/board_archive.go`），所以它们不污染收口账本与看板 history，只作为 append-only 的可核对痕迹
+（用例 `TestContinuationAuditKindsAreNotTerminal`）。打点用结构化
+`execution.ContinuationAudit{Kind,GoalID,RequestID,Reason,Attempt,Truncated,Paused,Manual,Detail}`：
+"被截断"、"人工恢复"、"push 停掉了几个子会话"分别由 `Truncated` / `Manual` / `Detail` 标注，
+**不靠文案猜**；`goal.pause` 的 `Detail` 写明这次是 pull 写位还是 push 连带中断。
 
-#### 2.8.5 施工清单（本节，已落地）
+#### 2.8.6 施工清单（本节）
 
 | 文件 | 改动 |
 |---|---|
-| `contract/protocol/state.go` | `SessionExecutionRecord` 加 `Paused`/`PausedAt`/`Continuations`；新类型 `ContinuationAttempt`（含三种记录的派生口径注释） |
-| `kernel/limit/continuation.go`（新） | `ContinuationLimits{Enabled,MaxAttemptsPerGoal,BackoffSec,MaxBackoffSec}` + `Attempts()/Backoff()/MaxBackoff()/Validate()`；`kernel/limit/limits.go` 挂到 `Limits.Continuation`（**零值 = 关**） |
+| `contract/dto/goal_run_state.go`（新） | 两层词表 `GoalRunStatus` / `GoalRunSubstate` / `GoalRunState` + 唯一判定点 `DeriveGoalRunState` / `GoalRunStateOf` / `AutoContinue()` |
+| `contract/protocol/state.go` | `SessionExecutionRecord` 加 `Paused`/`PausedAt`/**`PausedGoalID`**（层二绑定 goal）/`Continuations`；新类型 `ContinuationAttempt` |
+| `kernel/limit/continuation.go` | `ContinuationLimits{Enabled,MaxAttemptsPerGoal,BackoffSec,MaxBackoffSec}` + `Attempts()/Backoff()/MaxBackoff()/Validate()`；零值 = 关 |
 | `kernel/goal/controller.go` | 三个非终态 kind |
-| `application/execution/continuation.go`（新） | 续跑 gate（`TriggerGoalContinuations` / `Pause` / `Resume` / `Status`）；判据 C1–C4 与防呆四条集中在一处 |
-| `application/execution/table/consumer.go` | `AsyncConsumerDeps` 加第三个信号源 `ContinuationEvents <-chan string` + `TriggerContinuation`；欠账复用既有 `RetryDelay` 定时器（**不新增定时器**） |
+| `application/execution/continuation.go` | 续跑 gate：`TriggerGoalContinuations`（pull 判定）/ `Pause`（pull 写位）/ `Continue`（pull 清位）/ `PauseAndInterrupt`（push）/ `Resume`（⟳）/ `Status` |
+| `application/execution/table/consumer.go` | `AsyncConsumerDeps` 加第三个信号源 `ContinuationEvents <-chan string` + `TriggerContinuation`；欠账复用既有 `RetryDelay` 定时器 |
 
-#### 2.8.6 本节验收（用例与运行输出见 `application/execution/continuation_test.go`）
+#### 2.8.7 本节验收（两条通道各一条硬用例）
 
-| 判据 | 用例 |
-|---|---|
-| ① 未收口 + 中断 → 续一次 | `TestContinuationFiresOnceForInterruptedOpenGoal` |
-| ① 已 goal_done → 不续 | `TestContinuationSkipsClosedGoal` |
-| ① 用户显式停止 → 不续（重启后仍不续） | `TestContinuationSkipsUserStoppedTurn` |
-| ① 防呆：`TurnBlocked`/`TurnNeedsUserDecision` 不续 | `TestContinuationSkipsWaitingForUserOrExternal` |
-| ② 暂停：本轮跑完 + 下一轮不续 | `TestPauseKeepsRunningTurnAndStopsNextContinuation` |
-| ③ 继续：清位 + 立即一次 + 不叠加 | `TestResumeFiresExactlyOnceAndDoesNotStack` |
-| ④ 上限截断 + 打点 | `TestContinuationTruncatesAtAttemptLimit` |
-| ④ 退避 | `TestContinuationBackoffDelaysNextAttempt` |
-| ④ resume 重置计数 + 人工恢复打点 | `TestResumeResetsAttemptCounterAfterTruncation` |
-| ⑤ 幂等（含重启） | `TestContinuationFiresOnceForInterruptedOpenGoal`（后半）+ 三路不双发用例 |
-| 开关零值 = 关 | `TestContinuationOffMeansOff`（`kernel/limit` 侧另有零值用例） |
-| 忙会话挂欠账不插队 | `TestContinuationStaysPendingWhileSessionBusy` |
-| "提交成功 ≠ 起了回合"不计数 | `TestContinuationDoesNotCountTurnThatNeverStarted` |
+**① pull：暂停期间本轮照常跑完，轮边界不再续；恢复 `continue` 后下一次轮边界才续**
+`TestPullChannelPausedTurnRunsToCompletionThenNoNextRound`（`application/execution/continuation_channel_test.go`）：
+暂停后本轮 ctx **未被取消**、回合以 `completed` 收尾；轮边界扫描 `pending = 0`、零次发行；
+`Continue` 本身不发行；之后再扫描一次才发行，且落账一条 `ContinuationAttempt`。
 
-#### 2.8.7 仍未接线（下一手的活，不是本节的判据）
+**② push：对 teammate/subagent 发 `paused` 时在飞子会话被立即中断（不等轮边界），主会话切到 `doing/paused`**
+`TestPushChannelInterruptsInFlightChildrenImmediately`（同文件）：`PauseAndInterrupt` 返回后，
+子会话 ctx **当场** `Canceled`（时钟未推进 = 没有等任何轮边界）、主会话自己这一轮仍在跑（push 不停主会话）、
+状态读回 `Status=doing` / `Substate=paused`；随后轮边界的自动续跑不会发生。
 
-- **装配注入**：`ContinuationDeps` 的九个窄函数（`Facts` 从 `SessionRecord.Execution` + goal 栈读、
-  `RecordAttempt`/`SetPaused` 写回存档、`Audit` 映射到 `goal.AuditAccount`、`SessionIdle` 复用
-  `sessionIdleForAsyncTrigger`）尚未在 `application/assembly` 里装配；接上之前 `Limits()` 为
-  `ContinuationLimits{}`（零值 = 关），**行为与今天完全一致**。
-- **回合收尾发信号**：`application/conversation/turn_runner.go` 在 `Commit` 之后非阻塞 emit
-  一次 `ContinuationEvents <- sessionID`（§2.5 同一处）未做。
+**③ 两层 + 会话粒度 + 不残留**
+`TestGoalRunStateIsSessionScopedAndPauseDoesNotResidue`（同文件）+ `contract/dto/goal_run_state_test.go`：
+`none`/`done` 下 `Substate` 恒为 `continue`；换 goal 后读回 `continue`（旧位不继承）；
+两个会话并发，A 的暂停不影响 B。
+
+其余既有用例（判据 C1–C5）保持不变：
+`go test ./application/execution ./application/conversation ./kernel/limit ./kernel/goal ./contract/dto -count=1`。
+
+#### 2.8.8 仍未接线（含 push 的真实取消通道）
+
+- **装配注入**：`ContinuationDeps` 的窄函数（`Facts` 从 `SessionRecord.Execution` + `goal.StatusFor`
+  读两层状态、`RecordAttempt`/`SetPaused` 写回存档、`Audit` 映射到 `goal.AuditAccount`、
+  `SessionIdle` 复用 `sessionIdleForAsyncTrigger`）尚未在 `application/assembly` 里装配；接上之前
+  `Limits()` 是零值（= 关），**行为与今天完全一致**。
+- **回合收尾发信号**：`application/conversation/turn_runner.go` 在 `Commit` 之后非阻塞 emit 一次
+  `ContinuationEvents <- sessionID`（§2.5 同一处）未做。
+- **push 的真实中断面（独立工作项）**：`InterruptInFlight` 需要一个取消注册表才能落到
+  teammate / subagent 上。现状是**没有**这个句柄：`backend/engine/assemble/runtime_role_turn.go`
+  的 `roleSessionHandle`（约 97 行）只有 `roundGate`（叶子锁）与引擎，**没有 cancel 字段**；
+  角色回合的 `turnCtx` 只在 `runRoleRound` 内部 `context.WithCancel` 后 `defer cancel()`
+  （约 347 行）以及工具失败策略的 `roleToolFailureRun.cancel`（约 221 行），都不对外暴露。
+  因此"角色/子代理级取消"要新增一个按 `roleSessionID` 登记的取消注册表（写点与 `roundGate`
+  的锁纪律同处），属另一条工作项，不在本节范围。
 - **GUI/桥**：goal 横条 + ⏸/⟳ 两个按钮（`gui/` 与 `application/lifecycle` 的暂停/继续入口）未做；
-  `Paused` 的清除点（`turn_process.go` `BeginLocked`）也未接线。
-- **出厂档**：`config/seelex.yaml` 的 `limits.continuation` 尚未显式打开（与 §2.3 防呆 2 的
-  "零值 = 关、出厂档显式打开"纪律一致：接线完成后再开，避免"配置说开了、其实没有消费者"）。
+  `Paused` 的清除点（`turn_process.go` `BeginLocked`）也未接线——注意它**不是**正确性必需的
+  （I2 由读侧判定保证），接上只是为了不让存档里堆着过期的位。
+- **出厂档**：`config/seelex.yaml` 的 `limits.continuation` 尚未显式打开（零值 = 关，接线完成后再开，
+  避免"配置说开了、其实没有消费者"）。
 
 ## 3. 排除掉的已有机制（以及为什么不能直接用）
 

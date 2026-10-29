@@ -39,6 +39,7 @@ type continuationHost struct {
 
 	stoppedByUser bool
 	paused        bool
+	pausedGoalID  string
 	records       []model.ContinuationAttempt
 
 	running       bool
@@ -81,10 +82,12 @@ func (h *continuationHost) application() *ContinuationApplication {
 			defer h.mu.Unlock()
 			h.records = append(h.records, attempt)
 		},
-		SetPaused: func(_ string, paused bool, _ time.Time) {
+		SetPaused: func(_ string, goalID string, paused bool, _ time.Time) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
 			h.paused = paused
+			// 层二绑定 goal：读侧只有 pausedGoalID == 当前 goal 才算暂停（I2）。
+			h.pausedGoalID = goalID
 		},
 		Audit: func(_ string, entry ContinuationAudit) {
 			h.mu.Lock()
@@ -116,6 +119,7 @@ func (h *continuationHost) factsLocked() ContinuationFacts {
 		Reason:        h.reason,
 		StoppedByUser: h.stoppedByUser,
 		Paused:        h.paused,
+		PausedGoalID:  h.pausedGoalID,
 		Continued:     map[string]bool{},
 		Truncated:     map[string]bool{},
 	}
@@ -413,6 +417,7 @@ func TestResumeFiresExactlyOnceAndDoesNotStack(t *testing.T) {
 	application := host.application()
 	host.mu.Lock()
 	host.paused = true
+	host.pausedGoalID = host.goalID // 层二绑定当前 goal（I2）
 	host.mu.Unlock()
 	host.interrupt("req-2", ContinuationReasonProvider)
 	if got := host.submitCount(); got != 0 {
