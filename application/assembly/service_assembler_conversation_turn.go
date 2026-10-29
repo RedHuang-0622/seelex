@@ -144,13 +144,8 @@ func (service *Service) assembleConversationTurnComponents() {
 		PrepareContext: func(sessionID, requestID, modelInput string) (string, error) {
 			return service.components.context.PrepareExecutionContextFor(sessionID, requestID, modelInput)
 		},
-		Normalize: context_runtime.NonEmptyProviderInput,
-		// 字节冻结（I1）：把最终送进引擎的 user 正文写回 transcript，使下一轮
-		// 重投影与已发出字节逐字节一致。缺这一步，装配拼进去的动态尾块（工作
-		// 打点表 / 环境表）会让整段历史在下一次请求里重算。
-		RecordWire: func(sessionID, requestID, wire string) {
-			service.components.tasks.RecordUserWireContentLocked(sessionID, requestID, wire)
-		},
+		Normalize:  context_runtime.NonEmptyProviderInput,
+		RecordWire: service.components.tasks.RecordUserWireContentLocked,
 	})
 
 	execution := applicationconversation.NewTurnExecution(applicationconversation.TurnExecutionDeps{
