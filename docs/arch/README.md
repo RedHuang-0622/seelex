@@ -51,6 +51,7 @@
 | [`session-board-metadata-lifecycle.md`](session-board-metadata-lifecycle.md) | 会话粒度看板元数据与生命周期（goal 看板 / 团队看板）；已裁决（2026-10-02） |
 | [`state-machine-inventory.md`](state-machine-inventory.md) | 状态机总表：状态枚举统一口径与现存零散字符串比较的地图 |
 | [`team-board-gui-tui-contract.md`](team-board-gui-tui-contract.md) | 团队看板接 GUI + TUI 同源同步契约（draft） |
+| [`context-prefix-stability-l1.md`](context-prefix-stability-l1.md) | 上下文前缀稳定性根治方案（**设计，未改代码**）：五条不变量（字节冻结 / 只追加 / 指针而非平移 / 前缀有键 / L1 派生）+ L1–draft–actor 三层（轮尾提交、ack 后清空）+ `prefix_key` 六格 + 双纪元表（`memory_update` / `tools_update` + `⟦toolset⟧` 哨兵）+ **字符级前缀探针（draft 每次追加即采样，cum/last/byTurn 三口径计数叠加，与 `prefix_key` 对撞分出预期/意外失效）**；含设计×代码逐条核对、M0–M5 实施计划与验收判据、2026-10-29 三条已拍决策。替换 `context-prefix-chain.md` 的"每轮重投影"部分 |
 | [`workunit-progress-read-surface.md`](workunit-progress-read-surface.md) | workunit 进度读面（后端接口形状）只读勘定 |
 
 ## 会话数据流：架构层与方法

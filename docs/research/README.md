@@ -36,4 +36,5 @@
 | [`goal-context-governance-2026-09.md`](goal-context-governance-2026-09.md) | Goal 上下文治理：业界做法调研（2026-09） |
 | [`2026-10-19-deepseek-search-fetch-api.md`](2026-10-19-deepseek-search-fetch-api.md) | DeepSeek 官方 Search & Fetch API（2026-10-17 上线）：端点/字段/算子/计费/QPS/错误逐条核对，与博查现状对照，以及 web_search 内置适配器 `type: deepseek` 的落点与刻意未做的部分 |
 | [`2026-10-28-coding-agent-peer-evaluation.md`](2026-10-28-coding-agent-peer-evaluation.md) | 2026-10 Seelex、Codex、Claude Code、Cursor、Copilot、Devin、Qoder、OpenHands、Aider、Antigravity CLI 的同级路线、强弱、适用场景与当前 Codex agent 评价 |
+| [`2026-10-29-agent-prefix-cache-mechanisms.md`](2026-10-29-agent-prefix-cache-mechanisms.md) | 主流 coding agent 的**前缀缓存机制**对照（2026-10-29）：Codex CLI / Claude Code / Aider / Cline / Gemini / OpenHands / DSH 七家的缓存身份、请求形状、动态状态位置、工具集、压缩、观测逐条取证；附机制轴对照表、Seelex 差距与优势、取舍清单，以及五条不变量各自的外部佐证 |
 | [`websearch-provider-design-research-2026-08.md`](websearch-provider-design-research-2026-08.md) | websearch 通用接入设计模式调研（2026-08） |

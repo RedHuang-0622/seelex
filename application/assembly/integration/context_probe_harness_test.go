@@ -126,6 +126,11 @@ func (h *prefixProbeHarness) beginTurn(input string) {
 	if err != nil {
 		h.t.Fatalf("prepare execution context: %v", err)
 	}
+	// 与生产 application/conversation.TurnInputApplication.Prepare 同形：装配后
+	// 把**最终送进引擎的那一份正文**写回 transcript（字节冻结，I1）。夹具若不
+	// 镜像这一步，就会测出一个生产里已经不存在的分叉（假红），或反过来掩盖
+	// 真实分叉（假绿）。
+	h.service.components.tasks.RecordUserWireContentLocked(h.session, prefixProbeRequestID, currentInput)
 	h.history = append([]contract.EngineMessage(nil), h.engine.History()...)
 	// 当前输入（可能含工作打点表块）由循环追加为工作历史最后一条 user 消息。
 	h.history = append(h.history, contract.EngineMessage{Role: "user", Content: currentInput, ContentSet: true})
