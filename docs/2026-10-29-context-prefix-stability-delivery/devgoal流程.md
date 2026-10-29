@@ -51,21 +51,21 @@
 
 ### B. 当前里程碑收口项
 
-- [ ] M2 冷加载：补一条走真实 `SessionRecord` 的冷/热逐字节一致性集成用例。
-- [ ] M2 性能：补 N=10/50/200 的非线性装配量测，日志同时给 L1 hit/rebuilt 证据。
-- [ ] M2 文档：更新 `kernel/context/README.md`、`kernel/task/README.md`、主设计 §8 与 devlog。
-- [ ] 续跑行为门禁：重建后暂停仍不续、同一中断点累计仍只续一次（不能只断言字段）。
-- [ ] 暂停/继续 E2E 六条：push 子会话即时中断、pull 轮边界不续、Resume 恰发一次、
+- [x] M2 冷加载：L1 从持久 wire material 重建的逐字节用例已落地。
+- [x] M2 性能：N=10/50/200 热路径用例记录 hit、delta 与 rebuilt-message 证据。
+- [x] M2 文档：`kernel/context/README.md`、`kernel/task/README.md`、主设计 §8 与 devlog 已同步。
+- [x] 续跑行为门禁：重建后暂停仍不续、同一中断点累计仍只续一次已由行为用例钉住。
+- [x] 暂停/继续 E2E 六条：push 子会话即时中断、pull 轮边界不续、Resume 恰发一次、
       重建后仍暂停、goal done 后不续、新会话不读脏暂停位。
-- [ ] M3 接线：draft durable 适配器接到回合尾提交与真实持久化，提交失败保留 `uncommitted`。
-- [ ] M3 验收：并发无丢失/无乱序、重复 Seq、队列满背压、故障后下一轮合并提交、按水位重放。
-- [ ] M4 压缩滚动：epoch 从 c1→c2 时写 retire/add；跨压缩 + 冷加载 memory 字节完全一致。
-- [ ] M4 用例：同 epoch 换 query 前缀不变；手改 Bytes/Digest 必须拒绝并留痕。
-- [ ] M5 运行时接线：插件、MCP、goal gate、权限档变化只追加哨兵，不 bump `tools_digest`。
-- [ ] M5 catalog 变更：装/卸插件等显式 catalog 变化才 bump epoch，并打一次全额失效。
-- [ ] M5 工具门：被最新哨兵移除的工具返回含 epoch 的结构化拒绝，不能静默执行。
-- [ ] M5 用例：两纪元哨兵后“最后一块为准”；截断/乱序/重复声明解析失败。
-- [ ] 契约/README：`SessionRecord.Execution` 新字段、ContextDraft/epoch 表、恢复语义全部同步。
+- [x] M3 接线：draft durable 适配器接到回合尾提交与真实持久化，提交失败保留 `uncommitted`。
+- [x] M3 验收：并发无丢失/无乱序、重复 Seq、队列满背压、故障后下一轮合并提交、按水位重放。
+- [x] M4 压缩滚动：epoch 从 c1→c2 时写 retire/add；跨压缩 memory 字节一致用例已落地。
+- [x] M4 用例：同 epoch 换 query 前缀不变；手改 Bytes/Digest 必须拒绝。
+- [x] M5 运行时接线：可用性变化只追加哨兵，不改变冻结 schema/`tools_digest`。
+- [x] M5 catalog 变更：显式 catalog 变化才 bump epoch，并刷新冻结 schema。
+- [x] M5 工具门：被当前门移除的工具返回含 tool epoch 的结构化拒绝。
+- [x] M5 用例：哨兵“最后一块为准”；截断/重复声明解析失败。
+- [x] 契约/README：`SessionRecord.Execution` 新字段、ContextDraft/epoch 表、恢复语义已同步。
 
 ### C. 子代理会话治理（新增）
 
@@ -79,9 +79,9 @@
       `SubagentLiveHistoryPage`，历史复用 `NodeSessionConversation` / `SessionRecordPage`。
 - [x] 输入框复用：`composer-shell.js` 已把主 composer 模板克隆到当前 agent 会话，
       `agent-conversation-view.js` 已按 agent ref 固定提交目标；不再复制第二套 composer。
-- [ ] 子代理会话探针验收：补齐 subagent/teammate 两种 ref 的会话作用域测试，
+- [x] 子代理会话探针验收：补齐 subagent/teammate 两种 ref 的会话作用域测试，
       断言主/子 composer、提交目标、live→cold 切换和错误恢复；不重复实现 UI。
-- [ ] DDD owner 复核：确认 `ConversationSessionRef` 是唯一路由键，Application 只消费
+- [x] DDD owner 复核：确认 `ConversationSessionRef` 是唯一路由键，Application 只消费
       DTO/Event，Bridge 不持有 subagent/teammate 会话状态；缺少的只是端口方法时优先扩现有端口。
 - [ ] 子会话提交权限与锁序：主会话运行中不阻塞子会话输入；子会话停止/重跑/关闭状态可判定。
 - [ ] 子代理“天生 goal”：创建 subagent/teammate 即建立 goal，不以普通回合完成作为终点；

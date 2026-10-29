@@ -95,4 +95,11 @@ func TestUnifiedApplicationRoutesMainAndAgentConversations(t *testing.T) {
 	if agent.viewRef.WorkItemID != "item-1" {
 		t.Fatalf("agent ref = %#v", agent.viewRef)
 	}
+	subagentRef := dto.ConversationSessionRef{Kind: dto.ConversationSubagent, SessionID: "node-1", MainSessionID: "main"}
+	if _, err := application.View(context.Background(), subagentRef, dto.ConversationViewRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if agent.viewRef.Kind != dto.ConversationSubagent || agent.viewRef.SessionID != "node-1" {
+		t.Fatalf("subagent should use the same AgentConversationPort: %#v", agent.viewRef)
+	}
 }
