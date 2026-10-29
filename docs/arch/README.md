@@ -53,6 +53,7 @@
 | [`team-board-gui-tui-contract.md`](team-board-gui-tui-contract.md) | 团队看板接 GUI + TUI 同源同步契约（draft） |
 | [`context-prefix-stability-l1.md`](context-prefix-stability-l1.md) | 上下文前缀稳定性根治方案（**设计，未改代码**）：五条不变量（字节冻结 / 只追加 / 指针而非平移 / 前缀有键 / L1 派生）+ L1–draft–actor 三层（轮尾提交、ack 后清空）+ `prefix_key` 六格 + 双纪元表（`memory_update` / `tools_update` + `⟦toolset⟧` 哨兵）+ **字符级前缀探针（draft 每次追加即采样，cum/last/byTurn 三口径计数叠加，与 `prefix_key` 对撞分出预期/意外失效）**；含设计×代码逐条核对、M0–M5 实施计划与验收判据、2026-10-29 三条已拍决策。替换 `context-prefix-chain.md` 的"每轮重投影"部分 |
 | [`workunit-progress-read-surface.md`](workunit-progress-read-surface.md) | workunit 进度读面（后端接口形状）只读勘定 |
+| [`goal-auto-continue.md`](goal-auto-continue.md) | goal 未收口 + 被中断时的自动续跑：现状核对（goal 栈/`Continuation`/`IsContinuableStatus`/四个中断入口/既有 `CompletionApplication` 触发链）+ 五条结论（触发条件、合成"继续"输入、防呆四条、可观测落点、与 sessionpolicy/continuation 的关系）+ 排除掉的已有机制清单。**目标设计，未改代码** |
 
 ## 会话数据流：架构层与方法
 
