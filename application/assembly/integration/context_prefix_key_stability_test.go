@@ -3,8 +3,10 @@
 package integration
 
 import (
+	"reflect"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 	"github.com/RedHuang-0622/seelex/kernel/context/prefixprobe"
 )
@@ -47,13 +49,80 @@ func TestContextPrefixKeyStability(t *testing.T) {
 		t.Fatalf("plan 装载不应改变 prefix_key（plan 帧属尾部），实际变化：%v", changed)
 	}
 
-	// ③ 工具集变化：键必须变，且归因到 tools。
+	// ③ 可用性变化：catalog 冻结，键不变，只追加哨兵。
 	harness.tools = append(append([]model.Tool(nil), harness.tools...),
 		model.Tool{Name: "team_dispatch", Description: "派活给 teammate"})
+	harness.runtime.visibleTools = append([]model.Tool(nil), harness.tools...)
+	harness.beginTurn("第 4 轮：重新装配工具目录。")
+	afterAvailability := harness.service.components.tasks.ContextEpochStateFor(harness.session)
+	if afterAvailability.ToolsEpoch != 1 || len(afterAvailability.ToolsUpdates) < 2 {
+		t.Fatalf("可用性变化应只追加 sentinel、不 bump epoch：epoch=%d updates=%d",
+			afterAvailability.ToolsEpoch, len(afterAvailability.ToolsUpdates))
+	}
 	fourth := probeKeyFor(harness)
-	changed := prefixprobe.DiffKeys(first, fourth)
+	if changed := prefixprobe.DiffKeys(first, fourth); len(changed) != 0 {
+		t.Fatalf("工具可用性变化不得改变冻结 catalog 的键，实际：%v", changed)
+	}
+
+	// ④ catalog 本身变化：显式 bump tools_epoch，键只归因到 tools。
+	epochs := harness.service.components.tasks.ContextEpochStateFor(harness.session)
+	catalog := append([]model.ToolCatalogEntry(nil), epochs.ToolCatalog...)
+	catalog = append(catalog, model.ToolCatalogEntry{Name: "team_dispatch", Description: "派活给 teammate"})
+	if changed, epoch := harness.service.components.tasks.ReplaceToolCatalogFor(harness.session, catalog); !changed || epoch <= epochs.ToolsEpoch {
+		t.Fatalf("显式 catalog 变化应 bump epoch：changed=%t epoch=%d before=%d", changed, epoch, epochs.ToolsEpoch)
+	}
+	harness.beginTurn("第 5 轮：工具 catalog 发生变化。")
+	afterCatalog := harness.service.components.tasks.ContextEpochStateFor(harness.session)
+	if afterCatalog.ToolsEpoch != 2 {
+		t.Fatalf("显式 catalog 变化后 epoch=%d want=2", afterCatalog.ToolsEpoch)
+	}
+	fifth := probeKeyFor(harness)
+	changed := prefixprobe.DiffKeys(first, fifth)
 	if len(changed) != 1 || changed[0] != "tools" {
-		t.Fatalf("工具集变化应只让 tools 格变化，实际：%v", changed)
+		t.Fatalf("catalog 变化应只让 tools 格变化，实际：%v", changed)
+	}
+}
+
+func TestContextL1ReusesTruthDeltaAndColdRebuildMatches(t *testing.T) {
+	harness := newPrefixProbeHarness(t, 1_000_000)
+	harness.startStream()
+
+	harness.beginTurn("第 1 轮：建立 L1。")
+	firstKey := probeKeyFor(harness)
+	stats, ok := harness.service.components.context.PrefixL1StatsFor(harness.session)
+	if !ok || stats.Rebuilt != 1 || stats.Hits != 0 {
+		t.Fatalf("首轮应重建 L1，实际 ok=%t stats=%+v", ok, stats)
+	}
+
+	harness.streamText("第 1 轮答复。")
+	harness.llmIteration("第 1 轮答复。", "", nil)
+	harness.finishTurn("第 1 轮答复。")
+
+	harness.beginTurn("第 2 轮：只追加。")
+	secondKey := probeKeyFor(harness)
+	if changed := prefixprobe.DiffKeys(firstKey, secondKey); len(changed) != 0 {
+		t.Fatalf("同一 world 只追加 truth 不应改变键：%v", changed)
+	}
+	stats, ok = harness.service.components.context.PrefixL1StatsFor(harness.session)
+	if !ok || stats.Hits != 1 || stats.ReusedEvents == 0 {
+		t.Fatalf("第二轮应只追加新增 truth 事件，实际 ok=%t stats=%+v", ok, stats)
+	}
+	before := append([]contract.EngineMessage(nil), harness.engine.History()...)
+
+	// 冷加载等价：丢弃派生 L1，不丢 truth；同一请求重装配必须逐字节相同。
+	harness.service.components.tasks.ForgetContextL1For(harness.session)
+	if _, err := harness.service.components.context.PrepareExecutionContextFor(
+		harness.session, prefixProbeRequestID, "第 2 轮：只追加。",
+	); err != nil {
+		t.Fatalf("冷重建装配: %v", err)
+	}
+	after := harness.engine.History()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("冷重建前缀与热 L1 不一致：before=%d messages, after=%d messages", len(before), len(after))
+	}
+	coldStats, ok := harness.service.components.context.PrefixL1StatsFor(harness.session)
+	if !ok || coldStats.Rebuilt != 1 || coldStats.Hits != 0 {
+		t.Fatalf("冷加载应显式重建而非复用：ok=%t stats=%+v", ok, coldStats)
 	}
 }
 
@@ -63,12 +132,9 @@ func TestContextPrefixKeyStability(t *testing.T) {
 // left pointer。**绝不喂当前输入或 plan 帧**——那两样是尾部内容，进了键就等于
 // 宣称前缀会随每轮变化。
 func probeKeyFor(harness *prefixProbeHarness) prefixprobe.Key {
-	signatures := make([]string, 0, len(harness.tools))
-	for _, tool := range harness.tools {
-		signatures = append(signatures, prefixprobe.ToolSignature(tool.Name, tool.Description))
+	key, ok := harness.service.components.context.PrefixKeyFor(harness.session)
+	if !ok {
+		harness.t.Fatal("装配出口没有登记真 prefix_key")
 	}
-	return prefixprobe.BuildKey(prefixprobe.KeyInput{
-		SystemPrompt:   systemPromptFor(harness.service),
-		ToolSignatures: signatures,
-	})
+	return key
 }

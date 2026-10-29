@@ -184,7 +184,6 @@ func Run(opts Options) (*App, error) {
 		}
 		return fresh
 	}, runtime.Tracer())
-	appEngine.EnableWorkingHistoryRelease()
 	// The framework Session is intentionally created only by StartSession or
 	// ReplaceHistory during resume; startup itself remains a cold draft.
 	RegisterProductTools(runtime, pluginManager, appEngine, approval, skillRegistry)

@@ -463,6 +463,14 @@ func (c *Controller) appendAuditLocked(ctx context.Context, entry AuditEntry) er
 	return c.audit.AppendGoalAudit(ctx, entry.normalized())
 }
 
+// Audit 向会话 goal 审计账追加一条非状态迁移事件（续跑 pause/continue/resume）。
+// 它不改变 goal 栈；entry.Kind 必须由调用方从既有事件词表选择。
+func (c *Controller) Audit(ctx context.Context, entry AuditEntry) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.appendAuditLocked(ctx, entry)
+}
+
 // Reload 从 Store 装载 goal 栈（崩溃/重启恢复；design §3.7）。装载后修正：
 // 下层 paused、栈顶 active 的状态不变量（仅保留一个 active 语义）。
 func (c *Controller) Reload(ctx context.Context) error {

@@ -44,6 +44,9 @@ type TurnProcessDeps struct {
 	MarkIdle       func()
 	AnyChatRunning func() bool
 	SetSessionChat func(sessionID string, chat model.ChatState)
+	// EnsureToolsetSentinel runs before the user event so the append-only
+	// declaration lands at the correct wire position.
+	EnsureToolsetSentinel func(sessionID string)
 }
 
 // StartOptions controls task-progress ordering.
@@ -102,6 +105,9 @@ func (application *TurnProcessApplication) BeginLocked(
 		sessionID, requestID, request.DisplayInput, effort, previousTask, previousCheckpoint,
 	)
 	application.deps.Tasks.ActivateTaskSkillsLocked(taskState, request.Skills)
+	if application.deps.EnsureToolsetSentinel != nil {
+		application.deps.EnsureToolsetSentinel(sessionID)
+	}
 	userEvent := application.deps.Tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: requestID, Role: "user", Content: request.DisplayInput,
 		// 图片随这条 user 行落盘：它是这句话的一部分（用户发了"这句 + 这几张图"），

@@ -358,8 +358,8 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 	}
 }
 
-// TC-A2-01：A 收尾与 C 运行并发（真实交错）；A 的 ReleaseWorkingHistoryFor
-// 不得清 C 的引擎工作历史或串写 C。
+// TC-A2-01：A 收尾与 C 运行并发（真实交错）；A 的收尾不得清 C 的引擎工作
+// 历史或串写 C。
 func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	provider := newBlockingProvider(2, 5)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

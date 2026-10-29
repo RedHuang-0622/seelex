@@ -191,7 +191,6 @@ go test ./contract -run 'TestBM00' -count=1
 - `func ResidentSessionEngineFor(engine ChatEngine) (ResidentSessionEngine, bool)` — ResidentSessionEngineFor returns the resident engine when supported.
 - `func SetSystemPromptFor(engine ChatEngine, sessionID, prompt string) bool` — SetSystemPromptFor writes a session prompt when the engine supports it.
 - `func SupportsSystemPromptFor(engine ChatEngine) bool` — SupportsSystemPromptFor reports whether session-routed prompt writes are
-- `func ReleaseWorkingHistoryFor(engine ChatEngine, sessionID string) bool` — ReleaseWorkingHistoryFor releases one session's working history.
 - `func ActivateSession(engine ChatEngine, sessionID string) (bool, error)` — ActivateSession creates the explicit engine bundle when supported.
 - `func UnloadSession(engine ChatEngine, sessionID string) (bool, error)` — UnloadSession unloads one resident session bundle when supported.
 - `func ReleaseSessionBundle(engine ChatEngine, sessionID string) bool` — ReleaseSessionBundle releases one resident engine bundle.

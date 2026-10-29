@@ -48,14 +48,16 @@ func TestContextPrefixPlanFrame(t *testing.T) {
 	harness.beginTurn("第 4 轮：计划没变。")
 	harness.capture(4, 1, "t4.iter1")
 
-	var key prefixprobe.Key
 	probe := prefixprobe.New()
 	var results []prefixprobe.Result
 	for index := 1; index < len(harness.calls); index++ {
 		prev, cur := harness.calls[index-1], harness.calls[index]
 		segments, refs := probeSegmentsAndMessages(systemPromptFor(harness.service), cur.messages, cur.bytes)
+		if cur.key.SystemDigest == "" || cur.key.ToolsDigest == "" {
+			t.Fatalf("call %s 没有真 prefix_key：%+v", cur.label, cur.key)
+		}
 		res := probe.Observe(uint64(cur.turn), prefixprobe.Sample{
-			Wire: cur.bytes, Segments: segments, Messages: refs, Key: key,
+			Wire: cur.bytes, Segments: segments, Messages: refs, Key: cur.key,
 		})
 		results = append(results, res)
 		t.Logf("  %s  (msgs=%d)", res.Summary(), len(cur.messages))

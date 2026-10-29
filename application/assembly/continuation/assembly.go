@@ -33,6 +33,8 @@ type Ports struct {
 	Idle func(sessionID string) bool
 	// Submit 与 CompletionApplication 走同一条提交通道。
 	Submit func(ctx context.Context, sessionID, prompt string) error
+	// Audit 把续跑 pause/continue/resume 写入 goal 审计账。
+	Audit func(sessionID string, entry execution.ContinuationAudit)
 }
 
 // New 组装续跑 gate（开关读 limits.continuation：零值 = 关）。
@@ -50,6 +52,7 @@ func New(ports Ports) *execution.ContinuationApplication {
 		Interrupt: execution.InterruptChildSessions(children, func(sessionIDs []string) []string {
 			return sessionstate.CancelRunningTurns(ports.Sessions, sessionIDs)
 		}),
+		Audit:  ports.Audit,
 		Limits: func() limit.ContinuationLimits { return applicationpolicy.Get().Continuation },
 	})
 }

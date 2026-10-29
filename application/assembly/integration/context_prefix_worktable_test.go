@@ -60,14 +60,14 @@ func TestContextPrefixWorktable_PrefixIntact(t *testing.T) {
 	harness.beginTurn("第 2 轮：继续。")
 	harness.capture(2, 1, "t2.iter1")
 
-	// M0 阶段还没有真实 prefix_key（M2 落地），此处用零值键表达"键未变"，
-	// 于是任何断开都会被归类为 UnexpectedMiss——本用例要求它为 0。
-	var key prefixprobe.Key
 	probe := prefixprobe.New()
 	for _, call := range harness.calls {
 		segments, refs := probeSegmentsAndMessages(systemPromptFor(harness.service), call.messages, call.bytes)
+		if call.key.SystemDigest == "" || call.key.ToolsDigest == "" {
+			t.Fatalf("call %s 没有真 prefix_key：%+v", call.label, call.key)
+		}
 		res := probe.Observe(uint64(call.turn), prefixprobe.Sample{
-			Wire: call.bytes, Segments: segments, Messages: refs, Key: key,
+			Wire: call.bytes, Segments: segments, Messages: refs, Key: call.key,
 		})
 		t.Logf("  %s", res.Summary())
 		if !res.Intact() {

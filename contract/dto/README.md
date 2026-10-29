@@ -160,6 +160,21 @@ node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 - `func (snap *ContextSnapshot) Validate() error` — Validate 检查必填字段。
 - `func Truncate(s string, maxLen int) string` — Truncate 截断字符串到指定长度。
 
+### goal_run_state.go
+
+- `func (state GoalRunState) Doing() bool` — Doing 报告层一是否为"在做一件未收口的目标"。
+- `func (state GoalRunState) AutoContinue() bool` — AutoContinue 报告"轮边界该不该自动续"：层一在跑且层二没被按停。
+- `func (state GoalRunState) Paused() bool` — Paused 报告层二是否停在 paused。
+- `func DeriveGoalRunState(activeGoalID string, status GoalRunStatus, paused bool, pausedGoalID string) GoalRunState` — DeriveGoalRunState 是两层状态机的**唯一判定点**（纯函数，无副作用）。
+- `func GoalRunStateOf(view GoalStatusView, paused bool, pausedGoalID string) GoalRunState` — GoalRunStateOf 从 goal 栈读面（GoalStatusView）+ 会话存档里的暂停位合成两层状态。
+
+### goal_run_state_test.go
+
+- `func TestDeriveGoalRunStateLayerTwoOnlyUnderDoing(t *testing.T)`
+- `func TestDeriveGoalRunStatePauseDoesNotResidueAcrossGoals(t *testing.T)`
+- `func TestDeriveGoalRunStateRejectsUntrustedLayerOne(t *testing.T)`
+- `func TestGoalRunStateOfReadsGoalStackView(t *testing.T)`
+
 ### goal_status.go
 
 - `func (s GoalStatus) String() string` — String 给出对外词（视图 JSON 与存档 wire 都用它）。

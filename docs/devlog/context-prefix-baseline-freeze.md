@@ -85,6 +85,17 @@ integration 侧三个变体用例：工作打点表、env 表、非空 compact �
 | `backend/engine/context/seelectx/README.md` | 装配器侧口径：尾块位置与「Blocks 先于 WorkingHistory」的事实 |
 | `application/assembly/README.md` | 装配层结构与预算约束 |
 
+## 6. 后续实现进度（2026-10-29）
+
+- M2：`kernel/context/prefix_key.go`、`kernel/task/context_l1.go`；行级测试
+  `context_prefix_key_stability_test.go`、`context_prefix_l1_perf_test.go`。
+- M3：`kernel/context/draft/`、`kernel/task/context_draft_actor.go`；回合收尾
+  `TurnCompletionApplication.Persist` 在持久化前等待 draft ack，失败不进确认态。
+- M4/M5：`kernel/task/context_epochs.go`、`backend/engine/assemble/runtime_tool_epoch.go`；
+  memory/tools 表随 `SessionRecord.Execution` 持久化，冷加载恢复。
+- M7：`backend/tool/node/tail_frame_position_test.go` 断言子代理 plan/task 帧
+  恒在 WorkingHistory 之后，装配不改写调用方历史。
+
 ## 6. 交接状态（本轮结束，2026-10-29）
 
 ### 6.1 git 现场

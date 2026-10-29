@@ -55,7 +55,7 @@ func (service *Service) nextChatRequestIDLocked() string {
 //   - 观察：Seele LoopHooks 链（seelebridge Chain：DiagnosticHook →
 //     StageHook → SummaryHook）只做记录/透传，不改变 loop 控制流；
 //     core 侧仅投影 ΔV/事件（appendDelta / appendVisibleDeltaBackground）。
-//   - 收尾：context 恢复、task 终态、会话粒度 persist、ReleaseWorkingHistory。
+//   - 收尾：context 恢复、task 终态、会话粒度 persist；工作历史跨轮保留。
 //
 // 事件指纹方法：相同输入序列 → 相同事件序列（kind + session/request/message
 // ID 序数归一化），见 session_decoupling_test.go TestEventFingerprintStable。

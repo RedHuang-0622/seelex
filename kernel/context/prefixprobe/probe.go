@@ -393,6 +393,23 @@ func MessageRoleAt(messages []MessageRef, offset int) string {
 	return role
 }
 
+// Terse 生成一行六格取值（打点、报表与用例共用同一份渲染，顺序与 arch §4 一致）。
+// 摘要格截到 12 字符：打点只回答“是否同一把键”，完整值仍可打印 Key 本身。
+func (key Key) Terse() string {
+	slot := func(value string) string {
+		if value == "" {
+			return "-"
+		}
+		if len(value) > 12 {
+			return value[:12]
+		}
+		return value
+	}
+	return fmt.Sprintf("system=%s project=%s memory=%d compact=%d tools=%d/%s retained_from=%d",
+		slot(key.SystemDigest), slot(key.ProjectVersion), key.MemoryEpoch, key.CompactSeq,
+		key.ToolsEpoch, slot(key.ToolsDigest), key.RetainedFrom)
+}
+
 // DiffKeys 返回两把键之间变化的格名（按 arch 文档 §4 的六格顺序）。
 func DiffKeys(prev, cur Key) []string {
 	var changed []string

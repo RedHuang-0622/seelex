@@ -59,7 +59,6 @@ type EnginePort struct {
 	// ——端口对已卸载的会话不留任何状态，重开的会话按进程默认值跑。
 	sessionMaxLoops map[string]int
 	sessionBacked   bool
-	releaseWorking  bool
 	// roleUserSpaces 按主会话 + 账号角色读取 SSH 路径范围。
 	// 主代理走 ChatStream/ChatStreamFor，不经过 role-turn 的上下文包装，因此必须
 	// 在这里给主会话补同一份范围；角色回合随后用自己的 role 覆盖这一格。
@@ -931,29 +930,6 @@ func (port *EnginePort) resumeRawSessionLocked(sessionID string, desired []types
 		engine.SetMaxLoops(loops)
 	}
 	return port.armHandoffLocked(sessionID, desired), nil
-}
-
-// EnableWorkingHistoryRelease marks this adapter as backed by DurableHistory.
-func (port *EnginePort) EnableWorkingHistoryRelease() {
-	port.mu.Lock()
-	port.releaseWorking = true
-	port.mu.Unlock()
-}
-
-// ReleaseWorkingHistoryFor clears only the target session's provider working
-// view. The next turn cold-loads a bounded tail from the durable owner.
-// 会话参数化：后台会话收尾只清自己的引擎，不清活跃会话（对应 P4）。
-func (port *EnginePort) ReleaseWorkingHistoryFor(sessionID string) {
-	port.mu.Lock()
-	defer port.mu.Unlock()
-	if !port.releaseWorking {
-		return
-	}
-	engine := port.engines[sessionID]
-	if engine == nil || port.engineCalls[sessionID] > 0 {
-		return
-	}
-	engine.ClearHistory()
 }
 
 // UnloadSession 释放指定会话的引擎实例（阶段 2 生命周期：unload 后重开走

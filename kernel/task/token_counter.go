@@ -49,9 +49,10 @@ type contextLimitProvider interface {
 //   - 每次 LLM 调用返回真实 usage 后，Observe 用 EMA 修正因子校正后续估算，
 //     使事前估算向 provider 真实计数收敛（保守方向 clamp）。
 type CalibratedTokenCounter struct {
-	mu       sync.Mutex
-	factor   float64 // 修正因子，初始 1.0，clamp [minCalibrationFactor, maxCalibrationFactor]
-	observed int
+	mu         sync.Mutex
+	factor     float64 // 修正因子，初始 1.0，clamp [minCalibrationFactor, maxCalibrationFactor]
+	observed   int
+	generation uint64
 }
 
 const (
@@ -139,7 +140,16 @@ func (c *CalibratedTokenCounter) Observe(estimated, actual int) {
 		c.factor = maxCalibrationFactor
 	}
 	c.observed++
+	c.generation++
 	c.mu.Unlock()
+}
+
+// Generation 返回校准代数：每次真实 usage 更新都递增。L1 用它判断缓存的
+// token 基数是否仍与当前估算因子同源。
+func (c *CalibratedTokenCounter) Generation() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.generation
 }
 
 // DefaultContextBudget 返回基于 seelexctx 默认窗口的预算。

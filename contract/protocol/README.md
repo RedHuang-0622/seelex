@@ -74,6 +74,13 @@ go test ./contract -run 'TestBM00' -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### continuation_state.go
+
+- `func DeriveContinuationLedger(goalID string, records []ContinuationAttempt) ContinuationLedger` — DeriveContinuationLedger 把某一 goal 的续跑记录派生成读面。
+- `func ContinuationKey(goalID, requestID string) string` — ContinuationKey 是续跑记录的幂等键：(goal, 被中断的那次 request)。
+- `func (state SessionContinuationState) ApplyTo(record *SessionExecutionRecord)` — ApplyTo 把活状态投影到会话存档的 execution 块（落盘面与活状态只有这一处转换）。
+- `func SessionContinuationStateOf(record SessionExecutionRecord) SessionContinuationState` — SessionContinuationStateOf 从会话存档的 execution 块读回活状态（冷加载方向）。
+
 ### conversation_window.go
 
 - `func DurableConversationCount(messages []Message) int` — DurableConversationCount returns the number of visible rows that participate

@@ -8,6 +8,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/context/draft"
 	"github.com/RedHuang-0622/seelex/kernel/limit"
 	"github.com/RedHuang-0622/seelex/kernel/limit/loop"
 	"github.com/RedHuang-0622/seelex/kernel/state"
@@ -45,6 +46,10 @@ type Coordinator struct {
 	// 唯一保护。导出方法在入口持锁；导出方法之间的内部调用走私有未锁实现
 	// （`_Name`），避免非可重入自锁。
 	stateMu sync.Mutex
+	// draftMu 只保护 draft actor 注册表；actor 的持久化回调会再取 stateMu，
+	// 因此创建 actor 时不得持有 stateMu。
+	draftMu     sync.Mutex
+	draftActors map[string]*draft.Actor
 	// requestToSession 维护 requestID → sessionID 绑定（BeginTask 登记，
 	// 任务结束后清理），供带 requestID 的方法反查会话状态。会话域重构后
 	// 后台流式路径经 requestMu 并发读，不取全局锁。
@@ -87,9 +92,17 @@ type sessionTaskRuntime struct {
 	// round；同一 round 内所有角色事件共享 round_id，unit_seq 逐事件递增。
 	roleRoundID uint64
 	roleUnitSeq uint64
+	// l1 是已装配 provider 前缀的进程内派生快照；l1Stats 记录命中/重建与
+	// 失效归因。两者都不落盘（I5）：冷加载后由 truth 首次装配重建。
+	l1      *ContextL1Snapshot
+	l1Stats ContextL1Stats
 	// continuation 是自动续跑的控制位与续跑账（层二 paused / 停止位 /
 	// append-only 记录）：会话粒度，读写点见 continuation_state.go。
 	continuation model.SessionContinuationState
+	// contextDraft 是 draft actor 的已 ack 水位与未提交字节。actor 本体在
+	// kernel/context/draft；这里只持有可随 SessionRecord 原子落盘的现场。
+	contextDraft model.ContextDraftState
+	memoryLedger model.SessionExecutionRecord
 }
 
 func newSessionTaskRuntime(sessionID string) *sessionTaskRuntime {
@@ -741,6 +754,14 @@ type RestoredTaskState struct {
 	// RetainedFromForCompactions）。
 	ContextCompactions  []model.ContextCompaction
 	ContextRetainedFrom int
+	// Continuation 是会话级停止/暂停绑定与 append-only 续跑账。旧档缺字段读成
+	// 零值，语义是“从未暂停/停止/续跑”。
+	Continuation  model.SessionContinuationState
+	ContextDraft  model.ContextDraftState
+	MemoryUpdates []model.MemoryUpdate
+	ToolsUpdates  []model.ToolsUpdate
+	ToolCatalog   []model.ToolCatalogEntry
+	ToolsEpoch    uint64
 }
 
 // RestoreSessionTaskLocked 装载活跃会话恢复的任务/plan 状态（调用方持有
@@ -780,6 +801,13 @@ func (c *Coordinator) _RestoreSessionTaskLockedFor(sessionID string, restored Re
 	st.pendingProviderCalls = nil
 	st.pendingToolResults = nil
 	st.resultRefsByToolCallID = make(map[string]string)
+	st.continuation = restored.Continuation
+	st.continuation.Continuations = append([]model.ContinuationAttempt(nil), restored.Continuation.Continuations...)
+	st.contextDraft = cloneContextDraftState(restored.ContextDraft)
+	st.memoryLedger.MemoryUpdates = append([]model.MemoryUpdate(nil), restored.MemoryUpdates...)
+	st.memoryLedger.ToolsUpdates = append([]model.ToolsUpdate(nil), restored.ToolsUpdates...)
+	st.memoryLedger.ToolCatalog = append([]model.ToolCatalogEntry(nil), restored.ToolCatalog...)
+	st.memoryLedger.ToolsEpoch = restored.ToolsEpoch
 	c.restoreTaskProjectionLocked(st, restored, sessionID)
 	// 恢复只负责**对齐**去重基线：历史里已经有一条同内容的 plan 帧时一条不发
 	// （D1 ②），内容变了才在尾部追加新帧（旧帧留史）。

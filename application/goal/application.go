@@ -130,6 +130,21 @@ func (application *Application) StatusFor(sessionID string) (goaldomain.StatusVi
 	return coordinator.StatusFor(sessionID), nil
 }
 
+// AuditFor appends a non-terminal continuation event to the session goal ledger.
+func (application *Application) AuditFor(ctx context.Context, sessionID string, entry goaldomain.AuditEntry) error {
+	coordinator, err := application.coordinatorFor(sessionID)
+	if err != nil {
+		return err
+	}
+	auditor, ok := coordinator.(interface {
+		AuditFor(context.Context, string, goaldomain.AuditEntry) error
+	})
+	if !ok {
+		return nil
+	}
+	return auditor.AuditFor(ctx, sessionID, entry)
+}
+
 // BeginHandler adapts the goal_begin model tool.
 func (application *Application) BeginHandler(ctx context.Context, argsJSON string) (string, error) {
 	var request goaldomain.BeginRequest

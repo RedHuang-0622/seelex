@@ -66,7 +66,11 @@ type CoordinatorDeps struct {
 	GoalSkillActive func() bool
 	AccountLimits   func() config.AccountLimits
 	InheritedBlocks func() []seelectx.PromptBlock
-	RelatedMemory   func(ctx context.Context, query string) []seelectx.PromptBlock
+	// InheritedTailBlocks 是主代理动态尾部栈块（plan/task）。它们必须追加在
+	// WorkingHistory 之后；放进 Blocks 会被框架排到历史之前，帧变化时从该格
+	// 起打断整段节点历史。
+	InheritedTailBlocks func() []seelectx.PromptBlock
+	RelatedMemory       func(ctx context.Context, query string) []seelectx.PromptBlock
 	// ResumeNote 返回节点当前的中断恢复说明（system 注入；非恢复轮次为空）。
 	// 只进被执行节点自己的上下文，不进 main 历史（AT7/AT9）。
 	ResumeNote func(nodeID string) string
@@ -393,15 +397,23 @@ func (c *Coordinator) NoteProgress(nodeID string, messageCount int) {
 	c.deps.Tree.NoteMessageCount(nodeID, messageCount)
 }
 
-// inheritedBlocks 返回子代理会话继承的主代理稳定上下文块：
-// project（项目模块语义）→ stack（now using 栈顶）。这些块内容与主代理
-// 装配器同源（同一 provider），会话内稳定，插在节点块之前构成可缓存前缀。
-// 动态 memory 块由装配器单独放最后，不在此列。
+// inheritedBlocks 返回子代理会话继承的主代理稳定前缀块：
+// project（项目模块语义）→ skill/compact（now using 栈顶）。动态 plan/task
+// 尾部块不在此列；memory 由装配器独立处理。
 func (c *Coordinator) inheritedBlocks() []seelectx.PromptBlock {
 	if c == nil || c.deps.InheritedBlocks == nil {
 		return nil
 	}
 	return c.deps.InheritedBlocks()
+}
+
+// inheritedTailBlocks 返回 plan/task 动态尾部块，调用方必须在
+// WorkingHistory 之后追加。
+func (c *Coordinator) inheritedTailBlocks() []seelectx.PromptBlock {
+	if c == nil || c.deps.InheritedTailBlocks == nil {
+		return nil
+	}
+	return c.deps.InheritedTailBlocks()
 }
 
 // ScopeAssembler 是 Coordinator 的请求装配器实现（见 Coordinator.Assembler）。
@@ -421,8 +433,9 @@ func (a ScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyR
 		}
 	}
 	nodeBlocks := NodePromptBlocksFromContext(ctx)
-	// 装配顺序（前缀稳定优先）：system → 继承块（project/stack）→ 会话其余
-	// 块 → 节点块（charter/skills）→ memory → working history。
+	// 装配顺序（前缀稳定优先）：system → 继承稳定块（project/skill/compact）
+	// → 会话其余块 → 节点块（charter/skills）→ memory → working history
+	// → 继承尾部块（plan/task）。
 	systemBlocks, rest := splitSystemBlocks(request.Blocks)
 	merged := make([]seelectx.PromptBlock, 0, len(request.Blocks)+len(nodeBlocks)+3)
 	merged = append(merged, systemBlocks...)
@@ -444,6 +457,11 @@ func (a ScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyR
 	// "Messages with role 'tool' must be a response to a preceding message with
 	// 'tool_calls'"）。合法历史逐字不变。
 	request.WorkingHistory = seelexctx.SanitizeProviderToolProtocol(request.WorkingHistory)
+	if a.Coordinator != nil {
+		for _, block := range a.Coordinator.inheritedTailBlocks() {
+			request.WorkingHistory = append(request.WorkingHistory, block.Messages...)
+		}
+	}
 	return seelectx.DefaultRequestAssembler{}.Assemble(ctx, request)
 }
 

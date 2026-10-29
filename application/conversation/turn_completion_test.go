@@ -1,6 +1,7 @@
 package conversation_test
 
 import (
+	"context"
 	"errors"
 	applicationconversation "github.com/RedHuang-0622/seelex/application/conversation"
 	viewerrors "github.com/RedHuang-0622/seelex/application/errorpresentation"
@@ -36,8 +37,9 @@ func TestConversationTurnCompletionConfirmsPublishedTurn(t *testing.T) {
 			}
 			return nil
 		},
-		ReleaseWorkingHistory: func(sessionID string) {
-			calls = append(calls, "release:"+sessionID)
+		CommitContextDraft: func(context.Context, string) error {
+			calls = append(calls, "draft")
+			return nil
 		},
 	})
 	turnErr := errors.New("turn failed after persistence")
@@ -50,7 +52,7 @@ func TestConversationTurnCompletionConfirmsPublishedTurn(t *testing.T) {
 	if !errors.Is(gotErr, turnErr) {
 		t.Fatalf("Persist error = %v, want original turn error", gotErr)
 	}
-	wantCalls := []string{"locate:session-a", "persist:session-a", "confirm:session-a:turn-a", "release:session-a"}
+	wantCalls := []string{"locate:session-a", "draft", "persist:session-a", "confirm:session-a:turn-a"}
 	if strings.Join(calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("calls = %v, want %v", calls, wantCalls)
 	}
@@ -62,7 +64,6 @@ func TestConversationTurnCompletionReturnsConsumedInputOnPersistenceFailure(t *t
 	turnErr := errors.New("provider failed")
 	var failed bool
 	var confirmed bool
-	var released bool
 	completion := applicationconversation.NewTurnCompletion(applicationconversation.TurnCompletionDeps{
 		LocateSession: func(string) session_runtime.Location { return location },
 		PersistSession: func(session_runtime.Location, string) error {
@@ -76,9 +77,6 @@ func TestConversationTurnCompletionReturnsConsumedInputOnPersistenceFailure(t *t
 			confirmed = true
 			return nil
 		},
-		ReleaseWorkingHistory: func(string) {
-			released = true
-		},
 	})
 
 	_, gotErr := completion.Persist("session-a", "turn-a", turnErr)
@@ -89,13 +87,60 @@ func TestConversationTurnCompletionReturnsConsumedInputOnPersistenceFailure(t *t
 	if confirmed {
 		t.Fatal("持久化失败时不得确认消费项")
 	}
-	if released {
-		t.Fatal("持久化失败时不得释放工作历史")
-	}
 	if !errors.Is(gotErr, turnErr) || !strings.Contains(gotErr.Error(), saveErr.Error()) {
 		t.Fatalf("Persist error = %v, want turn error identity and save error text", gotErr)
 	}
 	if code := viewerrors.StructuredCode(gotErr); code != contract.ErrorCodePersistenceFailed {
 		t.Fatalf("structured code = %q, want %q", code, contract.ErrorCodePersistenceFailed)
+	}
+}
+
+func TestConversationTurnCompletionDoesNotReleaseWorkingHistory(t *testing.T) {
+	location := session_runtime.Location{WorkspaceID: "workspace-a"}
+	completion := applicationconversation.NewTurnCompletion(applicationconversation.TurnCompletionDeps{
+		LocateSession:          func(string) session_runtime.Location { return location },
+		PersistSession:         func(session_runtime.Location, string) error { return nil },
+		QueueFailConsumedInput: func(session_runtime.Location, string, string) error { return nil },
+		QueueConfirmConsumed:   func(session_runtime.Location, string, string) error { return nil },
+	})
+
+	if _, err := completion.Persist("session-a", "turn-a", nil); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+}
+
+func TestConversationTurnCompletionBlocksPersistenceWhenDraftCommitFails(t *testing.T) {
+	location := session_runtime.Location{WorkspaceID: "workspace-a"}
+	commitErr := errors.New("draft ack missing")
+	var failed, persisted, confirmed bool
+	completion := applicationconversation.NewTurnCompletion(applicationconversation.TurnCompletionDeps{
+		LocateSession: func(string) session_runtime.Location { return location },
+		CommitContextDraft: func(context.Context, string) error {
+			return commitErr
+		},
+		PersistSession: func(session_runtime.Location, string) error {
+			persisted = true
+			return nil
+		},
+		QueueFailConsumedInput: func(session_runtime.Location, string, string) error {
+			failed = true
+			return nil
+		},
+		QueueConfirmConsumed: func(session_runtime.Location, string, string) error {
+			confirmed = true
+			return nil
+		},
+	})
+
+	_, err := completion.Persist("session-a", "turn-a", nil)
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("draft commit error not preserved: %v", err)
+	}
+	if persisted || confirmed || !failed {
+		t.Fatalf("failed draft ack must block persistence: persisted=%t confirmed=%t failed=%t",
+			persisted, confirmed, failed)
+	}
+	if code := viewerrors.StructuredCode(err); code != contract.ErrorCodePersistenceFailed {
+		t.Fatalf("structured code=%q", code)
 	}
 }

@@ -2,10 +2,12 @@ package assemble
 
 import (
 	"context"
+	"strings"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
@@ -13,10 +15,18 @@ import (
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	model "github.com/RedHuang-0622/seelex/contract/protocol"
 	contextruntime "github.com/RedHuang-0622/seelex/kernel/context"
+	taskcontext "github.com/RedHuang-0622/seelex/kernel/task"
 	storeboard "github.com/RedHuang-0622/seelex/store/board"
 	storecontext "github.com/RedHuang-0622/seelex/store/context"
 	storeproject "github.com/RedHuang-0622/seelex/store/project"
 )
+
+func runtimeSessionID(ctx context.Context) string {
+	if sessionID := strings.TrimSpace(taskcontext.SessionIDFromContext(ctx)); sessionID != "" {
+		return sessionID
+	}
+	return strings.TrimSpace(seetelemetry.SessionIDFromContext(ctx))
+}
 
 type sessionContextStorePort interface {
 	Load(context.Context) error
@@ -130,16 +140,91 @@ func (r *Runtime) nodeController() seelectx.ContextController {
 	})
 }
 
+// PrefixWorld 实现 context_runtime.PrefixWorldPort：报告进入 prefix_key 的
+// 世界状态格。项目版本是内容 hash；compact seq 是压缩栈顶覆盖到的事件上界。
+// 两者都不含本轮 query，工具纪元由会话 catalog owner 在 M5 接管。
+func (r *Runtime) PrefixWorld() contextruntime.PrefixWorld {
+	world := contextruntime.PrefixWorld{}
+	r.projectMu.RLock()
+	provider := r.project
+	r.projectMu.RUnlock()
+	if provider != nil {
+		if record := provider(); record != nil {
+			world.ProjectVersion = record.Version
+		}
+	}
+	if store := r.sessionContextStore(); store != nil {
+		if frames := store.CompactStackSnapshot(); len(frames) > 0 {
+			world.CompactSeq = frames[len(frames)-1].EventTo
+		}
+	}
+	return world
+}
+
 // relatedMemoryBlocks 按当前查询从 CompactStack 全部帧选取相关记忆块
 // （不止栈顶：超长会话的久远相关段经 seelexctx/memory 词法选取器召回）。
 // 无绑定存储 / 空查询 / 无命中 → 不注入（请求内容不变）。
-func (r *Runtime) relatedMemoryBlocks(_ context.Context, query string) []seelectx.PromptBlock {
+func (r *Runtime) relatedMemoryBlocks(ctx context.Context, query string) []seelectx.PromptBlock {
+	return r.relatedMemoryBlocksForContext(ctx, query)
+}
+
+func (r *Runtime) relatedMemoryBlocksForContext(ctx context.Context, query string) []seelectx.PromptBlock {
+	if sessionID := runtimeSessionID(ctx); sessionID != "" {
+		r.contextEpochMu.RLock()
+		content := r.memoryEpochBySID[sessionID]
+		r.contextEpochMu.RUnlock()
+		if content != "" {
+			return []seelectx.PromptBlock{{
+				Name: "memory",
+				Messages: []types.Message{{
+					Role: "user", Content: &content,
+				}},
+			}}
+		}
+	}
 	st := r.sessionContextStore()
 	if st == nil {
 		return nil
 	}
 	// 选取与渲染的判据在域包（候选 → 词法选取 → 渲染；无命中就不注入）。
 	return contextruntime.RelatedMemoryBlocks(st.CompactStackSnapshot(), query)
+}
+
+// FreezeMemoryEpoch selects memory once and returns the exact concatenated
+// block bytes that must be persisted for this epoch.
+func (r *Runtime) FreezeMemoryEpoch(_ string, query string) string {
+	st := r.sessionContextStore()
+	if st == nil {
+		return ""
+	}
+	blocks := contextruntime.RelatedMemoryBlocks(st.CompactStackSnapshot(), query)
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		for _, message := range block.Messages {
+			if message.Content != nil {
+				parts = append(parts, *message.Content)
+			}
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// SetMemoryEpoch publishes a persisted memory snapshot for future assembly.
+func (r *Runtime) SetMemoryEpoch(sessionID, content string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	r.contextEpochMu.Lock()
+	if r.memoryEpochBySID == nil {
+		r.memoryEpochBySID = make(map[string]string)
+	}
+	if content == "" {
+		delete(r.memoryEpochBySID, sessionID)
+	} else {
+		r.memoryEpochBySID[sessionID] = content
+	}
+	r.contextEpochMu.Unlock()
 }
 
 // resolvePlaceholder 解析 {{name}} 占位符（当前无内置变量，未知占位符
@@ -158,7 +243,7 @@ func (r *Runtime) seelexAssembler() seelectx.RequestAssembler {
 		ProjectBlock: r.projectBlock,
 		PrefixStacks: r.prefixStacks,
 		TailStacks:   r.tailStacks,
-		Memories:     r.relatedMemoryBlocks,
+		Memories:     r.relatedMemoryBlocksForContext,
 		Resolver: seelectx.PlaceholderResolverFunc(func(_ context.Context, name string) (string, error) {
 			return r.resolvePlaceholder(name)
 		}),
@@ -278,8 +363,8 @@ func (r *Runtime) sessionContextStore() sessionContextStorePort {
 }
 
 // stackBlocks 渲染会话级全部使用栈块（稳定前缀 skill/compact + 动态尾部
-// plan/task；now using = 栈顶；未绑定存储 → 无块）。节点子代理继承路径
-// 兼容入口（InheritedBlocks），保持原有块集合不变。
+// plan/task；now using = 栈顶；未绑定存储 → 无块）。节点子代理分别经
+// InheritedBlocks/InheritedTailBlocks 继承两段。
 func (r *Runtime) stackBlocks() []seelectx.PromptBlock {
 	st := r.sessionContextStore()
 	if st == nil {

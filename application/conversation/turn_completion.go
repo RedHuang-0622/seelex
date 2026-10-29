@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"fmt"
 
 	viewerrors "github.com/RedHuang-0622/seelex/application/errorpresentation"
@@ -14,7 +15,9 @@ type TurnCompletionDeps struct {
 	PersistSession         func(location session_runtime.Location, sessionID string) error
 	QueueFailConsumedInput func(location session_runtime.Location, sessionID, requestID string) error
 	QueueConfirmConsumed   func(location session_runtime.Location, sessionID, requestID string) error
-	ReleaseWorkingHistory  func(sessionID string)
+	// CommitContextDraft 在会话持久化前等待 draft actor 的 durable ack；失败时
+	// draft 保持 uncommitted，不能被当作已提交历史。
+	CommitContextDraft func(ctx context.Context, sessionID string) error
 }
 
 // TurnCompletionApplication owns the durable turn completion transaction.
@@ -30,6 +33,15 @@ func NewTurnCompletion(deps TurnCompletionDeps) *TurnCompletionApplication {
 // Persist settles consumed input according to persistence success.
 func (application *TurnCompletionApplication) Persist(sessionID, requestID string, turnErr error) (session_runtime.Location, error) {
 	location := application.deps.LocateSession(sessionID)
+	if application.deps.CommitContextDraft != nil {
+		if err := application.deps.CommitContextDraft(context.Background(), sessionID); err != nil {
+			_ = application.deps.QueueFailConsumedInput(location, sessionID, requestID)
+			return location, viewerrors.Wrap(
+				fmt.Errorf("context draft commit failed: %w", err),
+				contract.ErrorCodePersistenceFailed,
+			)
+		}
+	}
 	saveErr := application.deps.PersistSession(location, sessionID)
 	if saveErr != nil {
 		_ = application.deps.QueueFailConsumedInput(location, sessionID, requestID)
@@ -45,6 +57,5 @@ func (application *TurnCompletionApplication) Persist(sessionID, requestID strin
 		)
 	}
 	_ = application.deps.QueueConfirmConsumed(location, sessionID, requestID)
-	application.deps.ReleaseWorkingHistory(sessionID)
 	return location, turnErr
 }

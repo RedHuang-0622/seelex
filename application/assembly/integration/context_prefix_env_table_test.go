@@ -100,16 +100,17 @@ func TestContextPrefixEnvTable_PrefixIntact(t *testing.T) {
 		t.Fatalf("第 2 轮请求尾没有带上新增的 prod 环境：%q", summarizeProbeText(sentUserTwo))
 	}
 
-	// ② 跨两轮观测：M0 阶段还没有真正的 prefix_key（M2 落地），用零值键表达
-	//    "键未变"，于是任何断开都会被归为 UnexpectedMiss —— 本用例要求它 > 0。
-	var key prefixprobe.Key
+	// ② 跨两轮观测：每轮使用装配出口登记的真 prefix_key。
 	probe := prefixprobe.New()
 	results := make([]prefixprobe.Result, 0, len(harness.calls))
 	for index := range harness.calls {
 		call := harness.calls[index]
 		segments, refs := envProbeSegmentsAndMessages(systemPromptFor(harness.service), call.messages, call.bytes)
+		if call.key.SystemDigest == "" || call.key.ToolsDigest == "" {
+			t.Fatalf("call %s 没有真 prefix_key：%+v", call.label, call.key)
+		}
 		res := probe.Observe(uint64(call.turn), prefixprobe.Sample{
-			Wire: call.bytes, Segments: segments, Messages: refs, Key: key,
+			Wire: call.bytes, Segments: segments, Messages: refs, Key: call.key,
 		})
 		results = append(results, res)
 		t.Logf("  %s  (msgs=%d wire=%dB)", res.Summary(), len(call.messages), len(call.bytes))

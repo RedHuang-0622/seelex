@@ -142,7 +142,8 @@ Session 的遗留执行开关。
 - `func runChatDebug(format string, args ...any)` — runChatDebug 是 SEELEX_TEST_DEBUG=1 门控的临时诊断日志（复跑噪音点时
 - `func (service *Service) isActiveSessionLocked(sessionID string) bool` — isActiveSessionLocked 判定指定会话是否为共享快照归属会话（锁内调用；
 - `func (service *Service) nextChatRequestIDLocked() string` — nextChatRequestIDLocked 生成跨会话唯一的聊天请求 ID（调用方持有
-- `func (service *Service) ensureViewPlanProjection(ctx context.Context)` — startChat 在**当前视图会话**上启动 ReAct 对话。
+- `func (service *Service) mirrorSessionID(ctx context.Context) string` — startChat 在**当前视图会话**上启动 ReAct 对话。
+- `func (service *Service) ensureViewPlanProjection(ctx context.Context)` — ensureViewPlanProjection 在进入终态工具前确保当前视图会话的协调器投影有
 - `func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context)` — mirrorActivePlanAfterTerminal 在 check/complete 终态把协调器投影的最新
 - `func (service *Service) mirrorActiveTaskAfterTerminal(ctx context.Context)` — mirrorActiveTaskAfterTerminal 在终态工具落地后把活跃会话的权威任务状态
 - `func (service *Service) finalizeTaskExecution(requestID string) error` — finalizeTaskExecution 把自然停止转换为可审计的完成/交接

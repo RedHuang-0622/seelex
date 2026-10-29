@@ -1,8 +1,14 @@
 package assembly
 
 import (
+	"context"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/RedHuang-0622/seelex/application/assembly/continuation"
 	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+	goaldomain "github.com/RedHuang-0622/seelex/kernel/goal"
 )
 
 // 自动续跑的装配入口：把既有组件作为端口值交给 application/assembly/continuation
@@ -33,5 +39,21 @@ func (service *Service) continuationGate() *applicationexecution.ContinuationApp
 		RoleSessions: service.components.roleSessions,
 		Idle:         service.sessionIdleForAsyncTrigger,
 		Submit:       service.components.conversationTurn.submission.SubmitFor,
+		Audit: func(sessionID string, entry applicationexecution.ContinuationAudit) {
+			detail := strings.TrimSpace(entry.Detail)
+			if entry.Truncated {
+				detail = strings.TrimSpace(detail + " truncated=true")
+			}
+			if entry.Manual {
+				detail = strings.TrimSpace(detail + " manual=true")
+			}
+			_ = service.components.goalApplication.AuditFor(context.Background(), sessionID, goaldomain.AuditEntry{
+				Kind:   goaldomain.EventKind(entry.Kind),
+				GoalID: entry.GoalID,
+				At:     time.Now().Unix(),
+				Reason: entry.Reason,
+				Detail: strings.TrimSpace(detail + " attempt=" + strconv.Itoa(entry.Attempt)),
+			})
+		},
 	})
 }

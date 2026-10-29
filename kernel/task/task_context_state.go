@@ -1742,6 +1742,7 @@ func (c *Coordinator) removeCommittedToolResultsLocked(st *sessionTaskRuntime, c
 // UnloadSessionState 释放指定会话的任务/plan 运行时状态（阶段 2 生命周期；
 // 调用方持有 Core.ViewMu）。unload 后重开走 cold_load。
 func (c *Coordinator) UnloadSessionState(sessionID string) {
+	c.closeContextDraftActor(sessionID)
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c._UnloadSessionState(sessionID)
@@ -1768,6 +1769,17 @@ func (c *Coordinator) TokenCounterName() string {
 
 func (c *Coordinator) _TokenCounterName() string {
 	return c.tokenCounter.Name()
+}
+
+// TokenGeneration 返回当前请求估算器的校准代数；不提供代数的测试计数器返回 0，
+// L1 据此跳过代数失效检查。
+func (c *Coordinator) TokenGeneration() uint64 {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if counter, ok := c.tokenCounter.(interface{ Generation() uint64 }); ok {
+		return counter.Generation()
+	}
+	return 0
 }
 
 func (c *Coordinator) CountRequestTokens(systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool) int {

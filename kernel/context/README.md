@@ -69,6 +69,31 @@
   `prepareHistory`），durable 消息行不动，因此不丢记录。
 - 不做：chat 主循环、provider 失败重试工作流（根包 `history_safety.go`）。
 
+## L1 快路径（2026-10-29）
+
+`prefix_key.go` 在装配出口构造六格键：system digest、project version、memory
+epoch、compact seq、tools epoch/digest、`retained_from`。键里不含 query、当前输入、
+worktable 或环境表。
+
+- `sessionTaskRuntime.l1` 是**进程内派生快照**，不落盘；
+- 键相同且 `ThroughSeq/EventCount` 连续时只转换新增 transcript 事件；
+- token 校准代数变化、Seq 水位缺口、压缩 epoch 变化都显式重建；
+- 正常路径从 `truth[retained_from:]` 装配；`TranscriptTailWindowBy` 只保留给
+  “truth 本身装不下”的压缩边界决策，不再每轮重切；
+- 冷加载丢弃 L1 后由 truth 的 `ProviderContent` 重建，热/冷历史字节一致。
+
+`PrefixKeyFor` / `PrefixL1StatsFor` 是观测面。真键启用后，跨轮探针不再使用零值键。
+
+## Memory / tools 纪元（2026-10-29）
+
+- 首次装配与压缩 epoch 滚动时，memory 选择只执行一次；随后只 fold
+  `MemoryUpdate.Bytes`，冷恢复校验 Digest。
+- 工具 catalog 首次装配冻结并按 name 排序；插件、MCP、goal 门、权限档等
+  **可用性变化**只追加 `⟦toolset⟧` 哨兵，不改变 `tools_digest`。
+- catalog 本身变化才 bump `tools_epoch`；Seele 现有 RegistryRuntime 被包在
+  `frozenToolRuntime` 外层，请求头保持冻结 schema，dispatch 仍走当前权限/插件门，
+  被移除工具返回带 epoch 的结构化错误。
+
 ## 关键文件
 
 | 文件 | 职责 |

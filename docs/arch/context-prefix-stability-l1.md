@@ -563,6 +563,14 @@ ratioChars   = sharedChars / totalChars
 ## 8. 实施计划（M0–M5，每步带验收判据）
 
 > **进度（2026-10-29 / M1 收口）**：M0 ✅（字符级探针 + worktable / plan 两个变体钉死；env / compact 变体与 `cached_tokens` 待补——后者是 Seele 上游依赖）· **M1 ✅**（用户消息字节冻结实测 **80.5% → 98.3%**；plan 帧落 transcript 实测转绿 `UnexpectedMiss=0`；**task 尾帧核对为「不漂」并用机制用例钉住**——损坏面上界 = 帧自身 228~234 字符，见 §6.3.3）· M2–M5 未开工。
+> **进度（2026-10-29 / M2–M5 实现收口）**：M0 ✅ · M1 ✅ · **M2 ✅**
+> （六格真键、L1 连续水位增量、truth 直切、删除每轮 release、冷重建一致、
+> N=10/50/200 热路径结构量测）· **M3 ✅**（调用方分 Seq、会话单写者、
+> 有界背压、`(session,seq)` 幂等、轮尾 durable ack、失败保留 uncommitted、
+> SessionRecord 水位恢复）· **M4 ✅**（memory 行持久化、Digest 校验、epoch fold、
+> 压缩滚动 retire/add、同 epoch query 不重选）· **M5 ✅**（catalog 冻结/排序、
+> tools epoch、可用性零失效、append-only sentinel、截断解析失败、冻结 schema +
+> 当前工具门结构化拒绝）。子代理 `plan/task` 尾部帧接缝也已拆为稳定块/尾部块。
 
 > 纪律：**先红后绿**。M0 不改任何行为，只把不变量变成可执行判据；之后每一步都要让 M0 的某条红灯转绿。
 

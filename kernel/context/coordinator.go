@@ -588,6 +588,7 @@ func compactionSoftLine(budget task_context.ContextBudget) int {
 }
 
 func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (out string, err error) {
+	memoryQuery := currentInput
 	// 显式压缩的「下一条消息兑现」：没有执行纪元时登记的强压在这里取走，
 	// 本次装配即按显式路径压缩（先压后发，压缩对本条消息立即生效）。
 	if !options.forceCompact && c.consumePendingForceCompact(sessionID) {
@@ -603,13 +604,15 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	if c.environment != nil {
 		environment = c.environment(sessionID)
 	}
+	visibleTools := c.Deps.Runtime.VisibleTools(context.Background())
+	tools := c.frozenToolsFor(sessionID, visibleTools)
 	currentInput = composeRequestTail(currentInput, workTable, environment)
 	budget := task_context.ContextBudgetFor(c.Deps.Runtime)
-	tools := c.Deps.Runtime.VisibleTools(context.Background())
 	existing := c.sessionHistory(sessionID)
 	c.ViewMu.RLock()
 	systemPrompt := c.prompts.SystemPromptForActiveTaskLockedFor(sessionID)
 	c.ViewMu.RUnlock()
+	systemPrompt = withToolsSentinelRule(systemPrompt)
 	c.setSessionSystemPrompt(sessionID, systemPrompt)
 
 	runtimeModel := c.Deps.Runtime.Model()
@@ -631,6 +634,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	if recorder, ok := c.tasks.(interface{ RecordPlanFrameForLocked(string) bool }); ok {
 		recorder.RecordPlanFrameForLocked(sessionID)
 	}
+	world := c.prefixWorld(sessionID)
 	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
 	events = excludeCurrentInputEvent(events, requestID, currentInput)
 	// 累积上下文的绝对起点：上一次压缩已经覆盖的 transcript 前缀不再回填。
@@ -660,15 +664,49 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		progress.begin()
 		defer func() { progress.settle(err, recorded, "") }()
 	}
-	// 达峰判定以**未被压缩覆盖**的全量累积 context 为准（而非可能已被框架
-	// 压缩的引擎历史）：与引擎缓存估算取峰值，压缩是唯一使累积前缀失效的事件。
-	// 尾窗选择注入请求同款估算器（TranscriptTailWindowBy），裁剪量与判据量
-	// 才是同一把尺子；否则一边按事件记录值裁、一边按当前校准值判，保留窗口
-	// 会重新“膨胀”越线。
-	fullContext := task_context.TranscriptTailHistoryBy(accumulated, budget.Budget, 0, c.transcriptUnitTokens)
-	rawTokens := c.tasks.CountRequestTokens(systemPrompt, fullContext, currentInput, tools)
-	if cacheTokens := c.tasks.CountRequestTokens(systemPrompt, existing, currentInput, tools); cacheTokens > rawTokens {
-		rawTokens = cacheTokens
+	// 正常装配直接使用 truth[retained_from:]。L1 键与水位连续时只把新增
+	// transcript 事件追加到派生快照，不再每次重切完整历史。达峰判定仍以
+	// 未压缩的 truth 为准；缓存里的 in-flight 尾巴单独计价，避免把尚未落成
+	// transcript 的 tool_call 单元漏出预算峰值。
+	keyMaterials := PrefixKeyMaterials{
+		System: systemPrompt, Tools: tools, RetainedFrom: retainedFrom,
+	}
+	contextKey := BuildPrefixKey(keyMaterials, world, 0)
+	contextL1, l1Hit := c.resumeContextL1(sessionID, contextKey, events, retainedFrom)
+	var fullContext []contract.EngineMessage
+	var rawTokens int
+	allContextTokens := 0
+	directTruth := false
+	if l1Hit {
+		fullContext = append([]contract.EngineMessage(nil), contextL1.Messages...)
+		rawTokens = contextL1.Tokens + c.requestTailTokens(currentInput, tools)
+		// 引擎在 L1 之后还可能持有本轮新生成、尚未成为 truth 的工具轮。
+		// 前缀仍由 L1 保证；这里只给有界后缀补 token 峰值，不重扫整段历史。
+		base := contextL1.ReuseBaseMessages
+		if base < 0 || base > len(contextL1.Messages) {
+			base = len(contextL1.Messages)
+		}
+		if len(existing) > base {
+			rawTokens -= c.historyTokens(contextL1.Messages[base:])
+			rawTokens += c.historyTokens(existing[base:])
+		}
+		allContextTokens = contextL1.TruthTokens
+	} else {
+		// 未命中时仍用同一把 token 尺子判断这条 truth 是否能完整装下；能装下
+		// 才走全量直切，装不下时沿用有界尾窗/压缩边界决策。
+		windowStart := 0
+		fullContext, windowStart = task_context.TranscriptTailWindowBy(
+			accumulated, budget.Budget, 0, c.transcriptUnitTokens,
+		)
+		directTruth = windowStart == 0
+		if directTruth {
+			fullContext = task_context.TranscriptEventMessages(accumulated)
+		}
+		rawTokens = c.tasks.CountRequestTokens(systemPrompt, fullContext, currentInput, tools)
+		if cacheTokens := c.tasks.CountRequestTokens(systemPrompt, existing, currentInput, tools); cacheTokens > rawTokens {
+			rawTokens = cacheTokens
+		}
+		allContextTokens = c.tasks.CountRequestTokens("", fullContext, "", nil)
 	}
 	currentInput = c.protectOversizedCurrentInputLocked(sessionID, requestID, currentInput, budget)
 	// 压缩策略输入（同一份 window 配置段，框架侧 WindowPolicy 与这里共用）：
@@ -681,7 +719,6 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	//	硬压缩 = all_context ≥ window.force_compact_tokens（必须自主压缩，
 	//	         不再等比例阈值：长任务下比例阈值可能永远不触发）。
 	windowConfig := context_control.Current()
-	allContextTokens := c.tasks.CountRequestTokens("", fullContext, "", nil)
 	hardCompact := windowConfig.MustCompact(allContextTokens)
 	// 保留窗口决策（③ 的边界）提前到判据之前：它的值就是「压缩后整条请求最多能到
 	// 哪」，判据要拿它做下面的**幂等/有效性校验**。纯算术 + 一次配置读取，提前
@@ -766,6 +803,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	summary := state.ContextSummary()
 	planMessage := c.planContextMessageLocked(sessionID)
 	c.ViewMu.Unlock()
+	c.syncMemoryEpoch(sessionID, memoryQuery, world.CompactSeq)
 
 	// 门禁进度：只有真的要压缩才开一轮。"没有纪元、登记为下一条消息兑现"与
 	// "未达判据"都不是压缩进行中——为没发生的事画进度条，比没有进度条更糟。
@@ -911,7 +949,18 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			}
 		}
 	}
-	assembled, retainedWindowFrom, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, windowEvents, currentInput, tools, target, compacting, 0)
+	var assembled []contract.EngineMessage
+	var retainedWindowFrom int
+	var estimated int
+	if l1Hit && !compacting {
+		assembled = append([]contract.EngineMessage(nil), contextL1.Messages...)
+		estimated = rawTokens
+	} else {
+		assembled, retainedWindowFrom, estimated = c.fitExecutionHistory(
+			systemPrompt, systems, planMessage, windowEvents,
+			currentInput, tools, target, compacting, 0, directTruth,
+		)
+	}
 	// 自主压缩（探测即主动触发）：装配结果一旦逼近硬阈值（limits.context_hard_percent，
 	// 默认 98%），说明
 	// 可变 transcript 已经压不动——此时立刻压缩为有界 checkpoint 帧（稳定
@@ -1259,6 +1308,59 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			c.Events.Publish(event.EventSnapshotChanged, revision, requestID, nil)
 		}
 	}
+	// 普通命中由 ResumeContextL1 在追加 delta 时已经提交；只有真正重建（首轮、
+	// 冷加载、键变化、压缩边界）才在这里登记新前缀。L1 是派生数据，登记失败
+	// 只影响观测与下一次快路径，不能改变本次已经发出的请求字节。
+	if !l1Hit || compacting || autonomous {
+		leftPointer := retainedFrom
+		compactSeq := world.CompactSeq
+		if compacting || autonomous {
+			leftPointer = compressedTo
+			if compressedTo > 0 && compactSeq < uint64(compressedTo) {
+				compactSeq = uint64(compressedTo)
+			}
+			if compactSeq == 0 && state != nil {
+				compactSeq = state.ContextVersion
+			}
+			c.syncMemoryEpoch(sessionID, memoryQuery, compactSeq)
+		}
+		materials := PrefixKeyMaterials{
+			System: systemPrompt, Tools: tools, Messages: assembled, RetainedFrom: leftPointer,
+		}
+		finalWorld := world
+		finalWorld.CompactSeq = compactSeq
+		finalKey := BuildPrefixKey(materials, finalWorld, compactSeq)
+		if leftPointer < 0 {
+			leftPointer = 0
+		}
+		if leftPointer > len(events) {
+			leftPointer = len(events)
+		}
+		truthMessages := task_context.TranscriptEventMessages(events[leftPointer:])
+		throughSeq := uint64(0)
+		if len(events) > 0 {
+			throughSeq = events[len(events)-1].Seq
+		}
+		tokenGeneration := uint64(0)
+		if store := c.contextL1Store(); store != nil {
+			tokenGeneration = store.TokenGeneration()
+		}
+		c.recordContextL1(sessionID, task_context.ContextL1Snapshot{
+			Key:             finalKey,
+			System:          systemPrompt,
+			Messages:        assembled,
+			RetainedFrom:    leftPointer,
+			ProjectVersion:  finalWorld.ProjectVersion,
+			MemoryEpoch:     compactSeq,
+			CompactSeq:      compactSeq,
+			ToolsEpoch:      finalWorld.ToolsEpoch,
+			ThroughSeq:      throughSeq,
+			EventCount:      len(events),
+			TokenGeneration: tokenGeneration,
+			Tokens:          c.tasks.CountRequestTokens(systemPrompt, assembled, "", tools),
+			TruthTokens:     c.tasks.CountRequestTokens("", truthMessages, "", nil),
+		})
+	}
 	return currentInput, nil
 }
 
@@ -1279,6 +1381,26 @@ func composeRequestTail(currentInput, workTable, environment string) string {
 	return strings.Join(parts, "\n\n")
 }
 
+// requestTailTokens 只计算当前输入与工具目录，不遍历历史。CountRequest 的固定
+// 3 token 底数已包含在 L1.Tokens 里，这里扣除后即可与缓存基数相加。
+func (c *Coordinator) requestTailTokens(currentInput string, tools []model.Tool) int {
+	tokens := c.tasks.CountRequestTokens("", nil, currentInput, tools) - 3
+	if tokens < 0 {
+		return 0
+	}
+	return tokens
+}
+
+// historyTokens 只计算一段有界历史（通常是 in-flight tail）相对 CountRequest
+// 固定底数的增量。
+func (c *Coordinator) historyTokens(history []contract.EngineMessage) int {
+	tokens := c.tasks.CountRequestTokens("", history, "", nil) - 3
+	if tokens < 0 {
+		return 0
+	}
+	return tokens
+}
+
 // fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
 // 累积 context（已定稿轮次，含 append-only 的激活技能事件）→ plan 尾部。
 // windowed=false = 全量累积（达峰前 append-only，字节稳定）；windowed=true =
@@ -1297,7 +1419,13 @@ func (c *Coordinator) fitExecutionHistory(
 	target int,
 	windowed bool,
 	maxUnits int,
+	directTruth bool,
 ) ([]contract.EngineMessage, int, int) {
+	if directTruth && !windowed && maxUnits <= 0 {
+		history := append([]contract.EngineMessage(nil), systems...)
+		history = append(history, task_context.TranscriptEventMessages(events)...)
+		return history, 0, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
+	}
 	// 压缩窗口模式：丢弃保留的累积段，从事件重建新鲜窗口（保留段只供全量
 	// 累积模式复用，避免与窗口内容重复）。
 	base := systems

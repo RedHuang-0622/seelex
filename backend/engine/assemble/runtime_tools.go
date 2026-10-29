@@ -341,7 +341,50 @@ func (r *Runtime) SetPermissionTierFor(sessionID, tier string) error {
 	return r.permission.SetPermissionTierFor(sessionID, tier)
 }
 func (r *Runtime) VisibleTools(ctx context.Context) []Tool {
+	if sessionID := runtimeSessionID(ctx); sessionID != "" {
+		r.contextEpochMu.RLock()
+		frozen := append([]Tool(nil), r.toolCatalogBySID[sessionID]...)
+		r.contextEpochMu.RUnlock()
+		if len(frozen) > 0 {
+			return frozen
+		}
+	}
 	return summarizeTools(r.agt.VisibleTools(ctx))
+}
+
+// SetToolCatalogForSession freezes the provider schema for one session.
+func (r *Runtime) SetToolCatalogForSession(sessionID string, epoch uint64, catalog []Tool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	r.contextEpochMu.Lock()
+	if r.toolCatalogBySID == nil {
+		r.toolCatalogBySID = make(map[string][]Tool)
+	}
+	if r.toolEpochBySID == nil {
+		r.toolEpochBySID = make(map[string]uint64)
+	}
+	previousEpoch := r.toolEpochBySID[sessionID]
+	sameCatalog := sameToolCatalog(r.toolCatalogBySID[sessionID], catalog)
+	r.toolCatalogBySID[sessionID] = append([]Tool(nil), catalog...)
+	r.toolEpochBySID[sessionID] = epoch
+	if previousEpoch != epoch || !sameCatalog {
+		delete(r.frozenToolsBySID, sessionID)
+	}
+	r.contextEpochMu.Unlock()
+}
+
+func sameToolCatalog(left, right []Tool) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].Name != right[index].Name || left[index].Description != right[index].Description {
+			return false
+		}
+	}
+	return true
 }
 
 // isProjectScopedTool 是工具注册域 `ProjectScopedToolName` 的**同身份别名**：名单只有一份

@@ -57,7 +57,7 @@ flowchart LR
 | [`provider/`](provider/README.md) | 从会话（SessionSource/DurableHistory）或 telemetry 导出 Snapshot。 |
 | [`compactor/`](compactor/README.md) | 基于 token budget 的分级压缩。 |
 | [`merger/`](merger/README.md) | 子任务 findings/decisions/progress 合并回父上下文。 |
-| [`memory/`](memory/README.md) | 超长上下文的历史记忆选取：按当前查询从压缩帧选 top-K，渲染有界「相关记忆」块。 |
+| [`memory/`](memory/README.md) | 超长上下文的历史记忆**单次**选取：只在 memory epoch 首次建立/压缩滚动时按查询选 top-K；后续请求复用 Runtime 冻结字节，不逐轮重选。 |
 | [`lifecycle/`](lifecycle/) | 泛型 Context actor 与有界批处理管道；提供 cold-load/windowed/pipelined 策略和关闭竞态测试。 |
 | [`tokens/`](tokens/README.md) | 脚本感知的 token 估算（零依赖、确定性，替代 len/3）。 |
 
@@ -116,7 +116,7 @@ Session history / DurableHistory -> Provider -> ContextSnapshot -> Compactor -> 
 parent snapshot <- Merger <------------------------------ child result
 ContextComponents（Assembler/Processor/Compressor/Controller）-> session.Session
 Load（尾窗）─ 真空区 GapCoverer → CoverHistoryGap → CompactStack 合并帧
-Assembler ─ 查询 → memory.Select（压缩帧 top-K）→ 相关记忆块
+Assembler ─ 冻结 memory epoch（压缩帧 top-K 只在 epoch 首现时选择）→ 相关记忆块
 压缩 DAG（2026-09-06）：select_range → {chapter1 锚点, chapter2 厚摘要} →
 merge_frame → PushCompact（装配层推帧走 `seelebridge.PushCompactionFrame`，按会话键
 串行；真空区由 gap 路径自推）；帧 Summary 固定两章节，模型请求

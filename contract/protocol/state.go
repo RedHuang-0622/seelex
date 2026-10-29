@@ -421,6 +421,62 @@ type SessionExecutionRecord struct {
 	// 判据用它回答两件事：同一中断 requestID 是否已经续过（幂等）、
 	// 同一 goal 连续续了几次（上限 + 退避）。
 	Continuations []ContinuationAttempt `json:"continuations,omitempty"`
+	// ContextDraft 是上下文 draft actor 的最后一个持久现场：未提交字节与已 ack
+	// 水位。空 = 没有在途 draft。它在回合原子落盘时随 record 一起提交。
+	ContextDraft *ContextDraftState `json:"context_draft,omitempty"`
+	// MemoryUpdates / ToolsUpdates 是 append-only 上下文纪元表。渲染与冷恢复
+	// 只 fold 已记录 Bytes，不按本轮 query 重选。
+	MemoryUpdates []MemoryUpdate `json:"memory_updates,omitempty"`
+	ToolsUpdates  []ToolsUpdate  `json:"tools_updates,omitempty"`
+	// ToolCatalog 是会话内冻结的 catalog；ToolsEpoch 只在 catalog 本身变化时 bump。
+	ToolCatalog []ToolCatalogEntry `json:"tool_catalog,omitempty"`
+	ToolsEpoch  uint64             `json:"tools_epoch,omitempty"`
+}
+
+// MemoryUpdate is one append-only memory epoch row.
+type MemoryUpdate struct {
+	Seq       uint64    `json:"seq"`
+	Epoch     uint64    `json:"epoch"`
+	Kind      string    `json:"kind"`
+	SegmentID string    `json:"segment_id,omitempty"`
+	Digest    string    `json:"digest"`
+	Bytes     string    `json:"bytes,omitempty"`
+	From      int       `json:"from,omitempty"`
+	To        int       `json:"to,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
+// ToolsUpdate is one append-only tool-set sentinel epoch row.
+type ToolsUpdate struct {
+	Seq           uint64    `json:"seq"`
+	Epoch         uint64    `json:"epoch"`
+	Kind          string    `json:"kind"`
+	ToolNames     []string  `json:"tool_names,omitempty"`
+	Digest        string    `json:"digest"`
+	SentinelBytes string    `json:"sentinel_bytes,omitempty"`
+	Reason        string    `json:"reason,omitempty"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
+}
+
+// ToolCatalogEntry is the stable, session-frozen provider tool schema identity.
+type ToolCatalogEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// ContextDraftItem 是一段已经获得会话内 Seq 的已发出字节。
+type ContextDraftItem struct {
+	Seq   uint64 `json:"seq"`
+	Bytes string `json:"bytes"`
+	Final bool   `json:"final,omitempty"`
+}
+
+// ContextDraftState 是 draft actor 的持久水位与待重放条目。
+type ContextDraftState struct {
+	Items       []ContextDraftItem `json:"items,omitempty"`
+	Watermark   uint64             `json:"watermark,omitempty"`
+	Uncommitted bool               `json:"uncommitted,omitempty"`
 }
 
 // ContinuationAttempt 是一次自动续跑（或一次"被上限截断"）的持久记录。

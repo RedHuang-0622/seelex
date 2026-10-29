@@ -88,7 +88,6 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 		}
 		return fresh
 	}, runtimeBridge.Tracer())
-	appEngine.EnableWorkingHistoryRelease()
 	workspaces, err := boot.InitWorkspaceRepo(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)

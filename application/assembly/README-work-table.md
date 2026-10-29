@@ -117,3 +117,4 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### async_completion.go
 
 - `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — sessionIdleForAsyncTrigger reports whether a session can start a completion
+- `func (service *Service) continuationGate() *applicationexecution.ContinuationApplication` — continuationGate 组装续跑 gate。

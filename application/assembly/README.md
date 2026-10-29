@@ -756,6 +756,12 @@ history, the visible conversation, or the durable transcript.
 
 `context_runtime` 的 `PrepareExecutionContextFor` 重建 provider history：从生效的 system 政策、可信 task Skills、当前 Plan slice 与完整协议单元装配。一个单元只有在它的每个工具调用都有配对结果时才被接纳；孤儿结果与残缺并行调用留在 durable transcript 里，但永不进入 provider context。装配顺序遵循前缀缓存链路：system → project → memory → compact → 累积 context → plan → task（project/memory/栈块由 seelexctx 装配器渲染；coordinator 侧引擎历史 = 累积 context，plan 帧由 task 域在计划状态写入那一刻落 transcript、按记录位置重放（`kernel/task/plan_frame.go`）；动态尾部 plan/task 栈块由 seelexctx 装配器**追加在 WorkingHistory 之后**（请求最末格，不写回历史、不随历史变长而漂，见 `docs/arch/context-prefix-stability-l1.md` §6.3.3））。`ContextController` 不再参与装配，只做超大工具结果的兜底归档。
 
+> 前缀稳定性实现（2026-10-29）：装配出口用六格 `prefix_key` 复用进程内 L1；
+> 键和 Seq 水位连续时只追加新增 truth，正常请求直接使用
+> `truth[retained_from:]`。回合收尾不再释放工作历史。memory 在 epoch 内只选一次，
+> tools catalog 在会话内冻结；可用性变化只追加 `⟦toolset⟧` 哨兵，catalog 本身变化
+> 才 bump `tools_epoch`。draft actor 在回合持久化前等待 ack。
+
 > 已实现（任务 A/B/C）：装配顺序为「system → project → memory → compact → 累积 context（越线前 append-only 全量已定稿轮次）→ plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常恢复路径 provider 504 / history-safety 保留）；**越线才压缩**，且压缩只在装配层发生（请求估算 ≥ `limits.context_hard_percent`、`window.force_compact_tokens` 或显式 `/compact`、`compact_context`；2026-09-30 起软线不再参与判据）——折出保留窗口外的 transcript 前缀，plan/task 不参与压缩。设计见 [docs/arch/context-prefix-chain.md](../../docs/arch/context-prefix-chain.md)。
 
 Provider 前缀与模型输出不变量（2026-10-21）：每条请求的字节都以本会话更早

@@ -108,6 +108,11 @@ func (g *Coordinator) FinishDirect(ctx context.Context, sessionID string, reques
 	return controller.Finish(ctx, request)
 }
 
+// AuditFor 向指定会话的 goal 审计账追加非终态续跑事件。
+func (g *Coordinator) AuditFor(ctx context.Context, sessionID string, entry goaldomain.AuditEntry) error {
+	return g.bundleFor(sessionID).ctl.Audit(ctx, entry)
+}
+
 // StatusFor 返回会话 goal 栈全量视图（无 bundle 时返回空视图）。
 func (g *Coordinator) StatusFor(sessionID string) goaldomain.StatusView {
 	g.mu.Lock()

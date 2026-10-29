@@ -274,18 +274,6 @@ func (engine *fakeEngine) SubAgentTree() []dto.SubAgentTreeNode {
 	return append([]dto.SubAgentTreeNode(nil), engine.subAgentTree...)
 }
 
-func (engine *fakeEngine) ReleaseWorkingHistory() {
-	engine.mu.Lock()
-	engine.releaseCalls++
-	engine.mu.Unlock()
-}
-
-func (engine *fakeEngine) ReleaseWorkingHistoryFor(sessionID string) {
-	engine.mu.Lock()
-	engine.releaseCalls++
-	engine.mu.Unlock()
-}
-
 // ── SessionChatEngine 会话路由面（多会话并行测试用）────────────────────
 // fakeEngine 是单引擎桩：For 变体忽略 sessionID 差异，读写同一 history，
 // 方法均加锁，供 -race 竞态测试验证调用方不误清/不回退活跃引擎。

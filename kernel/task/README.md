@@ -53,6 +53,15 @@
   不是回合事实）。已有上下文状态（冷恢复的 projection）时复用，不新建不覆盖；
   已有在飞回合时拒绝发放身份（不抢占真实身份）。
 - 不做：会话持久化跨域事务、chat 流式编排、context 装配。
+- 做：**上下文 draft 与纪元表**（`context_draft_actor.go`、
+  `context_epochs.go`）。draft actor 的 `Seq` 由 transcript 同源分配器给出；
+  `RecordUserWireContentLocked` 把已发出 user 字节登记到 actor，回合收尾在
+  `TurnCompletionApplication.Persist` 前等待 durable ack。提交失败保留
+  `uncommitted`，会话不进入“已确认”状态。
+- 做：`MemoryUpdate` / `ToolsUpdate` / `ToolCatalog` 的会话级 append-only
+  存储面。memory 与 tools 共用 epoch seq 分配器；memory fold 校验 Digest，
+  tool catalog 只有显式变化才 bump epoch。两类表随 `SessionRecord.Execution`
+  原子落盘并在冷加载原样恢复。
 - 做：**跨会话 task 台账**（`ledger.go`）。工作表格是**跨会话台账**，会话只是
   条目的产生地：全局读面（`Ledger.Snapshot`）合并实时注册表（归当前视图会话）
   与各会话 scope 分区（归分区键），按跨会话身份去重（幂等键优先、否则行 ID）
@@ -77,6 +86,9 @@
 | `task_context_state.go` | transcript/checkpoint/result-ref/token 审计协调器。 |
 | `session_context_maintenance.go` | 会话级上下文维护身份（冷加载/刚清空会话的显式压缩入口）+ `StatusIdle`。 |
 | `token_counter.go` | 校准 token 计数器与上下文预算。 |
+| `context_l1.go` | L1 派生快照、命中统计、连续水位增量复用。 |
+| `context_draft_actor.go` | 会话级 draft actor 的持久化适配与 ack。 |
+| `context_epochs.go` | memory/tools append-only 纪元表、fold、catalog 冻结、哨兵。 |
 | `plan_transcript.go` | Plan 投影 helper 与 transcript 协议单元收敛。 |
 
 ## 架构图
@@ -195,6 +207,7 @@ CAS 令牌。两者只读任务运行时状态，不改变压缩或回合生命�
 
 ```text
 go test ./kernel/task -count=1
+go test -race ./kernel/context/draft ./kernel/task -count=1
 ```
 
 ## 文件与函数索引

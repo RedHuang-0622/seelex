@@ -213,6 +213,24 @@ func enrichTranscriptMessageIDs(events []model.TranscriptEvent, record model.Ses
 func (c *Coordinator) sessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord {
 	now := time.Now()
 	c.tasks.SyncActivePlanFrameLockedFor(sessionID, now)
+	continuation := model.SessionContinuationState{}
+	if reader, ok := c.tasks.(interface {
+		ContinuationStateFor(string) model.SessionContinuationState
+	}); ok {
+		continuation = reader.ContinuationStateFor(sessionID)
+	}
+	contextDraft := model.ContextDraftState{}
+	if reader, ok := c.tasks.(interface {
+		ContextDraftStateFor(string) model.ContextDraftState
+	}); ok {
+		contextDraft = reader.ContextDraftStateFor(sessionID)
+	}
+	epochs := model.SessionExecutionRecord{}
+	if reader, ok := c.tasks.(interface {
+		ContextEpochStateFor(string) model.SessionExecutionRecord
+	}); ok {
+		epochs = reader.ContextEpochStateFor(sessionID)
+	}
 	title := c.catalogTitleOf(sessionID)
 	requestID := c.tasks.CurrentRequestIDFor(sessionID)
 	record := model.SessionRecord{
@@ -224,7 +242,20 @@ func (c *Coordinator) sessionRecordLocked(sessionID string, tasks []dto.TaskReco
 		Conversation: model.ConversationRecord{UpdatedAt: now},
 		// ReadFiles 仍读全局 Snapshot（阶段 1 SessionScope 收口前遗留，
 		// 对应 P2 剩余面；阶段 0 目标是消除 record 级对话/plan/title 串写）。
-		Execution:   model.SessionExecutionRecord{ReadFiles: append([]model.ReadFileRef(nil), c.Core.Snapshot.ReadFiles...)},
+		Execution: model.SessionExecutionRecord{
+			ReadFiles:     append([]model.ReadFileRef(nil), c.Core.Snapshot.ReadFiles...),
+			StoppedByUser: continuation.StoppedByUser,
+			StoppedAt:     continuation.StoppedAt,
+			Paused:        continuation.Paused,
+			PausedAt:      continuation.PausedAt,
+			PausedGoalID:  continuation.PausedGoalID,
+			Continuations: append([]model.ContinuationAttempt(nil), continuation.Continuations...),
+			ContextDraft:  contextDraftPointer(contextDraft),
+			MemoryUpdates: append([]model.MemoryUpdate(nil), epochs.MemoryUpdates...),
+			ToolsUpdates:  append([]model.ToolsUpdate(nil), epochs.ToolsUpdates...),
+			ToolCatalog:   append([]model.ToolCatalogEntry(nil), epochs.ToolCatalog...),
+			ToolsEpoch:    epochs.ToolsEpoch,
+		},
 		Projection:  c.tasks.TaskProjectionLocked(sessionID),
 		Checkpoints: append([]model.TaskCheckpoint(nil), c.tasks.TaskCheckpointsFor(sessionID)...),
 		ToolResults: append([]model.ToolResultRef(nil), c.tasks.ToolResultRefsFor(sessionID)...),
@@ -254,6 +285,18 @@ func (c *Coordinator) sessionRecordLocked(sessionID string, tasks []dto.TaskReco
 		record.Execution.Continuation = continuation
 	}
 	return record
+}
+
+func contextDraftPointer(state model.ContextDraftState) *model.ContextDraftState {
+	if len(state.Items) == 0 && state.Watermark == 0 && !state.Uncommitted {
+		return nil
+	}
+	copy := model.ContextDraftState{
+		Items:       append([]model.ContextDraftItem(nil), state.Items...),
+		Watermark:   state.Watermark,
+		Uncommitted: state.Uncommitted,
+	}
+	return &copy
 }
 
 // archivedConversationMessageLocked 归档单条可见消息：超限工具结果/用户

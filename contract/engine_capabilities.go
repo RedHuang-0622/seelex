@@ -7,10 +7,6 @@ type sessionPromptWriter interface {
 	SetSystemPromptFor(sessionID, prompt string)
 }
 
-type workingHistoryReleaser interface {
-	ReleaseWorkingHistoryFor(sessionID string)
-}
-
 type sessionActivator interface {
 	ActivateSession(sessionID string) error
 }
@@ -64,16 +60,6 @@ func SetSystemPromptFor(engine ChatEngine, sessionID, prompt string) bool {
 func SupportsSystemPromptFor(engine ChatEngine) bool {
 	_, ok := engine.(sessionPromptWriter)
 	return ok
-}
-
-// ReleaseWorkingHistoryFor releases one session's working history.
-func ReleaseWorkingHistoryFor(engine ChatEngine, sessionID string) bool {
-	releaser, ok := engine.(workingHistoryReleaser)
-	if !ok {
-		return false
-	}
-	releaser.ReleaseWorkingHistoryFor(sessionID)
-	return true
 }
 
 // ActivateSession creates the explicit engine bundle when supported.

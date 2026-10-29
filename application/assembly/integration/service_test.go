@@ -87,13 +87,13 @@ func TestCurrentSessionNameUsesFirstQuestion(t *testing.T) {
 	}
 }
 
-func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
+func TestWorkingHistorySurvivesTurnCompletion(t *testing.T) {
 	tests := []struct {
 		name         string
 		sessions     contract.SessionPort
 		wantReleases int
 	}{
-		{name: "success", sessions: fakeSessions{}, wantReleases: 1},
+		{name: "success", sessions: fakeSessions{}, wantReleases: 0},
 		{name: "failure", sessions: persistenceFailingSessions{}, wantReleases: 0},
 	}
 	for _, test := range tests {
@@ -114,7 +114,7 @@ func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
 			releases := engine.releaseCalls
 			engine.mu.Unlock()
 			if releases != test.wantReleases {
-				t.Fatalf("working history releases = %d, want %d", releases, test.wantReleases)
+				t.Fatalf("L1 模式下回合收尾清工作历史次数 = %d，want %d", releases, test.wantReleases)
 			}
 		})
 	}

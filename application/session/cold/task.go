@@ -70,5 +70,29 @@ func (application *TaskApplication) RestoreLocked(
 		FallbackObjective:   application.deps.LatestUser(record.Conversation.Messages),
 		ContextCompactions:  contextCompactions,
 		ContextRetainedFrom: retainedFrom,
+		Continuation: model.SessionContinuationState{
+			StoppedByUser: record.Execution.StoppedByUser,
+			StoppedAt:     record.Execution.StoppedAt,
+			Paused:        record.Execution.Paused,
+			PausedAt:      record.Execution.PausedAt,
+			PausedGoalID:  record.Execution.PausedGoalID,
+			Continuations: append([]model.ContinuationAttempt(nil), record.Execution.Continuations...),
+		},
+		ContextDraft:  cloneContextDraft(record.Execution.ContextDraft),
+		MemoryUpdates: append([]model.MemoryUpdate(nil), record.Execution.MemoryUpdates...),
+		ToolsUpdates:  append([]model.ToolsUpdate(nil), record.Execution.ToolsUpdates...),
+		ToolCatalog:   append([]model.ToolCatalogEntry(nil), record.Execution.ToolCatalog...),
+		ToolsEpoch:    record.Execution.ToolsEpoch,
 	})
+}
+
+func cloneContextDraft(state *model.ContextDraftState) model.ContextDraftState {
+	if state == nil {
+		return model.ContextDraftState{}
+	}
+	return model.ContextDraftState{
+		Items:       append([]model.ContextDraftItem(nil), state.Items...),
+		Watermark:   state.Watermark,
+		Uncommitted: state.Uncommitted,
+	}
 }

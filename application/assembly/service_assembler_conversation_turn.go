@@ -21,9 +21,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/protocol"
 )
 
-// assembleConversationTurnComponents builds the complete turn pipeline after
-// the view and context coordinators exist. Only Process and Runner outlive
-// composition; the remaining stages are builder-local values.
+// assembleConversationTurnComponents builds the complete turn pipeline; only Process and Runner outlive composition.
 type conversationTurnComponents struct {
 	submission *applicationconversation.SubmissionApplication
 	start      *applicationconversation.TurnStartApplication
@@ -35,25 +33,23 @@ type conversationTurnComponents struct {
 
 func (service *Service) assembleConversationTurnComponents() {
 	process := applicationconversation.NewTurnProcess(applicationconversation.TurnProcessDeps{
-		Tasks:          service.components.tasks,
-		TurnState:      service.components.conversationTurnState,
-		NextRequestID:  service.nextChatRequestIDLocked,
-		EffortFor:      service.effortForSession,
-		FallbackBudget: prompt.ReActBudgetFor,
-		MarkBusy:       service.markBusyLocked,
-		MarkIdle:       service.markIdleLocked,
-		AnyChatRunning: service.anyChatRunningLocked,
-		SetSessionChat: service.components.view.SetSessionChatLockedFor,
+		Tasks:                 service.components.tasks,
+		TurnState:             service.components.conversationTurnState,
+		NextRequestID:         service.nextChatRequestIDLocked,
+		EffortFor:             service.effortForSession,
+		FallbackBudget:        prompt.ReActBudgetFor,
+		MarkBusy:              service.markBusyLocked,
+		MarkIdle:              service.markIdleLocked,
+		AnyChatRunning:        service.anyChatRunningLocked,
+		SetSessionChat:        service.components.view.SetSessionChatLockedFor,
+		EnsureToolsetSentinel: service.components.context.EnsureToolsetSentinelFor,
 	})
-	releaseWorkingHistory := func(sessionID string) {
-		contract.ReleaseWorkingHistoryFor(service.Deps.Engine, sessionID)
-	}
 	completion := applicationconversation.NewTurnCompletion(applicationconversation.TurnCompletionDeps{
 		LocateSession:          service.components.sessions.LocateSession,
 		PersistSession:         service.components.sessions.PersistCurrentSession,
 		QueueFailConsumedInput: service.components.sessions.QueueFailConsumedInput,
 		QueueConfirmConsumed:   service.components.sessions.QueueConfirmConsumedInput,
-		ReleaseWorkingHistory:  releaseWorkingHistory,
+		CommitContextDraft:     service.components.tasks.CommitSessionContextDraft,
 	})
 
 	outcome := applicationconversation.NewTurnOutcome(applicationconversation.TurnOutcomeDeps{

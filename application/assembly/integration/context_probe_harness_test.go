@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/contract/protocol"
+	"github.com/RedHuang-0622/seelex/kernel/context/prefixprobe"
 	"github.com/RedHuang-0622/seelex/kernel/react"
 	"github.com/RedHuang-0622/seelex/kernel/task"
 )
@@ -40,6 +41,7 @@ type prefixProbeCall struct {
 	total    int
 	bytes    string
 	messages []contract.EngineMessage
+	key      prefixprobe.Key
 }
 
 // prefixProbeDivergence 是两次请求之间的前缀发散度量。
@@ -116,6 +118,7 @@ func (h *prefixProbeHarness) beginTurn(input string) {
 	h.t.Helper()
 	h.startStream()
 	h.service.ViewMu.Lock()
+	h.service.components.context.EnsureToolsetSentinelFor(h.session)
 	h.service.components.view.AppendMessageLocked("user", input, nil)
 	h.service.components.view.AppendMessageLocked("assistant", "", nil)
 	h.service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
@@ -236,9 +239,14 @@ func (h *prefixProbeHarness) capture(turn, iter int, label string) {
 	// 打断，误判为前缀不完整。
 	serialized = serialized[:len(serialized)-probeInputTrailerLen]
 	total := h.service.components.tasks.CountRequestTokens(system, h.history, "", h.tools)
+	key, ok := h.service.components.context.PrefixKeyFor(h.session)
+	if !ok {
+		h.t.Fatal("L1/prefix_key 尚未登记")
+	}
 	h.calls = append(h.calls, prefixProbeCall{
 		label: label, turn: turn, iter: iter, history: len(h.history),
 		total: total, bytes: serialized, messages: append([]contract.EngineMessage(nil), h.history...),
+		key: key,
 	})
 	h.t.Logf("  call=%-10s turn=%d iter=%d msgs=%3d total=%6d tok", label, turn, iter, len(h.history), total)
 }

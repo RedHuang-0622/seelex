@@ -108,6 +108,13 @@ type Runtime struct {
 	turnArchiver    seelexctx.TurnArchiver
 	projectMu       sync.RWMutex
 	project         func() *storeproject.ProjectRecord
+	// contextEpochMu 保护会话冻结的 memory epoch 字节。memory 选择只在压缩
+	// 纪元滚动/首次装配发生一次，之后 assembler 只重放同一份正文。
+	contextEpochMu   sync.RWMutex
+	memoryEpochBySID map[string]string
+	toolCatalogBySID map[string][]Tool
+	toolEpochBySID   map[string]uint64
+	frozenToolsBySID map[string][]types.Tool
 
 	// 遥测（slice 8）：内存追踪器 + 生命周期钩子。会话级 llm/tool
 	// intent-effect 事件经 hook 写入 tracer；GUI/TUI 的 trace 视图经
@@ -581,7 +588,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	agt, err := agent.NewWithComponents(agent.Components{
 		Completer:       r.completer,
 		StreamCompleter: r.streamer,
-		Tools:           runtimeAdapter,
+		Tools:           &frozenToolRuntime{runtime: r, base: runtimeAdapter},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("seelex: create agent: %w", err)
@@ -607,11 +614,12 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			if project := r.projectBlock(); project != nil {
 				blocks = append(blocks, *project)
 			}
-			blocks = append(blocks, r.stackBlocks()...)
+			blocks = append(blocks, r.prefixStacks()...)
 			return blocks
 		},
-		RelatedMemory: r.relatedMemoryBlocks,
-		ResumeNote:    r.SubagentResumeNote,
+		InheritedTailBlocks: r.tailStacks,
+		RelatedMemory:       r.relatedMemoryBlocks,
+		ResumeNote:          r.SubagentResumeNote,
 	})
 	// worktree 现场适配器：项目根经 deps 注入；重试与收尾分类在 workunit.Host，
 	// 组件不反向依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。

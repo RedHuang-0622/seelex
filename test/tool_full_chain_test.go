@@ -277,7 +277,6 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 		}
 		return fresh
 	}, runtimeBridge.Tracer())
-	appEngine.EnableWorkingHistoryRelease()
 	workspaces, err := boot.InitWorkspaceRepo(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)

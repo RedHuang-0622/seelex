@@ -1,5 +1,7 @@
 package task_context
 
+import "context"
+
 // RecordUserWireContentLocked 把「本轮实际发给 provider 的 user 正文」写回该轮
 // 的 user transcript 事件，作为**已发出字节**记录（不变量 I1：字节冻结）。
 //
@@ -15,14 +17,28 @@ func (c *Coordinator) RecordUserWireContentLocked(sessionID, requestID, wire str
 		return false
 	}
 	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	return c._RecordUserWireContentLocked(sessionID, requestID, wire)
+	matched, seq, staged := c._RecordUserWireContentLockedSeq(sessionID, requestID, wire)
+	c.stateMu.Unlock()
+	if !matched {
+		return false
+	}
+	if staged {
+		if err := c.AppendContextDraftFor(context.Background(), sessionID, seq, wire, true); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Coordinator) _RecordUserWireContentLocked(sessionID, requestID, wire string) bool {
+	matched, _, _ := c._RecordUserWireContentLockedSeq(sessionID, requestID, wire)
+	return matched
+}
+
+func (c *Coordinator) _RecordUserWireContentLockedSeq(sessionID, requestID, wire string) (bool, uint64, bool) {
 	st := c.sessionStateLocked(sessionID)
 	if st == nil {
-		return false
+		return false, 0, false
 	}
 	// 从尾向前找该请求的 user 行：一轮里 user 事件在开头，尾向扫描命中最快。
 	for index := len(st.transcript) - 1; index >= 0; index-- {
@@ -34,16 +50,17 @@ func (c *Coordinator) _RecordUserWireContentLocked(sessionID, requestID, wire st
 			continue
 		}
 		if event.ProviderContent == wire {
-			return true
+			return true, event.Seq, true
 		}
 		if event.Content == wire {
 			event.ProviderContent = ""
+			return true, event.Seq, false
 		} else {
 			event.ProviderContent = wire
 		}
-		return true
+		return true, event.Seq, true
 	}
-	return false
+	return false, 0, false
 }
 
 // UserWireContentFor 返回该轮 user 事件的已发出字节（测试与打点用）。
