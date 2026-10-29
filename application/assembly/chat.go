@@ -61,16 +61,22 @@ func (service *Service) nextChatRequestIDLocked() string {
 // ID 序数归一化），见 session_decoupling_test.go TestEventFingerprintStable。
 // finalizeReActBudget 在工具预算耗尽后保留一次纯文本交付回合。常规循环在
 // 此之前已停止；本回合让用户收到结果，而非裸预算错误。
-// ensureViewPlanProjection 在进入终态工具前确保当前视图会话的协调器投影有
-// 基线（迁移期：直设 Snapshot.Runtime.Plan 的路径/旧装配在 plan_load 前
-// 没有种子时，从镜像补种；已有投影不覆盖）。
-func (service *Service) ensureViewPlanProjection(ctx context.Context) {
+// mirrorSessionID 优先取上下文会话，回退到视图会话（终态镜像工具路径用）。
+func (service *Service) mirrorSessionID(ctx context.Context) string {
 	sessionID := task_context.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
 		service.ViewMu.RUnlock()
 	}
+	return sessionID
+}
+
+// ensureViewPlanProjection 在进入终态工具前确保当前视图会话的协调器投影有
+// 基线（迁移期：直设 Snapshot.Runtime.Plan 的路径/旧装配在 plan_load 前
+// 没有种子时，从镜像补种；已有投影不覆盖）。
+func (service *Service) ensureViewPlanProjection(ctx context.Context) {
+	sessionID := service.mirrorSessionID(ctx)
 	if sessionID == "" {
 		return
 	}
@@ -83,12 +89,7 @@ func (service *Service) ensureViewPlanProjection(ctx context.Context) {
 // mirrorActivePlanAfterTerminal 在 check/complete 终态把协调器投影的最新
 // plan 镜像进 Snapshot（这些工具以投影为权威变更点）。
 func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context) {
-	sessionID := task_context.SessionIDFromContext(ctx)
-	if sessionID == "" {
-		service.ViewMu.RLock()
-		sessionID = service.Core.Snapshot.Session.ID
-		service.ViewMu.RUnlock()
-	}
+	sessionID := service.mirrorSessionID(ctx)
 	if sessionID == "" {
 		return
 	}
@@ -100,7 +101,6 @@ func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context) {
 	defer service.ViewMu.Unlock()
 	if sessionID == service.Core.Snapshot.Session.ID {
 		service.Core.Snapshot.Runtime.Plan = plan
-		// D1：计划状态写入即落帧（task 域去重追加，内容没变一条不发）。
 		service.components.tasks.RecordPlanFrameForLocked(sessionID)
 	}
 }
@@ -109,12 +109,7 @@ func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context) {
 // 镜像进 Snapshot.Task（TaskService 不再直写快照；工具路径没有 runChat 收尾
 // 的镜像段，须在此补齐，见 task_service.go lastTaskState 说明）。
 func (service *Service) mirrorActiveTaskAfterTerminal(ctx context.Context) {
-	sessionID := task_context.SessionIDFromContext(ctx)
-	if sessionID == "" {
-		service.ViewMu.RLock()
-		sessionID = service.Core.Snapshot.Session.ID
-		service.ViewMu.RUnlock()
-	}
+	sessionID := service.mirrorSessionID(ctx)
 	service.ViewMu.Lock()
 	defer service.ViewMu.Unlock()
 	if sessionID == "" || sessionID != service.Core.Snapshot.Session.ID {
