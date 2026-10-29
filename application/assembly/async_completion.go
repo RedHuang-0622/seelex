@@ -1,5 +1,14 @@
 package assembly
 
+import (
+	"github.com/RedHuang-0622/seelex/application/assembly/continuation"
+	applicationexecution "github.com/RedHuang-0622/seelex/application/execution"
+)
+
+// 自动续跑的装配入口：把既有组件作为端口值交给 application/assembly/continuation
+// 子包（判据在 application/execution，事实源在各自的域）。
+// 接线清单与语义：docs/arch/goal-auto-continue.md §2.8.8。
+
 // sessionIdleForAsyncTrigger reports whether a session can start a completion
 // turn. A missing unit is deliberately treated as unavailable.
 func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool {
@@ -13,4 +22,16 @@ func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool {
 		return false
 	}
 	return !unit.ChatState().Running
+}
+
+// continuationGate 组装续跑 gate。
+func (service *Service) continuationGate() *applicationexecution.ContinuationApplication {
+	return continuation.New(continuation.Ports{
+		Tasks:        service.components.tasks,
+		Goals:        service.components.goalApplication,
+		Sessions:     service.sessions,
+		RoleSessions: service.components.roleSessions,
+		Idle:         service.sessionIdleForAsyncTrigger,
+		Submit:       service.components.conversationTurn.submission.SubmitFor,
+	})
 }

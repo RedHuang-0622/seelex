@@ -398,6 +398,13 @@ func (service *Service) assembleGoalApplication(hostSessionForToolCall func(cont
 			}
 			return hostSessionForToolCall(ctx)
 		},
+		// 续跑两层状态随治理视图一起发布（横条只读这一份，见 §2.8.1）。
+		Continuation: func(sessionID string) *dto.GoalContinuationView {
+			if runtime := service.components.workTableRuntime; runtime != nil {
+				return runtime.ContinuationView(sessionID)
+			}
+			return nil
+		},
 	})
 }
 

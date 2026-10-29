@@ -33,6 +33,9 @@ type Deps struct {
 	Refresh        func(sessionID string)
 	WriteSessionID func(context.Context) string
 	ReadSessionID  func(context.Context) string
+	// Continuation 是自动续跑的两层状态读面（不属于 goal 域状态机：层二由用户意图写、
+	// 由会话活状态持有）。缺省 = 未装配续跑能力，治理视图不带 Continuation 字段。
+	Continuation func(sessionID string) *dto.GoalContinuationView
 }
 
 // Application owns goal use-case routing without owning the goal state machine.
@@ -68,7 +71,14 @@ func (application *Application) GovernanceViewFor(sessionID string) *dto.GoalGov
 	if coordinator == nil {
 		return nil
 	}
-	return coordinator.GoalGovernanceViewFor(sessionID)
+	view := coordinator.GoalGovernanceViewFor(sessionID)
+	if view == nil || application.deps.Continuation == nil {
+		return view
+	}
+	// 续跑两层状态随治理视图一起发布：读的人不必再去问第二个入口（§2.8.1 横条只读一份）。
+	copied := *view
+	copied.Continuation = application.deps.Continuation(sessionID)
+	return &copied
 }
 
 // BeginFor begins a session goal.

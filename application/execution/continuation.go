@@ -83,6 +83,10 @@ type ContinuationFacts struct {
 	Attempts int
 	// LastAttemptAt 是最近一次续跑的发起时刻（退避判据）。
 	LastAttemptAt time.Time
+	// InterruptedAt 是上一回合被硬中断的时刻（存档里那个回合终态的写入时间）。
+	// 它只喂横条的"stalled 多久"（ContinuationStatus.StalledFor），不参与放行判据：
+	// 判据只看 TurnStatus，不看时刻。
+	InterruptedAt time.Time
 	// Continued 是"真的发过一次续跑"的 (GoalID, RequestID) 集合（⑤ 幂等权威判据）。
 	// **截断记录不在这个集合里**：截断没发出任何续跑，所以人工恢复（⟳）之后
 	// 同一中断点还能再试一次——这是"继续"按钮在触顶之后仍然有用的原因。
@@ -131,6 +135,11 @@ type ContinuationStatus struct {
 	Attempts      int
 	MaxAttempts   int
 	NextAttemptAt time.Time // 退避期的下次尝试时刻（零值 = 无退避在等）
+	// StalledSince / StalledFor 是"这条横条已经挂了多久"（只读展示）：起点是
+	// 中断时刻与最近一次续跑时刻里**较晚**的那个，终点由 Now 给。Stalled=false
+	// 时两者为零值（没在等，就没有时长可言）。
+	StalledSince time.Time
+	StalledFor   time.Duration
 	// Interrupted 是最近一次 push（`PauseAndInterrupt`）停掉的子会话 ID：横条据此显示
 	// "已停掉 N 个子会话"。它是一次动作的回执，不落盘、不参与任何判据。
 	Interrupted []string
@@ -326,10 +335,45 @@ func (application *ContinuationApplication) Status(sessionID string) Continuatio
 	status.Truncated = facts.Attempts >= limits.Attempts() ||
 		facts.Truncated[continuationKey(state.GoalID, facts.RequestID)]
 	status.Stalled = continuable(facts)
+	if status.Stalled {
+		// stalled 起点 = 中断时刻与最近一次续跑里较晚的那个（续过就从续的那一刻重算：
+		// 横条说的是"这一轮等待已经多久了"，不是"第一次中断到现在多久"）。
+		since := facts.InterruptedAt
+		if facts.LastAttemptAt.After(since) {
+			since = facts.LastAttemptAt
+		}
+		if !since.IsZero() {
+			now := application.now()
+			status.StalledSince = since
+			if now.After(since) {
+				status.StalledFor = now.Sub(since)
+			}
+		}
+	}
 	if delay := limits.Backoff(facts.Attempts); delay > 0 {
 		status.NextAttemptAt = facts.LastAttemptAt.Add(delay)
 	}
 	return status
+}
+
+// View 把横条读面投影成快照里的两层状态视图（唯一转换点：GUI 与工具读的是快照里
+// 那一份，不各自再拼一遍 §2.8.0 的两层词表）。
+func (status ContinuationStatus) View() *dto.GoalContinuationView {
+	view := &dto.GoalContinuationView{
+		GoalID:        status.GoalID,
+		Status:        status.GoalStatus,
+		Substate:      status.Substate,
+		Stalled:       status.Stalled,
+		Paused:        status.Paused,
+		Truncated:     status.Truncated,
+		Attempts:      status.Attempts,
+		MaxAttempts:   status.MaxAttempts,
+		StalledForSec: int64(status.StalledFor / time.Second),
+	}
+	if !status.NextAttemptAt.IsZero() {
+		view.NextAttemptAt = status.NextAttemptAt.Unix()
+	}
+	return view
 }
 
 // evaluate 是唯一的判据实现：定时/信号驱动的扫描与人工恢复共用它，

@@ -47,7 +47,7 @@ func (lifecycle *Lifecycle) Start() {
 		if lifecycle.deps.TaskChanges != nil {
 			go lifecycle.consumeTaskChanges()
 		}
-		if lifecycle.deps.Async.AsyncEvents != nil || lifecycle.deps.Async.TeamworkEvents != nil {
+		if lifecycle.deps.Async.AsyncEvents != nil || lifecycle.deps.Async.TeamworkEvents != nil || lifecycle.deps.Async.ContinuationEvents != nil {
 			go NewAsyncConsumer(lifecycle.deps.Async).Run()
 		}
 	})

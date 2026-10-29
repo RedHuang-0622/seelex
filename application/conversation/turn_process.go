@@ -81,6 +81,10 @@ func (application *TurnProcessApplication) BeginLocked(
 	options StartOptions,
 ) (context.Context, string, model.TranscriptEvent) {
 	requestID := application.deps.NextRequestID()
+	// 新回合清续跑闸位：层二回到 continue、停止位清零——上一轮的 ⏸ 与"用户按过停止"
+	// 都不继承到这一轮（I2 在读侧判定保证，这里只是不让存档里堆着过期的位；
+	// 续跑账**不清**，它是跨回合的幂等/计数事实）。docs/arch/goal-auto-continue.md §2.8.4。
+	application.deps.Tasks.ClearContinuationGatesFor(sessionID)
 	effort := application.deps.EffortFor(sessionID)
 	budget := request.Budget
 	if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {

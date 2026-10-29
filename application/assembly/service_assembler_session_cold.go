@@ -103,14 +103,10 @@ func (service *Service) assembleSessionColdComponents() sessionColdComponents {
 		WorkspaceAvailable:    func() bool { return service.Deps.Workspace != nil },
 		BindProjectRootIfSafe: service.bindProjectRootIfSafe,
 		SetWriteScope:         service.setWorkspaceWriteScope,
-		BindSession: func(sessionID, workspaceID string) {
-			service.Deps.Workspace.BindSession(sessionID, workspaceID)
-		},
-		AnyChatRunning:   service.anyChatRunningLocked,
-		UnbindGlobalRoot: service.unbindGlobalProjectRoot,
-		UnbindSession: func(sessionID string) {
-			service.Deps.Workspace.UnbindSession(sessionID)
-		},
+		BindSession:           func(sessionID, workspaceID string) { service.Deps.Workspace.BindSession(sessionID, workspaceID) },
+		AnyChatRunning:        service.anyChatRunningLocked,
+		UnbindGlobalRoot:      service.unbindGlobalProjectRoot,
+		UnbindSession:         func(sessionID string) { service.Deps.Workspace.UnbindSession(sessionID) },
 		UnbindRuntimeRoot: func(sessionID string) {
 			if service.Deps.Runtime != nil {
 				service.Deps.Runtime.UnbindProjectRootFor(sessionID)
@@ -119,9 +115,7 @@ func (service *Service) assembleSessionColdComponents() sessionColdComponents {
 	})
 
 	activation := applicationsessioncold.NewActivation(applicationsessioncold.ActivationDeps{
-		ClearRestoring: func(sessionID string) {
-			service.components.view.ClearRestoringLocked(sessionID)
-		},
+		ClearRestoring: func(sessionID string) { service.components.view.ClearRestoringLocked(sessionID) },
 		ViewIntent: func(sessionID string) uint64 {
 			return service.components.view.SessionViewIntentLocked(sessionID)
 		},
@@ -147,9 +141,7 @@ func (service *Service) assembleSessionColdComponents() sessionColdComponents {
 		Restore: func(sessionID string, state task_context.RestoredTaskState) {
 			service.components.tasks.RestoreSessionTaskLockedFor(sessionID, state)
 		},
-		Reset: func() {
-			service.components.tasks.ResetForNewSessionLocked()
-		},
+		Reset: func() { service.components.tasks.ResetForNewSessionLocked() },
 	})
 
 	view := applicationsessioncold.NewView(applicationsessioncold.ViewDeps{
@@ -172,9 +164,7 @@ func (service *Service) assembleSessionColdComponents() sessionColdComponents {
 		MutateView: func(sessionID string, update func(*sessioncase.View)) {
 			service.components.view.SessionViewMutateLocked(sessionID, update)
 		},
-		MirrorActiveView: func() {
-			service.components.view.MirrorActiveViewLocked()
-		},
+		MirrorActiveView: func() { service.components.view.MirrorActiveViewLocked() },
 	})
 
 	publish := applicationsessioncold.NewPublish(applicationsessioncold.PublishDeps{
@@ -189,26 +179,16 @@ func (service *Service) assembleSessionColdComponents() sessionColdComponents {
 		SwitchTasks: func(sessionID string, tasks []dto.TaskRecord) {
 			service.Deps.Runtime.SwitchSessionTasks(sessionID, tasks)
 		},
-		ClearSubagentTree: func() {
-			_ = service.Deps.Runtime.ClearSubagentTree()
-		},
-		RestoreAnchors: func(sessionID string) {
-			_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
-		},
-		RefreshRuntime: func(sessionID string) {
-			service.components.view.RefreshRuntimeProjectionForSession(sessionID)
-		},
+		ClearSubagentTree: func() { _ = service.Deps.Runtime.ClearSubagentTree() },
+		RestoreAnchors:    func(sessionID string) { _ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID) },
+		RefreshRuntime:    func(sessionID string) { service.components.view.RefreshRuntimeProjectionForSession(sessionID) },
 		PublishSnapshot: func(revision uint64, sessionID string) {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
 		PublishRuntime: service.publishRuntimeProjections,
 		RefreshCatalog: func() { service.components.sessions.RequestCatalogRefresh() },
-		TouchResident: func(sessionID string) {
-			service.components.residencyRuntime.TouchResident(sessionID)
-		},
-		TouchContent: func(sessionID string) {
-			service.components.residencyRuntime.TouchContent(sessionID)
-		},
+		TouchResident:  func(sessionID string) { service.components.residencyRuntime.TouchResident(sessionID) },
+		TouchContent:   func(sessionID string) { service.components.residencyRuntime.TouchContent(sessionID) },
 	})
 
 	commit := applicationsessioncold.NewCommit(applicationsessioncold.CommitDeps{

@@ -244,6 +244,12 @@ func (service *Service) assembleConversationTurnComponents() {
 		Cleanup:  cleanup,
 		Commit:   commit,
 		Finalize: finalize,
+		// 回合休止点 → 续跑门的唯一唤醒口（每回合 1 次，不按工具轮发）。
+		SignalContinuation: func(sessionID string) {
+			if runtime := service.components.workTableRuntime; runtime != nil {
+				runtime.NotifyContinuation(sessionID)
+			}
+		},
 	})
 	start := applicationconversation.NewTurnStart(applicationconversation.TurnStartDeps{
 		ViewMu: &service.ViewMu,

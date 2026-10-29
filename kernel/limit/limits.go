@@ -651,6 +651,10 @@ func LoadLimits(path string) (Limits, error) {
 	if err := limitsNode.Decode(&check); err != nil {
 		return Limits{}, fmt.Errorf("limits: parse config: %w", err)
 	}
+	// 续跑块里的显式数字先校验（拼错/负数显式失败，不静默降级成"从不续跑"）。
+	if err := check.Continuation.Validate(); err != nil {
+		return Limits{}, fmt.Errorf("limits: %w", err)
+	}
 	teamContent := documentContent(limitsContent["team"])
 	_, legacyRolesWritten := teamContent["max_teammates"]
 	_, rolesWritten := teamContent["max_roles"]

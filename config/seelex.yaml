@@ -285,6 +285,19 @@ limits:
     # 也不进它的队列（铁律 §6.1），它下一次回合边界的打点块本来就会列出完成行。
     # 置 false = 关（默认关，出厂打开；关就是关，无静默降级）。
     trigger_conversation: true
+  # ── 自动续跑（continuation：goal 未收口 + 上一轮被硬中断时自动发下一轮）──────
+  # 判据、停止条件与 ⏸/⟳ 语义：docs/arch/goal-auto-continue.md §2.8。
+  # 零值 / 整块缺失 = 关（一次都不扫、一个回合都不起）；出厂档**显式打开**——
+  # 关闭是回滚臂：把 enabled 改回 false，判据、通道、控制面一起消失，无需改代码。
+  continuation:
+    enabled: true                # 出厂开；改回 false 即整块收回
+    # 同一 goal 连续自动续跑的次数上限（0/缺省 → 3）。触顶后记一条 truncated 打点就停，
+    # 人工 ⟳ 可清零重来（清零必须留痕）。
+    max_attempts_per_goal: 3
+    # 第 2 次及以后续跑前的退避基数（秒）：第 n 次等 BackoffSec × 2^(n-2)，封顶 max_backoff_sec。
+    # 第 1 次不退避（用户刚被中断，先给一次"接着干"）。
+    backoff_sec: 30
+    max_backoff_sec: 600
   # ── 项目看板（project_board：会话级任务/里程碑派生投影）──────────────
   # 把**已经存在**的两份投影（工作表格 buildWorkTable + teamwork 计划/运行态）按会话
   # 落成**项目目录**下**按会话分目录**的追加式派生件（2026-10-15：先搬进项目根，再按会话分目录）：

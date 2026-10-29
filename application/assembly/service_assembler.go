@@ -581,6 +581,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		RuntimeSnapshot: func() model.RuntimeState {
 			return service.components.frontendSnapshot.Snapshot().Runtime
 		},
+		Continuation: service.continuationGate(),
 	})
 	// CSP 生命周期消费者：子代理树信号 / plan 节点事件 / task 变更经
 	// channel 流转（取代同步回调嵌套，避免锁序事故）。

@@ -23,6 +23,11 @@ type TurnRunnerDeps struct {
 	Cleanup             *TurnCleanupApplication
 	Commit              *TurnCommitApplication
 	Finalize            *TurnFinalizeApplication
+	// SignalContinuation 在**回合休止点**（Commit + Finalize 之后）发一次自动续跑
+	// 唤醒（payload = sessionID）。绝不能挂在 loop / 工具轮上：一个含 N 个工具轮的
+	// 回合仍然只发 1 次，判定因此也只发生 1 次（docs/arch/goal-auto-continue.md §2.8.2）。
+	// 缺省 = 这条通道没装配（不报错，也不假装发过）。
+	SignalContinuation func(sessionID string)
 }
 
 // TurnRunnerApplication owns the per-turn application orchestration.
@@ -70,4 +75,8 @@ func (application *TurnRunnerApplication) Run(
 	)
 	committed := application.deps.Commit.Commit(sessionID, requestID, err, runtimeProjection)
 	application.deps.Finalize.Finalize(committed)
+	// 回合休止点：到这里这一轮所有 loop / 工具轮都结束了，续跑门只该在这里被问一次。
+	if application.deps.SignalContinuation != nil {
+		application.deps.SignalContinuation(sessionID)
+	}
 }

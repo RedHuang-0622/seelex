@@ -32,6 +32,9 @@ type RuntimeDeps struct {
 	TriggerTeamwork                  func(map[string]struct{}) int
 	AsyncTriggerEnabled              func() bool
 	RuntimeSnapshot                  func() protocol.RuntimeState
+	// Continuation 是自动续跑 gate（application/execution.ContinuationApplication）。
+	// 缺省 = 这条通道不存在：不建信号源、不扫门，行为与接线前一致。
+	Continuation ContinuationGate
 }
 
 // Runtime owns the in-memory WorkTable projection state and lifecycle
@@ -41,12 +44,20 @@ type Runtime struct {
 	publisher     *Application
 	lifecycleStop chan struct{}
 	lifecycleOnce sync.Once
+	// continuationEvents 是回合休止点 → 续跑门的唤醒信号（缓冲区只为吸收突发：
+	// 丢掉一条唤醒不会丢判据，见 continuation.go）。
+	continuationEvents chan string
 }
 
 // NewRuntime constructs the WorkTable runtime.
 func NewRuntime(deps RuntimeDeps) *Runtime {
+	var continuationEvents chan string
+	if deps.Continuation != nil {
+		continuationEvents = make(chan string, 64)
+	}
 	return &Runtime{
-		deps: deps,
+		continuationEvents: continuationEvents,
+		deps:               deps,
 		publisher: New(Deps{
 			SubAgentTree: deps.SubAgentTree,
 			Publish:      deps.PublishWorkTable,
@@ -354,6 +365,13 @@ func (runtime *Runtime) StartLifecycleConsumers() {
 					return 0
 				}
 				return runtime.deps.TriggerTeamwork(triggered)
+			},
+			ContinuationEvents: runtime.continuationEvents,
+			TriggerContinuation: func(triggered map[string]struct{}, sessionID string) int {
+				if runtime.deps.Continuation == nil {
+					return 0
+				}
+				return runtime.deps.Continuation.TriggerGoalContinuations(sessionID, triggered)
 			},
 		},
 	}).Start()

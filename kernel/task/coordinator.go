@@ -87,6 +87,9 @@ type sessionTaskRuntime struct {
 	// round；同一 round 内所有角色事件共享 round_id，unit_seq 逐事件递增。
 	roleRoundID uint64
 	roleUnitSeq uint64
+	// continuation 是自动续跑的控制位与续跑账（层二 paused / 停止位 /
+	// append-only 记录）：会话粒度，读写点见 continuation_state.go。
+	continuation model.SessionContinuationState
 }
 
 func newSessionTaskRuntime(sessionID string) *sessionTaskRuntime {

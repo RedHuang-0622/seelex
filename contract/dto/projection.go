@@ -36,6 +36,30 @@ type GoalGovernanceView struct {
 	// 存在（"这台会话收口过哪些目标"），所以活体可用时也要下发；反之它**不会**
 	// 混进 Stack，也不代表 active 那一帧（活动栈的事实只有 Controller 一份）。
 	History []GoalHistoryView `json:"history,omitempty"`
+	// Continuation 是**自动续跑的两层状态**读面（docs/arch/goal-auto-continue.md
+	// §2.8.0/§2.8.1）：goal 状态（none/doing/done）× 子状态（continue/paused）
+	// + stalled 时长。它随运行时投影进 Snapshot，GUI 与工具只读这一份，不在别处现算。
+	// nil = 续跑能力未装配（关闭档）：读的人据此显示"没有这条横条"，而不是猜。
+	Continuation *GoalContinuationView `json:"continuation,omitempty"`
+}
+
+// GoalContinuationView 是 stalled 横条的读面投影：两层状态 + 续跑进度 + 挂了多久。
+type GoalContinuationView struct {
+	GoalID   string          `json:"goal_id,omitempty"`
+	Status   GoalRunStatus   `json:"status"`
+	Substate GoalRunSubstate `json:"substate"`
+	// Stalled 报告横条该不该出现（未收口 + 被硬中断 + 没停 + 没暂停）。
+	Stalled bool `json:"stalled"`
+	// Paused 是层二的低半位（⏸ 已按下）：与 Substate==paused 同源，便于前端只读一位。
+	Paused bool `json:"paused,omitempty"`
+	// Truncated 表示已达续跑上限（自动续跑停了，等人工 ⟳）。
+	Truncated   bool `json:"truncated,omitempty"`
+	Attempts    int  `json:"attempts,omitempty"`
+	MaxAttempts int  `json:"max_attempts,omitempty"`
+	// StalledForSec 是这条横条已经挂了多久（秒）；Stalled=false 时为 0。
+	StalledForSec int64 `json:"stalled_for_sec,omitempty"`
+	// NextAttemptAt 是退避期里的下次尝试时刻（unix 秒，0 = 无退避在等）。
+	NextAttemptAt int64 `json:"next_attempt_at,omitempty"`
 }
 
 // GoalHistoryView 是**已收口目标**的一条只读账本条目（看板存档 history 的投影；

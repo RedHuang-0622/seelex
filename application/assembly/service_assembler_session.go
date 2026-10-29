@@ -81,24 +81,16 @@ func (service *Service) assembleSessionReleaseApplication() {
 			location := service.components.sessions.LocateSession(sessionID)
 			return service.components.sessions.PersistCurrentSession(location, sessionID)
 		},
-		FlushToolRecord: func(sessionID string) {
-			service.toolRecords.Flush(sessionID)
-		},
+		FlushToolRecord: func(sessionID string) { service.toolRecords.Flush(sessionID) },
 		UnloadEngine: func(sessionID string) error {
 			if supported, err := contract.UnloadSession(service.Deps.Engine, sessionID); supported {
 				return err
 			}
 			return nil
 		},
-		ReleaseBundle: func(sessionID string) {
-			contract.ReleaseSessionBundle(service.Deps.Engine, sessionID)
-		},
-		ForgetGoal: func(sessionID string) {
-			service.components.goal.ForgetSession(sessionID)
-		},
-		ReleaseContent: func(sessionID string) {
-			service.components.residencyRuntime.ReleaseContentMemory(sessionID)
-		},
+		ReleaseBundle:  func(sessionID string) { contract.ReleaseSessionBundle(service.Deps.Engine, sessionID) },
+		ForgetGoal:     func(sessionID string) { service.components.goal.ForgetSession(sessionID) },
+		ReleaseContent: func(sessionID string) { service.components.residencyRuntime.ReleaseContentMemory(sessionID) },
 		ReleaseFull: func(sessionID string) {
 			service.ViewMu.Lock()
 			service.sessions.Remove(sessionID)
@@ -113,18 +105,10 @@ func (service *Service) assembleSessionReleaseApplication() {
 			service.components.residencyRuntime.ForgetContentLocked(sessionID)
 			service.ViewMu.Unlock()
 		},
-		ReleaseToolRecord: func(sessionID string) {
-			service.toolRecords.ReleaseSession(sessionID)
-		},
-		RequestRefresh: func() {
-			service.components.sessions.RequestCatalogRefresh()
-		},
-		ReconcileResident: func() {
-			service.components.residencyRuntime.ReconcileResident()
-		},
-		ReconcileContent: func() {
-			service.components.residencyRuntime.ReconcileContent("")
-		},
+		ReleaseToolRecord: func(sessionID string) { service.toolRecords.ReleaseSession(sessionID) },
+		RequestRefresh:    func() { service.components.sessions.RequestCatalogRefresh() },
+		ReconcileResident: func() { service.components.residencyRuntime.ReconcileResident() },
+		ReconcileContent:  func() { service.components.residencyRuntime.ReconcileContent("") },
 	})
 }
 
@@ -164,9 +148,7 @@ func (service *Service) assembleSessionUseCaseApplications(restore sessionRestor
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
-		RefreshCatalog: func() {
-			service.components.sessions.RequestCatalogRefresh()
-		},
+		RefreshCatalog: func() { service.components.sessions.RequestCatalogRefresh() },
 	})
 
 	engine, routed := contract.ResidentSessionEngineFor(service.Deps.Engine)
@@ -240,9 +222,7 @@ func (service *Service) assembleSessionUseCaseApplications(restore sessionRestor
 		HasWorkspace: func() bool {
 			return service.Deps.Workspace != nil
 		},
-		UnbindWorkspace: func(sessionID string) {
-			service.Deps.Workspace.UnbindSession(sessionID)
-		},
+		UnbindWorkspace: func(sessionID string) { service.Deps.Workspace.UnbindSession(sessionID) },
 		WorkspaceProjection: func() switchworkspace.Projection {
 			return service.components.workspace.Projection()
 		},
@@ -254,9 +234,7 @@ func (service *Service) assembleSessionUseCaseApplications(restore sessionRestor
 		PublishSnapshot: func(revision uint64, sessionID string) {
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		},
-		RefreshCatalog: func() {
-			service.components.sessions.RequestCatalogRefresh()
-		},
+		RefreshCatalog: func() { service.components.sessions.RequestCatalogRefresh() },
 	})
 
 	service.components.sessionResume = applicationsession.NewResume(applicationsession.ResumeDeps{
@@ -274,10 +252,8 @@ func (service *Service) assembleSessionUseCaseApplications(restore sessionRestor
 		PointViewAtRestoringShell: func(sessionID string) bool {
 			return service.components.sessionHistoryRuntime.PointViewAtRestoringShell(sessionID)
 		},
-		HotAttach: service.hotAttachSession,
-		MarkViewIntent: func(sessionID string) {
-			service.components.view.MarkSessionViewIntent(sessionID)
-		},
+		HotAttach:      service.hotAttachSession,
+		MarkViewIntent: func(sessionID string) { service.components.view.MarkSessionViewIntent(sessionID) },
 		BeginAsyncRestore: func(sessionID string) (uint64, error) {
 			return service.components.sessionHistoryRuntime.BeginAsyncRestore(sessionID)
 		},
@@ -317,9 +293,7 @@ func (service *Service) assembleSessionRestoreComponents() sessionRestoreCompone
 				sessionID:     draftID,
 				keepWorkspace: true,
 				resetTitle:    true,
-				tier: func(sessionID string) {
-					service.syncViewPermissionTierLocked(sessionID)
-				},
+				tier:          func(sessionID string) { service.syncViewPermissionTierLocked(sessionID) },
 			})
 			return service.components.view.BumpLocked()
 		},
@@ -330,10 +304,8 @@ func (service *Service) assembleSessionRestoreComponents() sessionRestoreCompone
 	})
 
 	recovery := applicationsession.NewRestoreRecovery(applicationsession.RestoreRecoveryDeps{
-		Lock: func() sync.Locker { return &service.ViewMu },
-		ClearRestoringLocked: func(sessionID string) {
-			service.components.view.ClearRestoringLocked(sessionID)
-		},
+		Lock:                 func() sync.Locker { return &service.ViewMu },
+		ClearRestoringLocked: func(sessionID string) { service.components.view.ClearRestoringLocked(sessionID) },
 		SnapshotLocked: func(sessionID string, epoch uint64) applicationsession.RestoreRecoveryState {
 			return applicationsession.RestoreRecoveryState{
 				StillActive: service.Core.Snapshot.Session.ID == sessionID,
@@ -351,9 +323,7 @@ func (service *Service) assembleSessionRestoreComponents() sessionRestoreCompone
 		SetSessionChat: func(sessionID string, chat model.ChatState) {
 			service.components.view.SetSessionChatLockedFor(sessionID, chat)
 		},
-		MirrorActiveView: func() {
-			service.components.view.MirrorActiveViewLocked()
-		},
+		MirrorActiveView: func() { service.components.view.MirrorActiveViewLocked() },
 		BumpRevision: func() uint64 {
 			return service.components.view.BumpLocked()
 		},
