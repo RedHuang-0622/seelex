@@ -15,6 +15,28 @@ and will take its own version when it lands.
 
 ### Fixed
 
+- **后台作业行（工作表格 `async:<句柄>`）的详情不再是一句永远转圈的「加载会话记录…」**
+  （2026-10-29 用户报告：后台测试跑起来后点开那一行的详情，面板只有空文）。两段根因：
+  其一，节点详情数据面只认「会话 / 子代理树 / `kind=subagent` 工作行」，后台作业行三条
+  都不命中，`subagentview.Coordinator.SubagentDetail` 直接返回
+  `node %q has no conversation`；其二，前端把这个错误吞成占位注释，于是「加载中」变成了
+  永久终态。现在：执行域新增只读读口 `RuntimePort.AsyncOutputTail`（日志末尾有界窗口，
+  **不推进 fetch 游标、不消费输出、不进模型上下文**，UTF-8 边界对齐并清洗控制字符/ANSI），
+  `SubagentDetail.Async`（`SubagentAsyncRun`）如实带出状态/字节/行数/退出码/命令行/日志
+  路径与输出窗口；`async:` 行先于会话查找分支处理，句柄不在册时仍返回详情并标
+  `found=false`（不编造读数）。前端把三块面抽成纯渲染件（`nodeConversationHTML` /
+  `nodeContextHTML` / `renderAsyncJobDetail`），作业行画实时输出，「上下文」如实说明没有
+  快照，取不到详情时画失败原因——占位不再是终态。
+  回归：`application/execution/subagentview/async_job_detail_test.go`、
+  `application/assembly/integration/async_job_detail_test.go`、
+  `backend/tool/registry/async_output_tail_test.go`、`gui/frontend/dist/plan-dsl.test.mjs`。
+
+### Changed
+- **一段连续工具调用不再全部铺开：最近 8 条直接可见，更早的收进「更早的 N 条」折叠容器**
+  （2026-10-29 用户报告：屏幕上「本段 42 次工具调用」把整段条目摊成一堵墙）。
+  工具域抽屉改为有界渲染（`TOOL_DOMAIN_VISIBLE_MAX = 8`）：容器默认收起、展开就是原样的
+  工具行，**一条都没丢**，最新几次留在外面（那才是当下的现场）。阈值以内不产生这个容器，
+  既有观感不变。回归：`gui/frontend/dist/components.test.mjs`。
 - **会话树：新建的「工作区会话」不再先落进「未关联会话」，首轮在跑的会话不再从列表里消失**
   （2026-07 用户报告：发起对话时会话不在工作区里而在「未关联对话」里；发出第一条消息后
   会话条目消失，直到这一轮跑完才重新出现；连带看不到定时任务的会话条目）。两处目录投影
@@ -30,7 +52,6 @@ and will take its own version when it lands.
   回归：`application/core/session_directory_visibility_test.go`。
 
 ### Changed
-
 - **会话右侧索引改为波浪刻度轨，并显示每轮最终 LLM 开头**（2026-10-29）：原用户输入
   索引的短条和窄提示升级为贴内容基线的细刻度轨；指针靠近时，邻近刻度按距离通过
   `transform` 伸长/回缩成连续波浪，离开后平滑复位；刻线颜色取当前主题的前景反色，
@@ -243,7 +264,6 @@ GUI 重排批，再记 2026-10-07 的工作单元 / 团队现场收敛批。两�
   Ctrl+S 才落盘）、`git-log-view.test.mjs`（提交内文件内容同走共用分派且无写入口）。
 
 #### Changed
-
 - **`fork_subagents` 的 `id` / `goal`：约束落到模型读得到的位置**（2026-10-15；审计 D8）. `required`
   只保证键在，空串照样能过——实测因此白跑一轮（`subagent "" must have id and goal`）。schema 补
   `minLength: 1` 与两条字段说明（同一批内唯一、非空；写清交付与验收判据）。
@@ -410,7 +430,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   后台作业在跑时提交走既有消息队列（fork 执行门控退役）。
 
 #### Changed
-
 - **装配面不再说假话：「自动回合」与「派活回合」拆成两件事.** 旧口径把 `RolesWithExecutor` 当成
   "谁有执行者"，于是对一支**正要派活**的团队说「暂无可执行者 …需要宿主为它接执行者」——而
   `team_dispatch` → 作业 → `Runtime.RunWorker` → `runRoleRound` 对任何在编角色都跑真回合。现在：符号
@@ -506,7 +525,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   `break_reason` / `goal-gov-broken` / `goal-gov-error` 不许再从门外爬回来。
 
 ### Changed
-
 - **SVG 渲染块的两条兜底默认（实测得来）.** `:where(svg text){pointer-events:none}`：`<text>`
   标签压在图形上时会**吃掉**指针事件（点在字上的 click 到不了图形），标签因此默认不当命中面
   ——要让标签自己可点，写 `style="pointer-events:auto"` 或任意一条自己的 `text` 规则即可
@@ -589,7 +607,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   batch; the async face's behaviour is unchanged.**
 
 ### Changed
-
 - **The ring's channel-dispatch and order-editing interfaces are retired (the M4 dead-code list's item #3),
   and the earlier "no production consumer" reading is corrected in the same breath.** `TurnScheduler` kept
   a second dispatch path (`Requests` / `Request` / `Next`) whose producer — "each role's own agent loop" —
@@ -1153,7 +1170,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   and `service_test.go` untouched. See `docs/devlog/2026-09-29-history-paging-visible-space.md`.
 
 ### Changed
-
 - **The Seele dependency is back to a clean released version: `v0.3.1` → `v0.3.2`, temporary local
   `replace` removed.** v0.3.2 ships "plan B" (turn gate + short critical-section working state) and
   deletes the `session.InLoop` in-lock history handle, which the host had been getting through a local
@@ -1854,7 +1870,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   (`application/core/session_permission_tier_persist_test.go`).
 
 ### Changed
-
 - **Seele moves from the local in-loop `replace` to the released `v0.3.1`.** `go.mod` now requires
   `github.com/RedHuang-0622/Seele v0.3.1` (6a04a7c, `feat(session): 环内历史把手 InLoop`) and the
   2026-09-26 temporary `replace => G:/Program/go/Seele` is gone; `go mod vendor` regenerated the ignored
@@ -2444,7 +2459,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   runs with `-skip` for it.
 
 ### Changed
-
 - **`-tags redprobe ./sessionstore` is green again: the failure was a runtime failure of a
   retired probe, not a build failure.** `TestProbeStackStatusUpdateUnpublishedInvisible`
   pinned "an unpublished status change must stay invisible after a cold reload", which
@@ -2581,7 +2595,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   `application/core/goal_team_recorder_test.go`, `sessionstore/role_session_test.go`.
 
 ### Changed
-
 - **The vacuum-region boundary is now reported by the tail-window selector instead of being
   re-derived by the coverer.** `seelexctx.GapCoverageOptions` used to receive `TailEvents` and
   compute the uncovered range as `len(CompleteEventUnits(all)) - len(CompleteEventUnits(tail)) - 1`
@@ -3213,7 +3226,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   assertions on the archiver.
 
 ### Changed
-
 - **Tool-permission decisions now come from the framework `permission.Gate`**
   (via the local Seele replace, ahead of the next framework version).
   `seelebridge/tools.PermissionGate` keeps owning the three harness pieces — the
@@ -3330,7 +3342,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   unchanged.
 
 ### Changed
-
 - Agent Team libraries are now **global**, not project-scoped. The team
   library (`<root>/team/library.json`), a new employee library
   (`<root>/team/employees.json`) and a new default order
@@ -3446,7 +3457,6 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
   (`SMOKE_TEAM_WORK_COMPUTER_LIVE=1`).
 
 ### Changed
-
 - Chat errors now surface the raw `runChat` error text instead of the rewritten
   presentation copy. `Chat.Error`, the conversation `error` row, and the
   `EventError` payload all carry `err.Error()` verbatim, so a field failure can
@@ -3654,7 +3664,6 @@ First public Developer Alpha release.
 - MIT License and a public account configuration template.
 
 ### Changed
-
 - Migrated to the refactored Seele runtime modules and then pinned the public
   <code>github.com/RedHuang-0622/Seele v0.1.1</code> dependency.
 - Made Plan optional: ordinary requests enter the main ReAct loop directly,

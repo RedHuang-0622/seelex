@@ -329,6 +329,8 @@ type fakeRuntime struct {
 	asyncPending int
 	// asyncRuns 是 AsyncRunsSnapshot 的回答值：后台行投影用例用它直接喂投影输入。
 	asyncRuns []dto.AsyncRunRecord
+	// asyncOutputs 是 AsyncOutputTail 的回答值（按句柄；缺省 = 不在册）。
+	asyncOutputs map[string]dto.AsyncOutputTail
 	// asyncEvents 是 AsyncRunEvents 的回答口（nil = 该消费者不启动，同生产关闭能力时）。
 	asyncEvents chan struct{}
 	// teamworkRuns / teamworkEvents 是 **teammate 作业表**（jobs.Manager）的替身：
@@ -551,6 +553,11 @@ func (runtime *fakeRuntime) AsyncPendingFor(string) int { return runtime.asyncPe
 
 // AsyncRunsSnapshot 回答测试显式设置的后台执行投影（后台行投影用例的输入源）。
 func (runtime *fakeRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord { return runtime.asyncRuns }
+
+// AsyncOutputTail 回答测试显式设置的作业输出窗口（详情弹窗实时输出用例的输入源）。
+func (runtime *fakeRuntime) AsyncOutputTail(handle string, _ int) dto.AsyncOutputTail {
+	return runtime.asyncOutputs[handle]
+}
 
 // AsyncRunEvents 返回测试自己持有的信号口（默认 nil = 消费者不启动）。
 func (runtime *fakeRuntime) AsyncRunEvents() <-chan struct{} { return runtime.asyncEvents }

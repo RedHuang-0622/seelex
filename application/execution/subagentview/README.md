@@ -122,6 +122,7 @@ go test ./application/execution/subagentview -count=1
 - `func ClonePlanNode(node model.PlanNode) model.PlanNode` — ClonePlanNode 深拷贝单个 Plan 节点（事件投影发布用）。
 - `func SubagentChangedPayload(plan *model.PlanState, planID, runID string, node model.PlanNode) model.SubagentEvent` — SubagentChangedPayload 组装子代理变更事件负载。
 - `func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentDetail 返回节点子代理详情（截断会话 + 上下文快照 + 功能打点 +
+  后台作业行分支见 `async_job_detail.go`)
 - `func nodeStatusFromSubagentStatus(status dto.SubAgentNodeStatus) model.NodeStatus` — nodeStatusFromSubagentStatus 把子代理树状态映射为详情状态。
 - `func nodeStatusFromTaskStatus(status string) model.NodeStatus` — nodeStatusFromTaskStatus 把任务注册表状态映射为详情状态（未知 → NodeUnknown）。
 - `func findSubagentTreeNode(nodes []dto.SubAgentTreeNode, nodeID string) *dto.SubAgentTreeNode` — findSubagentTreeNode 在子代理树投影中递归查找节点。

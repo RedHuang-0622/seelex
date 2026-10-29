@@ -202,6 +202,12 @@ Seq 区间读事件日志（`(0,0)` = 全量）。三者均不要求目标会话
 `nodeDetailPollTimer` 2s 轮询都已删除（`TestEmbeddedFrontendExists` 的禁流式/
 禁轮询断言相应启用）。
 
+后台作业行的详情（同一个入口、不同的载荷格）：工作表格里 `async:<句柄>` 的行不是
+会话，`SubagentDetail.Async` 给的是**作业读数 + 输出尾部**——状态 / 已落盘字节 /
+行数 / 退出码 / 命令行 / 日志路径，外加上游执行域的有界输出窗口（`RuntimePort.AsyncOutputTail`，
+不推进 fetch 游标、不进模型上下文）。没有这一格时，详情弹窗只能永远停在「加载会话
+记录…」（2026-10-29 用户实测的"空文"）。
+
 **「这件事的会话」读面（团队看板的对话区）**：`Bridge.TeammateSessionLive(roleSessionID)`
 是**默认页**（最近若干条）；`Bridge.TeammateSessionLivePage(roleSessionID, offset, limit)`
 是同一份读数的**分页一页**（`offset/limit/total/has_more` 都由后端归一与计算，前端只搬、

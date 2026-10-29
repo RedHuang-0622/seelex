@@ -185,8 +185,6 @@ go test ./e2e/ -run 'Boundary|Store|Facade|Session' -count=1
 - `func (port *EnginePort) ResumeSession(sessionID string, history []contract.EngineMessage) error` — ResumeSession 为目标会话恢复引擎历史并切换为活跃引擎：会话已有引擎时
 - `func (port *EnginePort) ResumeRawSession(sessionID string, history []types.Message) error` — ResumeRawSession 是 ResumeSession 的原始消息版本（框架消息类型）。
 - `func (port *EnginePort) resumeRawSessionLocked(sessionID string, desired []types.Message) (historyHandoff, error)` — resumeRawSessionLocked 是 ResumeRawSession 的锁内段：只动注册表并登记待交接，
-- `func (port *EnginePort) EnableWorkingHistoryRelease()` — EnableWorkingHistoryRelease marks this adapter as backed by DurableHistory.
-- `func (port *EnginePort) ReleaseWorkingHistoryFor(sessionID string)` — ReleaseWorkingHistoryFor clears only the target session's provider working
 - `func (port *EnginePort) UnloadSession(sessionID string) error` — UnloadSession 释放指定会话的引擎实例（阶段 2 生命周期：unload 后重开走
 - `func (port *EnginePort) SessionID() string`
 - `func (port *EnginePort) SetSystemPrompt(prompt string)`
@@ -316,6 +314,7 @@ go test ./e2e/ -run 'Boundary|Store|Facade|Session' -count=1
 - `func (port RuntimePort) ReleaseSessionAsync(sessionID string) int`
 - `func (port RuntimePort) AsyncPendingFor(sessionID string) int`
 - `func (port RuntimePort) AsyncRunsSnapshot() []dto.AsyncRunRecord`
+- `func (port RuntimePort) AsyncOutputTail(handle string, maxBytes int) dto.AsyncOutputTail`
 - `func (port RuntimePort) AsyncRunEvents() <-chan struct`
 - `func (port RuntimePort) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)`
 - `func (port RuntimePort) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error)`

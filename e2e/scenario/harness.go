@@ -138,6 +138,7 @@ func (harnessRuntime) TaskSnapshotFor(string) []dto.TaskRecord                  
 func (harnessRuntime) ReleaseSessionAsync(string) int                                      { return 0 }
 func (harnessRuntime) AsyncPendingFor(string) int                                          { return 0 }
 func (harnessRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord                             { return nil }
+func (harnessRuntime) AsyncOutputTail(string, int) dto.AsyncOutputTail                     { return dto.AsyncOutputTail{} }
 func (harnessRuntime) AsyncRunEvents() <-chan struct{}                                     { return nil }
 func (harnessRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil

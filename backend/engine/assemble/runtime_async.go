@@ -31,3 +31,12 @@ func (r *Runtime) AsyncRunEvents() <-chan struct{} {
 	}
 	return r.scopedTools.AsyncRunEvents()
 }
+
+// AsyncOutputTail 返回某句柄输出文件末尾的有界窗口（详情弹窗实时输出读口）。
+// 宿主只做 nil 守卫与转发：句柄查表与文件读取都在执行域（tools 的作业登记表）里。
+func (r *Runtime) AsyncOutputTail(handle string, maxBytes int) dto.AsyncOutputTail {
+	if r == nil || r.scopedTools == nil {
+		return dto.AsyncOutputTail{}
+	}
+	return r.scopedTools.AsyncOutputTail(handle, maxBytes)
+}

@@ -4378,11 +4378,11 @@ function subagentConversationRef(nodeID, node = null) {
 // refreshNodeDetail 拉取一次子代理详情（三块数据面）并渲染。
 async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
   let detail = null;
+  let loadError = "";
   try {
-    // 兜底超时：详情接口异常/挂起时不再让“加载会话记录…”永久占位，
-    // 超时按空详情渲染（确定性节点/会话未落盘的既有空态文案）。
+    // 兜底超时：详情接口异常/挂起时不再让“加载会话记录…”永久占位。
     const timeout = new Promise((_, reject) => {
-      window.setTimeout(() => reject(new Error("subagent detail timeout")), 10000);
+      window.setTimeout(() => reject(new Error("子代理详情接口 10s 未返回")), 10000);
     });
     const agentConversation = activeNodeAgentRef
       ? loadAgentConversation(activeNodeAgentRef, { force: true })
@@ -4391,18 +4391,23 @@ async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
       Promise.race([invoke("SubagentSessionDetail", nodeID), timeout]),
       agentConversation
     ]);
-  } catch { /* 节点无会话记录或非 agent 节点 → 面板保持占位 */ }
+  } catch (error) {
+    // 取不到详情 ≠ 还在加载：把原因画出来。从前这里只留一句注释（面板保持
+    // 占位），于是后台作业行（`async:<句柄>`）的「加载会话记录…」一辈子转下去
+    // ——界面在撒谎，用户看到的是空文而不是"这次读不到，因为 X"。
+    loadError = error?.message || String(error || "未知错误");
+  }
   if (generation !== nodeDetailGeneration || nodeID !== activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
   activeNodeDetail = detail || null;
   const agentState = activeNodeAgentRef ? agentConversationState(activeNodeAgentRef) : null;
-  const signature = nodeDetailSignature(detail, agentState);
+  const signature = nodeDetailSignature(detail, agentState, loadError);
   if (signature === nodeDetailLastSignature) return;
   nodeDetailLastSignature = signature;
   setNodeDetailConversation(
     detail || null,
     agentState?.page || null,
     activeNodeAgentRef,
-    { loading: agentState?.loading === true, error: agentState?.error || "", sending: agentState?.sending === true }
+    { loading: agentState?.loading === true, error: agentState?.error || "", sending: agentState?.sending === true, pending: agentState?.pending || "", loadError }
   );
   mountActiveNodeAgentConversationPanel();
 }
@@ -4433,10 +4438,13 @@ function scheduleNodeDetailRefresh() {
 }
 
 // nodeDetailSignature 详情内容签名：仅在这三块数据面有实质变化时重建。
-function nodeDetailSignature(detail, agentState = null) {
-  if (!detail && !agentState?.page) return "";
+function nodeDetailSignature(detail, agentState = null, loadError = "") {
+  if (!detail && !agentState?.page) return loadError ? `load-error:${loadError}` : "";
   const conversation = detail?.conversation || [];
   const last = conversation[conversation.length - 1];
+  // 后台作业行（async）的"内容"是输出：窗口长度/字节数/状态任一变化都要重绘，
+  // 否则在跑的作业会停在打开那一刻的画面。
+  const job = detail?.async || null;
   return JSON.stringify([
     detail.status || "",
     Boolean(detail.running),
@@ -4445,6 +4453,8 @@ function nodeDetailSignature(detail, agentState = null) {
     detail.context?.message_count || 0,
     (detail.tool_events || []).length,
     (detail.trace || []).length,
+    job ? [job.handle || "", job.state || "", job.found === true, job.log_bytes || 0, job.lines || 0, (job.output || "").length] : null,
+    loadError,
     agentState?.page?.status || "",
     agentState?.page?.recovery || "",
     agentState?.page?.records?.length || 0,

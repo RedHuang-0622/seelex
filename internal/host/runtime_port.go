@@ -78,6 +78,9 @@ func (port RuntimePort) AsyncPendingFor(sessionID string) int {
 func (port RuntimePort) AsyncRunsSnapshot() []dto.AsyncRunRecord {
 	return port.Runtime.AsyncRunsSnapshot()
 }
+func (port RuntimePort) AsyncOutputTail(handle string, maxBytes int) dto.AsyncOutputTail {
+	return port.Runtime.AsyncOutputTail(handle, maxBytes)
+}
 func (port RuntimePort) AsyncRunEvents() <-chan struct{} {
 	return port.Runtime.AsyncRunEvents()
 }

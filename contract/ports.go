@@ -178,6 +178,10 @@ type RuntimePort interface {
 	// 它刻意不是 task 注册表条目：句柄表在内存，进注册表就会随会话落盘并在重启后
 	// 复活成一条永远 running 的假行（不变量 I-21）。
 	AsyncRunsSnapshot() []dto.AsyncRunRecord
+	// AsyncOutputTail 返回某句柄输出文件末尾的有界窗口（详情弹窗的实时输出读口；
+	// 只上 GUI）。与 fetch 的区别：**不推进游标、不消费输出、不进上下文**——
+	// 拉多少次都不改变取回语义。句柄不在册时 Found=false（不编造读数）。
+	AsyncOutputTail(handle string, maxBytes int) dto.AsyncOutputTail
 	// AsyncRunEvents 返回后台执行表的变化信号口：派发、终态、驱逐、新字节各发一次
 	// （latest-wins，容量 1）。消费者必须自己汇聚，不得在信号回调里读表。
 	AsyncRunEvents() <-chan struct{}

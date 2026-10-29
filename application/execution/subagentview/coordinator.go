@@ -43,6 +43,13 @@ type Deps struct {
 	// CommitToolRecord 是**单元收口**的入口（节点进入终态时把暂存一次性交给主会话
 	// 累计）：同步、返回即入账，不丢 goroutine。未注入 = 不收口（落盘前抽干会兜住）。
 	CommitToolRecord func(ownerSessionID, nodeID string)
+	// AsyncRuns 返回后台作业表的**只读投影**（执行域 `AsyncRunsSnapshot` 的注入面）。
+	// 详情弹窗要服务工作表格里的 `async:<句柄>` 行——那些行不是会话，只有作业读数。
+	// 未注入 = 作业行详情只报"不在册"（不编造读数）。
+	AsyncRuns func() []dto.AsyncRunRecord
+	// AsyncOutputTail 返回作业输出文件末尾的**有界窗口**（同 `RuntimePort.AsyncOutputTail`）：
+	// 不推进游标、不消费输出。未注入 = 作业行详情没有输出正文（只有读数）。
+	AsyncOutputTail func(handle string, maxBytes int) dto.AsyncOutputTail
 }
 
 // ViewPort 是 Snapshot revision bump 的窄接口。
@@ -57,6 +64,9 @@ type Coordinator struct {
 	limits            func() dto.ViewLimits
 	recordToolOutcome func(ownerSessionID string, event dto.SubagentToolEvent)
 	commitToolRecord  func(ownerSessionID, nodeID string)
+	// asyncRuns / asyncOutputTail 是后台作业行的两个只读入口（见 async_job_detail.go）。
+	asyncRuns       func() []dto.AsyncRunRecord
+	asyncOutputTail func(handle string, maxBytes int) dto.AsyncOutputTail
 }
 
 // NewCoordinator 构造 subagentview 协调器。
@@ -65,6 +75,8 @@ func NewCoordinator(deps Deps) *Coordinator {
 		Core: deps.Core, view: deps.View, limits: deps.Limits,
 		recordToolOutcome: deps.RecordToolOutcome,
 		commitToolRecord:  deps.CommitToolRecord,
+		asyncRuns:         deps.AsyncRuns,
+		asyncOutputTail:   deps.AsyncOutputTail,
 	}
 }
 
@@ -193,6 +205,13 @@ func SubagentChangedPayload(plan *model.PlanState, planID, runID string, node mo
 func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("subagent detail: node id is required")
+	}
+	// 后台作业行（`async:<句柄>`）走自己的数据面：它在执行域里不是会话，没有
+	// History 也没有上下文快照，硬走下面的"会话/子代理树/工作行"三条查找必然
+	// 落到末尾的 no conversation 错误上——详情弹窗就只能永远停在占位
+	// （2026-10-31 用户实测的"后台测试只有空文"）。
+	if handle, ok := asyncJobHandle(nodeID); ok {
+		return c.asyncJobDetail(handle), nil
 	}
 	// 锁序修复（2026-09-08 死锁复现）：引擎 SubAgentTree() 内部会读节点
 	// Session.History（Session.mu），而节点执行 goroutine 持 Session.mu

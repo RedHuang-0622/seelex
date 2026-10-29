@@ -530,6 +530,20 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		CommitToolRecord: func(ownerSessionID, nodeID string) {
 			service.toolRecords.CloseSubagentUnit(ownerSessionID, nodeID)
 		},
+		// 后台作业行（工作表格 `async:<句柄>`）的详情数据面：投影来自执行域只读
+		// 快照，输出正文来自执行域的有界尾部读口（两者都不经详情层算）。
+		AsyncRuns: func() []dto.AsyncRunRecord {
+			if service.Deps.Runtime == nil {
+				return nil
+			}
+			return service.Deps.Runtime.AsyncRunsSnapshot()
+		},
+		AsyncOutputTail: func(handle string, maxBytes int) dto.AsyncOutputTail {
+			if service.Deps.Runtime == nil {
+				return dto.AsyncOutputTail{}
+			}
+			return service.Deps.Runtime.AsyncOutputTail(handle, maxBytes)
+		},
 	})
 	service.assembleSubagentApplication()
 	service.components.input = assembler.ports.InputRouter(contract.InputRouteHandlers{

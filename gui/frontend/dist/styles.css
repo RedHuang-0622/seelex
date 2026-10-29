@@ -1384,6 +1384,33 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .tool-call-trajectory:hover { border-color: var(--border-strong); color: var(--text); }
 .reasoning-summary .tool-meta { grid-column: 6; }
 .tool-domain-drawer { background: var(--surface-2); }
+/* 工具抽屉的「更早的 N 条」折叠容器：默认收起，展开后与主列表同一套行样式
+   （选择器带 .tool-domain-list 作用域，溢出行自己也包在里面所以样式一致）。 */
+.tool-domain-overflow { border: 1px dashed var(--border); border-radius: var(--r-md); background: transparent; }
+.tool-domain-overflow-summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 28px; padding: 4px 9px; cursor: pointer; list-style: none;
+  color: var(--faint); font: 10px var(--font-mono);
+}
+.tool-domain-overflow-summary::-webkit-details-marker { display: none; }
+.tool-domain-overflow-summary::before { content: "▸"; margin-right: 2px; }
+.tool-domain-overflow[open] > .tool-domain-overflow-summary::before { content: "▾"; }
+.tool-domain-overflow-summary:hover { color: var(--text-dim); background: var(--surface); }
+.tool-domain-overflow-hint { color: var(--faint); }
+.tool-domain-overflow[open] > .tool-domain-overflow-summary .tool-domain-overflow-hint { visibility: hidden; }
+.tool-domain-overflow-list { display: grid; gap: 4px; padding: 6px; }
+.tool-domain-overflow-list .tool-run {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.tool-domain-overflow-list .tool-call-row:not([open]) { border-color: transparent; background: transparent; }
+.tool-domain-overflow-list .tool-call-summary {
+  min-height: 30px; border: 0; border-radius: 0; background: transparent;
+}
+.tool-domain-overflow-list .tool-call-summary:hover { background: var(--surface-2); }
 .tool-domain-list {
   display: grid;
   gap: 4px;
@@ -4162,6 +4189,22 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .node-context-list li.is-decision-what { color: var(--brass); }
 .node-context-text { margin: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-dim); background: var(--surface); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
 .node-conversation { display: grid; gap: 6px; max-height: 340px; overflow: auto; }
+/* 后台作业行（async:<句柄>）的详情：状态读数 + 命令行 + 实时输出窗口。
+   输出区单独滚动并限制高度——一条在跑的测试可以吐出几 MB，弹窗不能被它撑开。 */
+.node-async-job { display: grid; gap: 8px; min-width: 0; }
+.node-async-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.node-async-state { padding: 2px 7px; border: 1px solid var(--border); border-radius: var(--r-sm); font: 700 10px var(--font-mono); letter-spacing: .06em; }
+.node-async-state.is-running { border-color: var(--status-running); color: var(--status-running); background: var(--tint-running); }
+.node-async-state.is-completed { border-color: var(--border-done); color: var(--status-done); }
+.node-async-state.is-failed { border-color: var(--status-failed); color: var(--status-failed); }
+.node-async-kind, .node-async-fact { color: var(--faint); font: 10px var(--font-mono); }
+.node-async-command { min-width: 0; overflow-wrap: anywhere; color: var(--text-dim); font-size: 11px; }
+.node-async-command code { padding: 2px 5px; border-radius: var(--r-sm); background: var(--code-bg); font: 10px var(--font-mono); }
+.node-async-summary { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.node-async-output { max-height: 260px; margin: 0; overflow: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-dim); background: var(--code-bg); font: 10px/1.55 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+.node-async-note { color: var(--faint); font-size: 10px; overflow-wrap: anywhere; }
+.node-async-note code { color: var(--text-dim); font-family: var(--font-mono); }
+.node-timeline-empty.is-error { color: var(--status-failed); }
 .node-msg { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
 .node-msg-role { color: var(--status-info); font: 700 10px var(--font-mono); text-transform: uppercase; }
 .node-msg.is-user .node-msg-role { color: var(--status-done); }
@@ -6842,6 +6885,17 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 }
 .agent-conversation-composer [data-main-only][hidden] { display: none !important; }
 .agent-conversation-composer .composer-actions { margin-top: 3px; }
+/* 状态行是这个输入框唯一的回执（发送中 / 已发出等回复 / 失败原因）。默认 flex 行里
+   它会被两个按钮挤到极窄，中文就一字一行竖着排（2026-10-29 截图里的「该会话专属」
+   竖排正是这么来的）。给它弹性并禁止换行，超出用省略号。 */
+.agent-conversation-composer .composer-actions > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .agent-conversation-composer textarea {
   min-height: 38px;
   max-height: 180px;

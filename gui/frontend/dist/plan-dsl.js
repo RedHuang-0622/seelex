@@ -775,31 +775,19 @@ export function setNodeDetailConversation(detail, agentConversation = null, agen
     if (error) errorContainer.innerHTML = renderDetailErrorText(error);
   }
   if (!container && !contextContainer) return;
-  const messages = (detail?.conversation || []);
-  if (container && agentRef) {
-    // 渲染件保持零 DOM 依赖；app.js 在这个稳定宿主里挂统一 agent 会话面板。
-    // data 属性只携带宿主身份，真正的 ConversationView / composer 共用件不在这里复制。
-    if (!container.querySelector?.("[data-agent-conversation-embed]")) {
-      container.innerHTML = '<div class="agent-conversation-embed" data-agent-conversation-embed></div>';
+  if (container) {
+    if (agentRef) {
+      // 渲染件保持零 DOM 依赖；app.js 在这个稳定宿主里挂统一 agent 会话面板。
+      // data 属性只携带宿主身份，真正的 ConversationView / composer 共用件不在这里复制。
+      if (!container.querySelector?.("[data-agent-conversation-embed]")) {
+        container.innerHTML = '<div class="agent-conversation-embed" data-agent-conversation-embed></div>';
+      }
+    } else {
+      container.innerHTML = nodeConversationHTML(detail, options);
     }
-  } else if (container && messages.length === 0) {
-    const goal = detail?.goal ? `；目标 ${escapeHTML(outputSummary(detail.goal))}` : "";
-    const status = detail?.status ? `；状态 ${escapeHTML(statusLabel(detail.status))}` : "";
-    const assignee = detail?.assignee ? `；Assignee ${escapeHTML(detail.assignee)}` : "";
-    container.innerHTML = goal || status || assignee
-      ? `<div class="node-timeline-empty">该节点暂无会话消息${goal}${status}${assignee}。阶段与打点见「功能打点」标签。</div>`
-      : '<div class="node-timeline-empty">该节点无会话记录（确定性节点或会话未落盘）</div>';
-  } else if (container) {
-    container.innerHTML = messages.map(msg => {
-      const role = msg.role === "user" ? "user" : (msg.role === "assistant" ? "assistant" : "tool");
-      const body = msg.tool && msg.tool.name
-        ? `<span class="node-msg-tool">${TOOL_ICON}${escapeHTML(msg.tool.name)}</span>${msg.content ? `<div>${escapeHTML(msg.content)}</div>` : ""}`
-        : `<div>${escapeHTML(msg.content || "")}</div>`;
-      return `<div class="node-msg is-${role}"><span class="node-msg-role">${role}</span>${body}</div>`;
-    }).join("");
   }
   if (contextContainer) {
-    contextContainer.innerHTML = renderNodeContext(detail?.context);
+    contextContainer.innerHTML = nodeContextHTML(detail, options);
   }
   // 功能打点 tab：工作台任务打点（派工/认领/状态/终态）+ 子代理工具活动
   // 合并同一张表，不依赖会话正文。
@@ -810,6 +798,106 @@ export function setNodeDetailConversation(detail, agentConversation = null, agen
       "暂无打点；任务派工/认领/状态/完成打点到达后显示在这里。"
     );
   }
+}
+
+// nodeConversationHTML 是「会话记录」页的**全部**渲染判据（纯函数，可单测）：
+//
+//  1. 后台作业行（detail.async）→ 作业实时输出（它不是会话，记录就是输出日志）；
+//  2. 有会话消息 → 逐条渲染；
+//  3. 取不到详情（options.loadError）→ **明确的错误态**，绝不留在「加载中」；
+//  4. 没消息 → 空态（带 Goal/状态/Assignee 这些已知事实）。
+//
+// 第 3 条是这次回归的正解：把失败画成"还在加载"，界面就在说谎——用户看到的是
+// 永久转圈的占位，而不是"这次读不到，原因是 X"。
+export function nodeConversationHTML(detail, options = {}) {
+  if (detail?.async) return renderAsyncJobDetail(detail.async, detail);
+  const messages = detail?.conversation || [];
+  if (messages.length) {
+    return messages.map(msg => {
+      const role = msg.role === "user" ? "user" : (msg.role === "assistant" ? "assistant" : "tool");
+      const body = msg.tool && msg.tool.name
+        ? `<span class="node-msg-tool">${TOOL_ICON}${escapeHTML(msg.tool.name)}</span>${msg.content ? `<div>${escapeHTML(msg.content)}</div>` : ""}`
+        : `<div>${escapeHTML(msg.content || "")}</div>`;
+      return `<div class="node-msg is-${role}"><span class="node-msg-role">${role}</span>${body}</div>`;
+    }).join("");
+  }
+  if (options.loadError) {
+    return `<div class="node-timeline-empty is-error">读不到该节点的会话记录：${escapeHTML(options.loadError)}</div>`;
+  }
+  const goal = detail?.goal ? `；目标 ${escapeHTML(outputSummary(detail.goal))}` : "";
+  const status = detail?.status ? `；状态 ${escapeHTML(statusLabel(detail.status))}` : "";
+  const assignee = detail?.assignee ? `；Assignee ${escapeHTML(detail.assignee)}` : "";
+  return goal || status || assignee
+    ? `<div class="node-timeline-empty">该节点暂无会话消息${goal}${status}${assignee}。阶段与打点见「功能打点」标签。</div>`
+    : '<div class="node-timeline-empty">该节点无会话记录（确定性节点或会话未落盘）</div>';
+}
+
+// nodeContextHTML 是「上下文」页的渲染判据（纯函数）：作业行没有上下文快照
+// （它的"上下文"就是命令行与输出），取不到详情时给错误态而不是空态。
+export function nodeContextHTML(detail, options = {}) {
+  if (detail?.async) {
+    return '<div class="node-timeline-empty">后台作业没有上下文快照：它的记录就是输出日志（见「会话记录」）。</div>';
+  }
+  if (options.loadError) {
+    return `<div class="node-timeline-empty is-error">读不到该节点的上下文快照：${escapeHTML(options.loadError)}</div>`;
+  }
+  return renderNodeContext(detail?.context);
+}
+
+// renderAsyncJobDetail 渲染后台作业行的详情（会话记录页）：身份读数 + 命令行 +
+// **实时输出窗口** + 日志落点。
+//
+// 数据来自 SubagentSessionDetail.async（执行域只读投影 + 有界输出尾部）。输出正文
+// 逐字 escape 进 <pre>——它是命令的输出，不是可以执行的标记。
+export function renderAsyncJobDetail(job, detail = null) {
+  if (!isRecord(job)) return '<div class="node-timeline-empty">该节点无作业读数</div>';
+  const state = textValue(job.state, "unknown");
+  // killed 归 failed：作业被杀就是没跑完（与后端 asyncJobNodeStatus 同一口径）。
+  const chipStatus = state === "killed" ? "failed" : detailStatusFromWorkStatus(state);
+  const chip = `<span class="node-async-state is-${statusToken(chipStatus)}">${escapeHTML(stateLabel(state))}</span>`;
+  const kind = textValue(job.kind);
+  if (job.found === false) {
+    return `<div class="node-async-job" data-node-async>
+      <div class="node-async-head">${chip}${kind ? `<span class="node-async-kind">${escapeHTML(kind)}</span>` : ""}</div>
+      <div class="node-timeline-empty">该作业不在登记表里（已结束被驱逐 / 已销项 / 进程重启后表已清空），读数与输出都取不到了。</div>
+    </div>`;
+  }
+  const facts = [
+    `已输出 ${escapeHTML(formatBytes(job.log_bytes))}`,
+    job.lines ? `${Number(job.lines)} 行` : "",
+    job.state === "running" ? "" : `exit ${Number(job.exit_code)}`,
+    detail?.elapsed ? `耗时 ${escapeHTML(detail.elapsed)}` : ""
+  ].filter(Boolean).map(text => `<span class="node-async-fact">${text}</span>`).join("");
+  const output = textValue(job.output);
+  const notes = [
+    job.truncated ? "输出已触执行域上限（1MiB 之后不再落盘）" : "",
+    job.degraded ? "进程树挂不上：终止只打到直接子进程" : "",
+    job.output_windowed ? `只显示日志末尾：完整日志 ${job.log_path ? `<code>${escapeHTML(job.log_path)}</code>` : "见附件"}` : "",
+    !job.output_windowed && job.log_path ? `完整日志 <code>${escapeHTML(job.log_path)}</code>` : ""
+  ].filter(Boolean).map(note => `<div class="node-async-note">${note}</div>`).join("");
+  return `<div class="node-async-job" data-node-async>
+    <div class="node-async-head">${chip}${kind ? `<span class="node-async-kind">${escapeHTML(kind)}</span>` : ""}${facts}</div>
+    ${job.command ? `<div class="node-async-command"><code>${escapeHTML(job.command)}</code></div>` : ""}
+    ${job.state === "running" ? "" : (job.summary ? `<div class="node-async-summary">${escapeHTML(job.summary)}</div>` : "")}
+    ${output
+      ? `<pre class="node-async-output" data-node-async-output>${escapeHTML(output)}</pre>`
+      : '<div class="node-timeline-empty">还没有输出（作业刚派发，或命令没写任何东西）。末行采样：' + escapeHTML(textValue(job.tail, "—")) + "</div>"}
+    ${notes}
+  </div>`;
+}
+
+// stateLabel 把执行域的状态词折成界面上那一格（不猜：认不得就原样大写）。
+function stateLabel(state) {
+  return ({ running: "RUNNING", done: "DONE", failed: "FAILED", killed: "KILLED", unknown: "UNKNOWN" })[state] || String(state || "").toUpperCase();
+}
+
+// formatBytes 与 kernel/worktable.FormatAsyncBytes 同一口径（B / KiB / MiB）：
+// 同一个数字在工作表格与详情里必须是同一个写法。
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value}B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}KiB`;
+  return `${(value / 1024 / 1024).toFixed(1)}MiB`;
 }
 
 // subagentInstrumentationRows 把详情载荷的两类打点归一为功能打点表的行：

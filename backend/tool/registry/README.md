@@ -293,8 +293,10 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 - `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
 - `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。
-- `async_probe.go`：只读探针（`AsyncRuns` / `AsyncRunEvents`）——回答界面上的
-  "是什么、在跑什么、现在怎么样"，不推进游标、不进上下文。
+- `async_probe.go`：只读探针（`AsyncRuns` / `AsyncRunEvents` / `AsyncOutputTail`）——回答界面上的
+  "是什么、在跑什么、现在怎么样、最后几屏说了什么"，前两者不推进游标、不进上下文；
+  `AsyncOutputTail` 同样**不消费输出**（取回语义只属于 `bg_manage(op=fetch)`），只给详情
+  弹窗一个日志末尾的有界窗口（UTF-8 边界对齐、控制字符与 ANSI 转义清洗）。
 - `scoped_names_test.go`：**跨实现一致性**——用 `Deps.RegisterTool` 桩捕获注册面实际登记的名字，
   与判据面的名单逐一对账（两处各写一份名单就会在这里红）；名单之外的名字（含大小写变体与
   `bash_bg` / `read_batch` 这类同族名字）一律不算。
@@ -540,6 +542,11 @@ go test -tags manualsmoke . -run TestManualSmokeAsyncAB -count=1 -v -timeout=60m
 - `func (g *asyncRegistry) observeSession(sessionID string) []string` — observeSession 列某会话在册作业的观察读数（按派发序稳定排序）。
 - `func (r *Router) AsyncRuns() []AsyncRunInfo` — AsyncRuns 返回全部后台执行的探针读数，按派发顺序稳定排序（句柄是 `<token>-<seq>`，
 - `func (r *Router) AsyncRunEvents() <-chan struct` — AsyncRunEvents 返回后台执行表的变化信号口（派发/终态/驱逐/新字节）。
+- `func (r *Router) AsyncOutputTail(handle string, maxBytes int) dto.AsyncOutputTail` — AsyncOutputTail 返回某句柄输出文件末尾的有界窗口（详情弹窗的实时输出读口）。
+- `func (g *asyncRegistry) outputTail(handle string, maxBytes int) dto.AsyncOutputTail` — outputTail 是 AsyncOutputTail 在登记表上的实现：锁内只取日志路径，文件 I/O
+- `func readLogTail(path string, maxBytes int) (string, bool)` — readLogTail 读输出文件末尾的有界窗口，并按"给人读"的口径清洗：
+- `func sanitizeLogWindow(text string) string` — sanitizeLogWindow 清掉不适合直接进渲染的控制字符与 ANSI 转义序列。
+- `func skipANSISequence(text string, esc int) int` — skipANSISequence 返回 ESC 之后应跳过的最后一个字节下标（调用方 index++ 续扫）。
 - `func (g *asyncRegistry) infos() []AsyncRunInfo` — infos 采样整张表。锁内只取"表里有的那几条"的稳定字段，文件 I/O（stat + 读末窗）
 - `func probeExit(run *asyncRun) int` — probeExit 把"还没终态"表达成 -1，而不是把零值 0 当成"退出码 0"。
 - `func sampleLog(path string) (int64, time.Time, string)` — sampleLog 读输出文件的"一眼"：大小、最后修改时间、末行。文件还没建出来或读失败
@@ -562,6 +569,15 @@ go test -tags manualsmoke . -run TestManualSmokeAsyncAB -count=1 -v -timeout=60m
 - `func TestProbeIsEmptyWhenCapabilityOff(t *testing.T)` — 能力关闭时既没有行也没有句柄可看（不得留一个空壳工具面）。
 - `func waitSignal(registry *asyncRegistry, within time.Duration) bool`
 - `func drainSignal(registry *asyncRegistry)`
+
+### async_output_tail_test.go
+
+- `func writeTempLog(t *testing.T, content string) string` — writeTempLog 落一份作业输出文件（读口用例的输入）。
+- `func (g *asyncRegistry) mustCursorForTest(t *testing.T, handle string) int64` — mustCursorForTest 取某句柄"已交付给模型"的偏移（读口不得推进它）。
+- `func TestAsyncOutputTailReadsTailWithoutAdvancingCursor(t *testing.T)`
+- `func TestAsyncOutputTailUnknownHandleDoesNotFabricate(t *testing.T)`
+- `func TestReadLogTailAlignsUTF8AndDropsPartialFirstLine(t *testing.T)` — 窗口切在多字节字符中间时，起点必须对齐到字符边界；残行（前半截不在窗口里）
+- `func TestReadLogTailStripsANSISequences(t *testing.T)` — ANSI 转义与控制字符不得进渲染：进度条类输出会把界面咬花。
 
 ### async_progress_test.go
 

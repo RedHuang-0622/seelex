@@ -1,11 +1,13 @@
 package registry
 
 import (
+	"bytes"
 	"os"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -107,6 +109,135 @@ func (r *Router) AsyncRunEvents() <-chan struct{} {
 		return nil
 	}
 	return r.async.Events()
+}
+
+// AsyncOutputTail 返回某句柄输出文件末尾的有界窗口（详情弹窗的实时输出读口）。
+//
+// 三个"不"：不推进游标（取回语义只属于 bg_manage(op=fetch)）、不消费输出（同一段
+// 正文可以被拉很多次）、不进模型上下文（正文只上 GUI）。句柄不在册时 Found=false。
+// maxBytes 由调用方钳制（这里只兜 <=0 的无效值），窗口落在文件末尾。
+func (r *Router) AsyncOutputTail(handle string, maxBytes int) dto.AsyncOutputTail {
+	if r == nil || r.async == nil || handle == "" {
+		return dto.AsyncOutputTail{}
+	}
+	return r.async.outputTail(handle, maxBytes)
+}
+
+// outputTail 是 AsyncOutputTail 在登记表上的实现：锁内只取日志路径，文件 I/O
+// 一律在锁外（一条狂写日志的命令不得把派发/收尾按住）。
+func (g *asyncRegistry) outputTail(handle string, maxBytes int) dto.AsyncOutputTail {
+	g.mu.Lock()
+	run, ok := g.runs[handle]
+	logPath := ""
+	if ok {
+		logPath = run.logPath
+	}
+	g.mu.Unlock()
+	if !ok {
+		return dto.AsyncOutputTail{}
+	}
+	output, windowed := readLogTail(logPath, maxBytes)
+	return dto.AsyncOutputTail{Found: true, Output: output, Windowed: windowed}
+}
+
+// readLogTail 读输出文件末尾的有界窗口，并按"给人读"的口径清洗：
+//
+//   - 窗口起点落在多字节字符中间时向后对齐到字符边界：半个 UTF-8 字符进了 DOM
+//     就是乱码，而这些字节只服务渲染；
+//   - 首行是残行（窗口从半行中间开始）时丢掉：残行的前半截已经不在窗口里，留着
+//     只会让人以为那是完整的一行；
+//   - 控制字符（含 ANSI 转义）清掉，保留换行与制表——进度条类输出里的 \r 与控制
+//     序列会把界面咬花，但日志正文本身要能读。
+func readLogTail(path string, maxBytes int) (string, bool) {
+	if path == "" || maxBytes <= 0 {
+		return "", false
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() == 0 {
+		return "", false
+	}
+	window := info.Size()
+	windowed := false
+	if window > int64(maxBytes) {
+		window = int64(maxBytes)
+		windowed = true
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	chunk := make([]byte, window)
+	if _, err := file.ReadAt(chunk, info.Size()-window); err != nil {
+		return "", false
+	}
+	if windowed {
+		for len(chunk) > 0 && !utf8.RuneStart(chunk[0]) {
+			chunk = chunk[1:]
+		}
+		if cut := bytes.IndexByte(chunk, '\n'); cut >= 0 {
+			chunk = chunk[cut+1:]
+		}
+	}
+	return sanitizeLogWindow(string(chunk)), windowed
+}
+
+// sanitizeLogWindow 清掉不适合直接进渲染的控制字符与 ANSI 转义序列。
+//
+// 保留 '\n'（多行正文就是靠它）与 '\t'（缩进）；'\r' 直接丢弃（Windows 换行与
+// 进度条重绘都靠它，留着会把两行压成一行）。
+func sanitizeLogWindow(text string) string {
+	var builder strings.Builder
+	builder.Grow(len(text))
+	for index := 0; index < len(text); index++ {
+		char := text[index]
+		if char == 0x1b { // ESC：整段 CSI/OSC 序列都不进渲染
+			index = skipANSISequence(text, index)
+			continue
+		}
+		switch char {
+		case '\n', '\t':
+			builder.WriteByte(char)
+		case '\r':
+			// 丢弃
+		default:
+			if char < 0x20 || char == 0x7f {
+				builder.WriteByte(' ')
+				continue
+			}
+			builder.WriteByte(char)
+		}
+	}
+	return builder.String()
+}
+
+// skipANSISequence 返回 ESC 之后应跳过的最后一个字节下标（调用方 index++ 续扫）。
+// 认不出的形态只跳 ESC 自身，免得把正文一起吞掉。
+func skipANSISequence(text string, esc int) int {
+	if esc+1 >= len(text) {
+		return esc
+	}
+	switch text[esc+1] {
+	case '[': // CSI: ESC [ params final(0x40-0x7e)
+		for index := esc + 2; index < len(text); index++ {
+			if text[index] >= 0x40 && text[index] <= 0x7e {
+				return index
+			}
+		}
+		return len(text) - 1
+	case ']': // OSC: ESC ] ... (BEL 或 ESC \)
+		for index := esc + 2; index < len(text); index++ {
+			if text[index] == 0x07 {
+				return index
+			}
+			if text[index] == 0x1b && index+1 < len(text) && text[index+1] == '\\' {
+				return index + 1
+			}
+		}
+		return len(text) - 1
+	default:
+		return esc + 1
+	}
 }
 
 // infos 采样整张表。锁内只取"表里有的那几条"的稳定字段，文件 I/O（stat + 读末窗）

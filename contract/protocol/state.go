@@ -652,6 +652,56 @@ type SubagentDetail struct {
 	// Trace 是功能打点 tab 的任务打点（工作台行 trace；派工/认领/完成
 	// 即打点，不依赖会话正文）。工具活动经 ToolEvents 合并进同一张打点表。
 	Trace []WorkTracePoint `json:"trace,omitempty"`
+	// Async 是**后台作业行**（工作表格里 nodeID = `async:<句柄>` 的行）的作业读数。
+	//
+	// 为什么单开一格：这类节点在执行域里不是一个会话（没有 History、没有上下文
+	// 快照），它的"记录"就是输出文件。把它硬塞进 Conversation 会让"会话记录"撒谎
+	// （看着像一条条对话消息）；不给它任何读数，详情弹窗就只能永远停在占位
+	// （2026-10-31 用户实测的"后台测试看不到实时记录，只有空文"）。
+	//
+	// 只上 GUI：命令行原文、日志绝对路径与输出正文都不进模型上下文（进上下文的那份
+	// 仍是请求尾部打点块里的有界摘要）。
+	Async *SubagentAsyncRun `json:"async,omitempty"`
+}
+
+// SubagentAsyncRun 是一次后台作业（bash_bg / read_batch / subagent）的详情读数。
+//
+// 生态位：它是 `dto.AsyncRunRecord`（执行域只读投影）在详情弹窗上的那一面，外加
+// **有界输出尾部**（Output —— 详情弹窗每 1.5s 拉一次，读到的是日志末窗，不是全文）。
+// 全文仍只走 `bg_manage(op=fetch)` 或 LogPath。
+type SubagentAsyncRun struct {
+	Handle string `json:"handle"`
+	// Kind = process | inline | subagent（决定读取口与 kill 语义）。
+	Kind string `json:"kind,omitempty"`
+	// State = running | done | failed | killed（执行域的状态词原样搬运）。
+	State string `json:"state,omitempty"`
+	// Command 是命令行原文（单行截断后的形态）；Description 是模型派发时写的一句话。
+	Command     string `json:"command,omitempty"`
+	Description string `json:"description,omitempty"`
+	// LogPath 是输出文件绝对路径（附件/完整日志入口，只上 GUI）。
+	LogPath string `json:"log_path,omitempty"`
+	// LogBytes = 已落盘字节数（真实进展信号）；Lines = 输出行数（终态才有）。
+	LogBytes int64 `json:"log_bytes"`
+	Lines    int   `json:"lines,omitempty"`
+	// ExitCode 在 running 时是 -1（不是"退出码 0"）。
+	ExitCode int `json:"exit_code"`
+	// Summary 是终态有界摘要（退出码 + 行数 + 字节数 + 末行）。
+	Summary string `json:"summary,omitempty"`
+	// Tail 是末行采样（探针读数："它还在动"的那一眼）。
+	Tail string `json:"tail,omitempty"`
+	// Output 是日志末尾的有界窗口（多行正文）；OutputWindowed = 只给了末尾，
+	// 前面还有内容（完整日志见 LogPath）。
+	Output         string `json:"output,omitempty"`
+	OutputWindowed bool   `json:"output_windowed,omitempty"`
+	// Found = 句柄仍在登记表里。false 表示作业已结束被驱逐、已销项，或进程重启
+	// 后登记表清空——此时读数全空，界面要如实说"不在册"，不得编造。
+	Found bool `json:"found"`
+	// Truncated = 输出文件已触执行域的字节上限；Degraded = 进程树挂不上，
+	// 终止只能打到直接子进程。
+	Truncated bool      `json:"truncated,omitempty"`
+	Degraded  bool      `json:"degraded,omitempty"`
+	StartedAt time.Time `json:"started_at,omitempty"`
+	EndedAt   time.Time `json:"ended_at,omitempty"`
 }
 
 // SubagentWorktreeInfo 是节点 worktree 现场的只读摘要（详情弹窗"工作区"

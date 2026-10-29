@@ -102,6 +102,7 @@ go test ./e2e/scenario -count=1
 - `func (harnessRuntime) ReleaseSessionAsync(string) int`
 - `func (harnessRuntime) AsyncPendingFor(string) int`
 - `func (harnessRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord`
+- `func (harnessRuntime) AsyncOutputTail(string, int) dto.AsyncOutputTail`
 - `func (harnessRuntime) AsyncRunEvents() <-chan struct`
 - `func (harnessRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error)`
 - `func (harnessRuntime) TaskAddFor(string, dto.TaskSpec) (dto.TaskRecord, bool, error)`

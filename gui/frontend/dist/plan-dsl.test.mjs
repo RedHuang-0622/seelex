@@ -8,7 +8,7 @@ const asModule = source => `data:text/javascript;base64,${Buffer.from(source).to
 // 后自成模块图，测试不必依赖运行时的相对路径解析。
 const treeForkURL = asModule(await read("tree-fork.js"));
 const source = (await read("plan-dsl.js")).replace('"./tree-fork.js"', `"${treeForkURL}"`);
-const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderSubagentTree, subagentTreeNodeToDSL, workItemToDetailNode } = await import(asModule(source));
+const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderSubagentTree, subagentTreeNodeToDSL, workItemToDetailNode, nodeConversationHTML, nodeContextHTML, renderAsyncJobDetail } = await import(asModule(source));
 
 function parallelPlan(status = "queued", progress = 0) {
   return {
@@ -536,4 +536,90 @@ test("converts a work table row into a detail DSL node for the fallback entry", 
   assert.equal(identity.key, "orphan");
   assert.equal(identity.label, "orphan");
   assert.equal(identity.kind, "auto");
+});
+
+// ── 后台作业行（工作表格 `async:<句柄>`）的详情 ────────────────────────────
+//
+// 回归背景（2026-10-29 用户实测）：后台测试跑起来后点开那一行的详情，面板永远停在
+// 「加载会话记录…」。两段根因：后端对作业行只报 "no conversation"，前端把这次失败
+// 吞成占位。下面四例钉住"有读数就画读数，读不到就画原因"——两者都不许留加载态。
+
+function asyncDetailPayload(overrides = {}) {
+  return {
+    status: "running",
+    running: true,
+    elapsed: "76.4s",
+    conversation: [],
+    async: {
+      handle: "bt-2",
+      kind: "process",
+      state: "running",
+      command: "go test ./...",
+      log_path: "/tmp/seelex-async/bt-2.log",
+      log_bytes: 2048,
+      lines: 12,
+      exit_code: -1,
+      output_windowed: false,
+      found: true,
+      output: "=== RUN   TestFoo\n--- PASS: TestFoo (1.20s)\n",
+      ...overrides
+    }
+  };
+}
+
+test("renders a background job's live output instead of an empty placeholder", () => {
+  const html = nodeConversationHTML(asyncDetailPayload(), {});
+
+  assert.match(html, /data-node-async/);
+  assert.match(html, /RUNNING/);
+  assert.match(html, /go test \.\/\.\.\./);
+  assert.match(html, /2\.0KiB/); // 与 kernel/worktable 的字节口径同一写法
+  assert.match(html, /=== RUN   TestFoo/);
+  assert.match(html, /data-node-async-output/);
+  assert.match(html, /bt-2\.log/); // 完整日志的落点要能看见
+  assert.doesNotMatch(html, /加载会话记录/);
+});
+
+test("escapes job output and command text", () => {
+  const html = nodeConversationHTML(asyncDetailPayload({
+    command: "echo <b>x</b>",
+    output: "<script>alert(1)</script>\n"
+  }), {});
+
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /echo &lt;b&gt;x&lt;\/b&gt;/);
+});
+
+test("a job missing from the registry says so instead of faking readings", () => {
+  const html = nodeConversationHTML(asyncDetailPayload({
+    found: false, state: "unknown", output: "", log_bytes: 0, lines: 0, summary: ""
+  }), {});
+
+  assert.match(html, /不在登记表里/);
+  assert.match(html, /UNKNOWN/);
+  assert.doesNotMatch(html, /data-node-async-output/);
+  assert.doesNotMatch(html, /加载/);
+});
+
+test("a failed detail fetch renders the reason, never a permanent loading state", () => {
+  const html = nodeConversationHTML(null, { loadError: "子代理详情接口 10s 未返回" });
+
+  assert.match(html, /读不到该节点的会话记录/);
+  assert.match(html, /10s 未返回/);
+  assert.doesNotMatch(html, /加载会话记录/);
+  // 上下文页同口径：失败也是错误态。
+  const context = nodeContextHTML(null, { loadError: "子代理详情接口 10s 未返回" });
+  assert.match(context, /读不到该节点的上下文快照/);
+  assert.doesNotMatch(context, /加载上下文快照/);
+});
+
+test("a background job has no context snapshot and says why", () => {
+  const html = nodeContextHTML(asyncDetailPayload(), {});
+  assert.match(html, /后台作业没有上下文快照/);
+  assert.doesNotMatch(html, /加载上下文快照/);
+});
+
+test("renderAsyncJobDetail handles a missing payload without throwing", () => {
+  assert.match(renderAsyncJobDetail(null), /无作业读数/);
 });
