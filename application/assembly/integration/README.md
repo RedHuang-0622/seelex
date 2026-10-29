@@ -309,6 +309,22 @@ go test ./application/assembly/integration -count=1
 - `func (runtime *productionArchiveIndexRuntime) PushCompactionFrame( ctx context.Context, _ string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
 - `func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T)` — TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（boot 的 CompressedTurnArchiver 接线 同形）
 
+### context_compact_stack_epoch_prefix_probe_test.go
+
+- `type epochProbeCall struct` — epochProbeCall 是一次「会发给 provider 的请求」的字节快照。
+- `type epochProbe struct` — epochProbe 驱动生产装配路径（transcript → PrepareExecutionContextFor），每轮把
+- `func newEpochProbe(t *testing.T, service *legacyTestService, engine *fakeEngine, session, request string) *epochProbe` — newEpochProbe 构造一次跨压缩边界的请求字节观测夹具。
+- `func (probe *epochProbe) appendRound(index, answerChars int) string` — appendRound 追加一个已定稿轮次（短问 + 长答），返回该轮标记。
+- `func (probe *epochProbe) capture(label, input string) epochProbeCall` — capture 提交当前输入 → 装配（生产顺序：transcript user 事件 → Prepare）→
+- `func probeTailLen(input string, tools []model.Tool) int` — probeTailLen 返回 serializeRequest 尾部（"\n||\n" + INPUT 段 + 各 tool 段）的长度。
+- `func probeRoundMark(index int) string` — probeRoundMark 是第 index 轮的稳定标记（与 round 编号一一对应）。
+- `func probeRoundIndex(content string) int` — probeRoundIndex 从消息正文里解析出轮次标记编号（无标记 → -1）。
+- `func probeFirstRound(messages []contract.EngineMessage) int` — probeFirstRound 返回历史里第一条带轮次标记的消息的编号（无 → -1）。
+- `func probeHasRound(messages []contract.EngineMessage, index int) bool` — probeHasRound 报告历史里是否有第 index 轮的标记。
+- `func probeMessageSerializedLen(message contract.EngineMessage) int` — probeMessageSerializedLen 返回一条历史消息在 serializeRequest 字节流里的长度
+- `func probeMessagesCarriedOver(before, after []contract.EngineMessage) int` — probeMessagesCarriedOver 统计 after 里逐条（role + 正文逐字节相等）能在 before 里
+- `func TestCompactStackPrefixAcrossEpochBoundary(t *testing.T)` — TestCompactStackPrefixAcrossEpochBoundary 造出「已有压缩帧」的会话，观测跨压缩
+
 ### context_compact_test.go
 
 - `func compactTestService(t *testing.T, requestID string) (*legacyTestService, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
