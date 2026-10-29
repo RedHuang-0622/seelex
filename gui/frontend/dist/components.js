@@ -634,28 +634,15 @@ export function roleIdentity(message, role = message?.role || "assistant") {
   return role === "user" ? "YOU" : role === "assistant" ? "AGENT" : role.toUpperCase();
 }
 
-// TOOL_DOMAIN_VISIBLE_MAX 是工具抽屉里**直接铺开**的条目上限；超出的部分收进一个
-// 折叠容器（「更早的 N 条」）。
+// renderToolDomainList 渲染工具域的抽屉列表：全部条目按执行顺序排在**固定高度的
+// 可滚动窗口**里（`[data-scroll-window]`，高度与滚动条样式见 styles.css）。
 //
-// 为什么要有上限：一段连续的工具过程能长到几十次（后台测试轮询、大目录扫描、修复
-// 循环），全铺开就把抽屉变成一堵墙——用户既扫不到"最新一条在干什么"，也读不出
-// "这一段到底做了什么"。只收**更早**的条目：最新几次才是当下的现场，历史留在可展开
-// 的容器里，一条都没丢。
-export const TOOL_DOMAIN_VISIBLE_MAX = 8;
-
-// renderToolDomainList 渲染工具域的抽屉列表：最近 TOOL_DOMAIN_VISIBLE_MAX 条直接铺开，
-// 更早的收进折叠容器（默认收起，一条都没删）。
+// 为什么是滚动窗口而不是折叠/分页：一段连续的工具过程能长到几十次（后台测试轮询、
+// 大目录扫描、修复循环），条目本身一条都不该藏起来——用户要的是"整段在那，我上下
+// 滑着看"，而不是"先点开一批、再点开另一批"。窗口高度有界，对话流就不会被一堵墙
+// 顶走；滚动位置在增量重绘时由 conversation-view 的 captureUIState 保回来。
 function renderToolDomainList(members, payloads) {
-  const overflow = Math.max(0, members.length - TOOL_DOMAIN_VISIBLE_MAX);
-  const older = overflow > 0 ? members.slice(0, overflow) : [];
-  const recent = overflow > 0 ? members.slice(overflow) : members;
-  const olderBlock = overflow > 0
-    ? `<details class="tool-domain-overflow" data-tool-domain-overflow>
-        <summary class="tool-domain-overflow-summary" title="展开更早的 ${overflow} 次调用">更早的 ${overflow} 条<span class="tool-domain-overflow-hint">展开</span></summary>
-        <div class="tool-domain-overflow-list">${older.map(member => renderToolCall(member, member.key, false, false, payloads)).join("")}</div>
-      </details>`
-    : "";
-  return `<div class="tool-domain-list">${olderBlock}${recent.map(member => renderToolCall(member, member.key, false, false, payloads)).join("")}</div>`;
+  return `<div class="tool-domain-list" data-scroll-window="tool-domain" tabindex="0">${members.map(member => renderToolCall(member, member.key, false, false, payloads)).join("")}</div>`;
 }
 
 // renderToolCall 渲染一条工具调用：summary 是与左栏会话行同族的单行摘要，

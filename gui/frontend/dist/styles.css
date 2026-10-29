@@ -1384,33 +1384,24 @@ html[data-left-nav-collapsed="true"] .left-nav-item { justify-content: center; m
 .tool-call-trajectory:hover { border-color: var(--border-strong); color: var(--text); }
 .reasoning-summary .tool-meta { grid-column: 6; }
 .tool-domain-drawer { background: var(--surface-2); }
-/* 工具抽屉的「更早的 N 条」折叠容器：默认收起，展开后与主列表同一套行样式
-   （选择器带 .tool-domain-list 作用域，溢出行自己也包在里面所以样式一致）。 */
-.tool-domain-overflow { border: 1px dashed var(--border); border-radius: var(--r-md); background: transparent; }
-.tool-domain-overflow-summary {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  min-height: 28px; padding: 4px 9px; cursor: pointer; list-style: none;
-  color: var(--faint); font: 10px var(--font-mono);
+/* 工具域抽屉的**可滚动窗口**：整段工具过程都在这一个框里，高度有界（约 7 行），
+   超出部分用右侧细滚动条上下看——不折叠、不分页，一条都不藏。
+   `overscroll-behavior: contain` 让滚到边界时不要把整个对话页一起带走。 */
+.tool-domain-list {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  background: var(--surface-2);
+  max-height: 248px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
-.tool-domain-overflow-summary::-webkit-details-marker { display: none; }
-.tool-domain-overflow-summary::before { content: "▸"; margin-right: 2px; }
-.tool-domain-overflow[open] > .tool-domain-overflow-summary::before { content: "▾"; }
-.tool-domain-overflow-summary:hover { color: var(--text-dim); background: var(--surface); }
-.tool-domain-overflow-hint { color: var(--faint); }
-.tool-domain-overflow[open] > .tool-domain-overflow-summary .tool-domain-overflow-hint { visibility: hidden; }
-.tool-domain-overflow-list { display: grid; gap: 4px; padding: 6px; }
-.tool-domain-overflow-list .tool-run {
-  margin: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  overflow: hidden;
-}
-.tool-domain-overflow-list .tool-call-row:not([open]) { border-color: transparent; background: transparent; }
-.tool-domain-overflow-list .tool-call-summary {
-  min-height: 30px; border: 0; border-radius: 0; background: transparent;
-}
-.tool-domain-overflow-list .tool-call-summary:hover { background: var(--surface-2); }
+.tool-domain-list::-webkit-scrollbar { width: 6px; }
+.tool-domain-list::-webkit-scrollbar-track { background: transparent; }
+.tool-domain-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+.tool-domain-list::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 .tool-domain-list {
   display: grid;
   gap: 4px;

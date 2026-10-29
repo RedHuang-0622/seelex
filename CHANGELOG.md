@@ -32,11 +32,13 @@ and will take its own version when it lands.
   `backend/tool/registry/async_output_tail_test.go`、`gui/frontend/dist/plan-dsl.test.mjs`。
 
 ### Changed
-- **一段连续工具调用不再全部铺开：最近 8 条直接可见，更早的收进「更早的 N 条」折叠容器**
+- **一段连续工具调用不再把对话流顶走：整段收进固定高度的可滚动窗口**
   （2026-10-29 用户报告：屏幕上「本段 42 次工具调用」把整段条目摊成一堵墙）。
-  工具域抽屉改为有界渲染（`TOOL_DOMAIN_VISIBLE_MAX = 8`）：容器默认收起、展开就是原样的
-  工具行，**一条都没丢**，最新几次留在外面（那才是当下的现场）。阈值以内不产生这个容器，
-  既有观感不变。回归：`gui/frontend/dist/components.test.mjs`。
+  工具域抽屉改为一个**有界高度的滚动窗口**（`.tool-domain-list`，约 7 行高 + 右侧细
+  滚动条）：条目按执行顺序全都在里面，不折叠、不分页、一条不藏；窗口滚到边界不会带动
+  整页（`overscroll-behavior: contain`）。滚动位置在增量重绘时由 `captureUIState` /
+  `restoreUIState` 保回来——贴着底就继续跟到最新一条，用户往上翻看历史时不会被自己的
+  新调用弹回底部。回归：`gui/frontend/dist/components.test.mjs`。
 - **会话树：新建的「工作区会话」不再先落进「未关联会话」，首轮在跑的会话不再从列表里消失**
   （2026-07 用户报告：发起对话时会话不在工作区里而在「未关联对话」里；发出第一条消息后
   会话条目消失，直到这一轮跑完才重新出现；连带看不到定时任务的会话条目）。两处目录投影

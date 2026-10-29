@@ -605,7 +605,13 @@ function patchMessageBody(node, replacement, payloads, embedBuffer, options = {}
 function captureUIState(node) {
   return {
     details: [...node.querySelectorAll("details")].map(details => details.open),
-    expanded: new Set([...node.querySelectorAll(".io-panel.expanded")].map(panel => panel.dataset.payload))
+    expanded: new Set([...node.querySelectorAll(".io-panel.expanded")].map(panel => panel.dataset.payload)),
+    // 可滚动窗口（工具域抽屉）的读数：增量重绘要能把用户的滚动位置还原回去——
+    // 一段工具过程几十条，用户往上翻着看历史时，新的一次调用不该把他弹回底部。
+    scrolls: new Map([...node.querySelectorAll("[data-scroll-window]")].map(pane => [
+      pane.dataset.scrollWindow,
+      { top: pane.scrollTop, atBottom: pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 24 }
+    ]))
   };
 }
 
@@ -613,6 +619,11 @@ function restoreUIState(node, state, payloads) {
   [...node.querySelectorAll("details")].forEach((details, index) => {
     if (state.details[index] !== undefined) details.open = state.details[index];
   });
+  // 贴着底（或首次出现）就继续跟到最新一条；用户已经往上翻过就留在他看的位置。
+  for (const pane of node.querySelectorAll("[data-scroll-window]")) {
+    const previous = state.scrolls?.get(pane.dataset.scrollWindow);
+    pane.scrollTop = !previous || previous.atBottom ? pane.scrollHeight : previous.top;
+  }
   for (const panel of node.querySelectorAll(".io-panel")) {
     if (!state.expanded.has(panel.dataset.payload)) continue;
     const pre = panel.querySelector("pre");

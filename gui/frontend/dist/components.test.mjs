@@ -12,7 +12,7 @@ const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url)
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
-const { renderChatActivity, renderConversationComponent, renderConversationLoading, renderConversationModel, renderMessageQueue, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY, materialIcon, TOOL_DOMAIN_VISIBLE_MAX } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+const { renderChatActivity, renderConversationComponent, renderConversationLoading, renderConversationModel, renderMessageQueue, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY, materialIcon } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
 
 test("materialIcon uses the offline Google Material Symbols path pipeline", () => {
   const html = materialIcon("lock", 14);
@@ -292,11 +292,10 @@ test("hides thinking from the conversation and keeps it in the trajectory", () =
 });
 
 // 一段连续的工具调用可以长到几十次（后台测试轮询 / 大目录扫描 / 修复循环）。
-// 全铺开就是把抽屉变成一堵墙：最新那条看不见，整段也读不出"做了什么"。
-// 判据：最近的 TOOL_DOMAIN_VISIBLE_MAX 条直接铺开，更早的收进一个折叠容器，
-// **一条都不丢**（容器展开后全都在），且阈值以内不产生这个容器。
-test("collapses an oversized tool domain into an expandable container", () => {
-  const total = TOOL_DOMAIN_VISIBLE_MAX + 34;
+// 判据：全部条目都在**固定高度的可滚动窗口**里（不折叠、不分页、一条都不藏），
+// 窗口本身是 scroll 容器而不是 <details>；条目顺序 = 执行顺序。
+test("keeps an oversized tool domain in one scrollable window", async () => {
+  const total = 42;
   const messages = Array.from({ length: total }, (_, index) => ({
     id: `tool-${index + 1}`,
     role: "tool",
@@ -309,20 +308,20 @@ test("collapses an oversized tool domain into an expandable container", () => {
   const tools = model.items.filter(item => item.meta?.kind === "tool");
   assert.equal(tools.length, 1, "仍然只有一条可见摘要");
   const html = tools[0].html;
-  assert.match(html, /data-tool-domain-overflow/);
-  assert.match(html, new RegExp(`更早的 ${total - TOOL_DOMAIN_VISIBLE_MAX} 条`));
-  // 容器是默认收起的折叠件（不是铺开的一堵墙），且条目一条都没丢。
-  assert.match(html, /<details class="tool-domain-overflow"/);
-  // 外层摘要行本身也带一次 data-tool-id（它就是最新那条的摘要），所以是 total + 1。
+  // 全部条目都在，顺序不变，且都落在同一个滚动窗口里。
   assert.equal((html.match(/data-tool-id="call-\d+"/g) || []).length, total + 1);
-  // 顺序保持：更早的在容器里、最近 N 条在容器外（外层摘要行也是最新那条，
-  // 所以取最新 id 的**最后一次**出现来定位抽屉内的那一份）。
-  const overflowAt = html.indexOf("tool-domain-overflow");
-  const newestAt = html.lastIndexOf(`data-tool-id="call-${total}"`);
-  assert.ok(overflowAt >= 0 && newestAt > overflowAt, "最新一条必须在折叠容器之后（直接可见）");
+  assert.match(html, /class="tool-domain-list" data-scroll-window="tool-domain"/);
+  assert.doesNotMatch(html, /tool-domain-overflow/, "不再折叠：整段都在滚动窗口里");
+  const windowStart = html.indexOf('data-scroll-window="tool-domain"');
+  assert.ok(html.lastIndexOf(`data-tool-id="call-${total}"`) > windowStart, "最新一条也在窗口内");
 
-  const small = renderConversationModel(messages.slice(0, TOOL_DOMAIN_VISIBLE_MAX));
-  assert.doesNotMatch(small.items.find(item => item.meta?.kind === "tool").html, /tool-domain-overflow/);
+  // 窗口是固定高度的 scroll 容器：高度有界 + 自己的细滚动条 + 滚到边界不外溢。
+  const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  const rule = css.match(/\.tool-domain-list\s*\{[^}]*\}/s)?.[0] || "";
+  assert.match(rule, /max-height:\s*\d+px/, "窗口高度必须有界");
+  assert.match(rule, /overflow-y:\s*auto/);
+  assert.match(rule, /overscroll-behavior:\s*contain/);
+  assert.match(css, /\.tool-domain-list::-webkit-scrollbar\s*\{[^}]*width:\s*6px/, "细滚动条");
 });
 
 test("consecutive tools expose the latest summary, then all calls, then each call's IN/OUT", () => {
